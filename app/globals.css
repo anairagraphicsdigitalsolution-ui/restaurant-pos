@@ -1,0 +1,27 @@
+body {
+  background: #20406d;
+}
+
+h1, h2, h3 {
+  margin: 10px 0;
+}
+
+button {
+  padding: 8px 15px;
+  border: none;
+  border-radius: 6px;
+  background: #111;
+  color: rgb(255, 255, 255);
+  cursor: pointer;
+}
+
+button:hover {
+  background: #333;
+}
+
+input, select {
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  width: 200px;
+}
