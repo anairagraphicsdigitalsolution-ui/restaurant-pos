@@ -17,7 +17,6 @@ export default function OrderPage() {
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState("")
   const [restaurantId, setRestaurantId] = useState(null)
-
   const [openSelect, setOpenSelect] = useState(false)
 
   useEffect(() => { init() }, [])
@@ -62,7 +61,6 @@ export default function OrderPage() {
 
   function addToCart(item) {
     const exist = cart.find(i => i.id === item.id)
-
     if (exist) {
       setCart(cart.map(i =>
         i.id === item.id ? { ...i, qty: i.qty + 1 } : i
@@ -81,7 +79,6 @@ export default function OrderPage() {
   }
 
   async function placeOrder() {
-
     if (!selected) return alert("Select table/room")
 
     const { data: userData } = await supabase.auth.getUser()
@@ -92,7 +89,7 @@ export default function OrderPage() {
       .eq("id", userData.user.id)
       .single()
 
-    const { data: order, error } = await supabase
+    const { data: order } = await supabase
       .from("orders")
       .insert([{
         source_type: type,
@@ -107,8 +104,6 @@ export default function OrderPage() {
       .select()
       .single()
 
-    if (error) return alert("❌ Order failed")
-
     const items = cart.map(i => ({
       order_id: order.id,
       item_id: i.id,
@@ -121,46 +116,40 @@ export default function OrderPage() {
     setCart([])
   }
 
-  const groupedMenu = menu
-    .filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    .reduce((acc, item) => {
-      const cat = item.category || "Other"
-      if (!acc[cat]) acc[cat] = []
-      acc[cat].push(item)
-      return acc
-    }, {})
+  const groupedMenu = menu.reduce((acc, item) => {
+    const cat = item.category || "Other"
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(item)
+    return acc
+  }, {})
 
   return (
     <div style={layout}>
 
-      {/* LEFT PANEL */}
-      <div style={leftPanel}>
-        <h3>Select</h3>
+      {/* LEFT */}
+      <div style={{...glass, ...panel}}>
+        <h3>🔘 Select</h3>
 
-        <div style={switchBox}>
-          <button onClick={()=>setType("table")} style={btn(type==="table")}>Table</button>
-          <button onClick={()=>setType("room")} style={btn(type==="room")}>Room</button>
+        <div style={{display:"flex", gap:10}}>
+          <button style={tabBtn(type==="table","#3b82f6")} onClick={()=>setType("table")}>Table</button>
+          <button style={tabBtn(type==="room","#a855f7")} onClick={()=>setType("room")}>Room</button>
         </div>
 
-        <button onClick={()=>setOpenSelect(!openSelect)} style={selectBtn}>
+        {/* SELECT BUTTON */}
+        <button style={selectBtn} onClick={()=>setOpenSelect(!openSelect)}>
           {selected
             ? (type==="table"
                 ? `Table ${selected.table_number}`
                 : `Room ${selected.room_number}`)
-            : "Select"}
+            : "Select Table / Room"}
         </button>
 
         {openSelect && (
           <div style={dropdown}>
             {(type==="table"?tables:rooms).map(item=>(
-              <div
-                key={item.id}
-                onClick={()=>{
-                  setSelected(item)
-                  setOpenSelect(false)
-                }}
-                style={dropdownItem}
-              >
+              <div key={item.id}
+                onClick={()=>{setSelected(item);setOpenSelect(false)}}
+                style={dropdownItem}>
                 {type==="table"
                   ? `Table ${item.table_number}`
                   : `Room ${item.room_number}`}
@@ -171,7 +160,7 @@ export default function OrderPage() {
       </div>
 
       {/* MENU */}
-      <div style={menuBox}>
+      <div style={{...glass, ...menuBox}}>
         <input
           placeholder="Search..."
           value={search}
@@ -179,24 +168,17 @@ export default function OrderPage() {
           style={searchBox}
         />
 
-        <div style={menuScroll}>
+        <div style={{overflowY:"auto"}}>
           {Object.entries(groupedMenu).map(([cat, items]) => (
             <div key={cat}>
-              <h2 style={categoryTitle}>{cat}</h2>
+              <h3>{cat}</h3>
 
               <div style={grid}>
                 {items.map(item=>(
-                  <div
-                    key={item.id}
-                    style={menuCard}
-                    onClick={()=>addToCart(item)}
-                  >
-                    <img
-                      src={item.image || "https://via.placeholder.com/150"}
-                      style={imageStyle}
-                    />
-                    <h4 style={{fontSize:14, margin:"6px 0"}}>{item.name}</h4>
-                    <p style={{fontSize:12}}>₹{item.price}</p>
+                  <div key={item.id} style={menuCard} onClick={()=>addToCart(item)}>
+                    <img src={item.image} style={imageStyle}/>
+                    <p>{item.name}</p>
+                    <p>₹{item.price}</p>
                   </div>
                 ))}
               </div>
@@ -206,27 +188,23 @@ export default function OrderPage() {
       </div>
 
       {/* CART */}
-      <div style={rightPanel}>
-
-        {/* ✅ BUTTON TOP */}
-        <button onClick={placeOrder} style={orderBtn}>
-          Place Order
+      <div style={{...glass, ...panel}}>
+        
+        {/* PLACE ORDER BUTTON FIX */}
+        <button style={placeBtn} onClick={placeOrder}>
+          🚀 Place Order
         </button>
 
-        {/* CART */}
-        <div style={cartScroll}>
-          {cart.map(item=>(
-            <div key={item.id} style={cartItem}>
-              {item.name}
-              <div>
-                <button onClick={()=>updateQty(item.id,-1)}>-</button>
-                {item.qty}
-                <button onClick={()=>updateQty(item.id,1)}>+</button>
-              </div>
+        {cart.map(item=>(
+          <div key={item.id} style={cartItem}>
+            {item.name}
+            <div>
+              <button onClick={()=>updateQty(item.id,-1)}>-</button>
+              {item.qty}
+              <button onClick={()=>updateQty(item.id,1)}>+</button>
             </div>
-          ))}
-        </div>
-
+          </div>
+        ))}
       </div>
 
     </div>
@@ -235,10 +213,36 @@ export default function OrderPage() {
 
 /* 🎨 STYLES */
 
-const categoryTitle = {
-  marginTop:20,
-  marginBottom:10,
-  color:"#c34b0a"
+const glass = {
+  background:"rgba(255,255,255,0.04)",
+  border:"1px solid rgba(255,255,255,0.08)",
+  backdropFilter:"blur(14px)",
+  borderRadius:18
+}
+
+const layout = {
+  display:"grid",
+  gridTemplateColumns:"260px 1fr 300px",
+  height:"100vh",
+  gap:12,
+  padding:12,
+  background:"linear-gradient(135deg,#020617,#0f172a,#020617)"
+}
+
+const panel = { padding:16 }
+const menuBox = { padding:16 }
+
+const grid = {
+  display:"grid",
+  gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",
+  gap:12
+}
+
+const menuCard = {
+  padding:10,
+  borderRadius:12,
+  background:"rgba(255,255,255,0.05)",
+  cursor:"pointer"
 }
 
 const imageStyle = {
@@ -248,105 +252,57 @@ const imageStyle = {
   borderRadius:8
 }
 
-const grid = {
-  display:"grid",
-  gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",
-  gap:15
-}
-
-const menuCard = {
-  padding:10,
-  borderRadius:12,
-  background:"rgba(175, 81, 19, 0.04)",
-  cursor:"pointer",
-  textAlign:"center"
-}
-
-const layout = {
-  display:"grid",
-  gridTemplateColumns:"260px 1fr 320px",
-  height:"100vh",
-  overflow:"hidden",
-  background:"#020617",
-  color:"#fff"
-}
-
-const selectBtn = {
-  marginTop:15,
-  width:"100%",
-  padding:12,
-  borderRadius:10,
-  background:"#1e293b",
-  color:"#fff",
-  cursor:"pointer"
-}
-
-const dropdown = {
-  marginTop:10,
-  background:"#0f172a",
-  borderRadius:10,
-  maxHeight:200,
-  overflowY:"auto"
-}
-
-const dropdownItem = {
-  padding:12,
-  cursor:"pointer",
-  borderBottom:"1px solid rgba(255,255,255,0.05)"
-}
-
-const menuScroll = {
-  overflowY:"auto",
-  height:"calc(100vh - 80px)"
-}
-
-const cartScroll = {
-  overflowY:"auto",
-  maxHeight:"70vh"
-}
-
-const leftPanel = {
-  padding:20,
-  borderRight:"1px solid rgba(255,255,255,0.08)"
-}
-
-const rightPanel = {
-  padding:20,
-  display:"flex",
-  flexDirection:"column",
-  gap:15, // ✅ FIX
-  borderLeft:"1px solid rgba(255,255,255,0.08)"
-}
-
-const switchBox = { display:"flex", gap:10 }
-
-const btn = a => ({
-  flex:1,
-  padding:10,
-  borderRadius:10,
-  background:a?"#1e293b":"#0f172a",
-  color:"#c75107"
-})
-
-const menuBox = { padding:25 }
-
 const searchBox = {
   padding:10,
   borderRadius:10,
   background:"#0f172a",
-  color:"#fff"
+  color:"#fff",
+  marginBottom:10
 }
+
+/* 🔥 SELECT BUTTON FIX */
+const selectBtn = {
+  marginTop:15,
+  padding:"12px",
+  width:"100%",
+  borderRadius:12,
+  background:"rgba(255,255,255,0.05)",
+  border:"1px solid rgba(255,255,255,0.2)",
+  color:"#fff",
+  textAlign:"center"
+}
+
+const dropdown = { marginTop:10 }
+const dropdownItem = { padding:10, cursor:"pointer" }
 
 const cartItem = {
   display:"flex",
   justifyContent:"space-between",
-  marginBottom:12
+  marginTop:10
 }
 
-const orderBtn = {
-  padding:14,
+/* 🔥 TAB BUTTON */
+const tabBtn = (active,color)=>({
+  flex:1,
+  padding:"10px",
   borderRadius:12,
-  background:"#bd4f05",
-  color:"#fff",
+  background:"rgba(255,255,255,0.03)",
+  border:`1px solid ${active?color:"rgba(255,255,255,0.2)"}`,
+  color: active ? color : "#fff",
+  boxShadow: active ? `0 0 8px ${color}` : "none"
+})
+
+/* 💎 PLACE ORDER BUTTON PERFECT */
+const placeBtn = {
+  width:"100%",
+  padding:"14px",
+  borderRadius:14,
+  background:"transparent",
+  border:"1px solid #22c55e",
+  color:"#22c55e",
+  fontWeight:"bold",
+  textAlign:"center",
+  boxShadow:"0 0 12px #22c55e, 0 0 30px #22c55e",
+  marginBottom:15,
   cursor:"pointer"
 }

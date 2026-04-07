@@ -1,27 +1,96 @@
+:root {
+  --primary: #2563eb;
+  --secondary: #f59e0b;
+  --bg: linear-gradient(135deg, #1e3a8a, #9333ea);
+  --text: #ffffff;
+  --glass: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.2);
+}
+
+/* Reset */
 body {
-  background: #20406d;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', sans-serif;
 }
 
-h1, h2, h3 {
-  margin: 10px 0;
+/* Glass container */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
 }
 
-button {
-  padding: 8px 15px;
-  border: none;
-  border-radius: 6px;
-  background: #111;
-  color: rgb(255, 255, 255);
+/* Buttons */
+.btn {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid var(--border);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.btn:hover {
+  background: rgba(255,255,255,0.3);
+  transform: scale(1.05);
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill,minmax(250px,1fr));
+  gap: 20px;
+}
+
+.card {
+  padding: 20px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.btn {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
-button:hover {
-  background: #333;
+.btn.active {
+  background: #22c55e;
+  color: black;
 }
 
-input, select {
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  width: 200px;
-}
+.btn.blue { background: #3b82f6; }
+.btn.green { background: #22c55e; }
+.btn.gray { background: #64748b; }
+
+.status.pending { color: #facc15; }
+.status.preparing { color: #3b82f6; }
+.status.ready { color: #22c55e; }
+.status.done { color: #94a3b8; }
