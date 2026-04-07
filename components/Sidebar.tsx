@@ -12,7 +12,7 @@ export default function Sidebar() {
   const [logo, setLogo] = useState("")
   const [restaurantName, setRestaurantName] = useState("NH3 POS")
   const [userEmail, setUserEmail] = useState("")
-  const [role, setRole] = useState("staff") // 🔥 IMPORTANT
+  const [role, setRole] = useState("staff")
 
   useEffect(() => {
     fetchData()
@@ -25,7 +25,6 @@ export default function Sidebar() {
     const user = userData.user
     setUserEmail(user.email || "")
 
-    // 🔥 PROFILE GET (ROLE + RESTAURANT)
     const { data: profile } = await supabase
       .from("profiles")
       .select("role, restaurant_id")
@@ -36,13 +35,11 @@ export default function Sidebar() {
 
     setRole(profile.role || "staff")
 
-    // 👑 SUPER ADMIN
     if (profile.role === "super_admin") {
       setRestaurantName("Anaira Graphics")
       return
     }
 
-    // 🏢 RESTAURANT FETCH
     if (profile.restaurant_id) {
       const { data: rest } = await supabase
         .from("restaurants")
@@ -62,8 +59,6 @@ export default function Sidebar() {
     router.replace("/login")
   }
 
-  // 🔥 MENUS
-
   const superAdminMenu = [
     { name: "Dashboard", path: "/super-admin", icon: "👑" },
     { name: "Restaurants", path: "/super-admin/restaurants", icon: "🏢" },
@@ -77,33 +72,60 @@ export default function Sidebar() {
     { name: "Reservations", path: "/dashboard/reservations", icon: "📅" },
   ]
 
-const isStaff = role === "staff"
-const isAdmin = role === "admin"
+  const isStaff = role === "staff"
+  const isAdmin = role === "admin"
 
-const mainMenu = [
+  const mainMenu = [
+    ...(isStaff ? [{ name: "Staff Panel", path: "/staff", icon: "👨‍🍳" }] : []),
+    ...(isAdmin ? [{ name: "Dashboard", path: "/dashboard", icon: "📊" }] : []),
+    ...((isStaff || isAdmin)
+      ? [
+          { name: "Order", path: "/order", icon: "🧾" },
+          { name: "Kitchen", path: "/kitchen", icon: "🍳" },
+          { name: "Billing", path: "/billing", icon: "💰" }
+        ]
+      : [])
+  ]
 
-  ...(isStaff ? [{
-    name: "Staff Panel",
-    path: "/staff",
-    icon: "👨‍🍳"
-  }] : []),
+  function renderLink(item: any, i: number) {
+    const active = pathname === item.path
 
-  ...(isAdmin ? [{
-    name: "Dashboard",
-    path: "/dashboard",
-    icon: "📊"
-  }] : []),
+    return (
+      <Link
+        key={i}
+        href={item.path}
+        style={{
+          ...link,
+          ...(active && activeLink)
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "rgba(59,130,246,0.15)"
+          e.currentTarget.style.transform = "translateX(4px)"
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = active ? "" : "transparent"
+          e.currentTarget.style.transform = "translateX(0px)"
+        }}
+      >
+        <span>{item.icon}</span>
+        {item.name}
+      </Link>
+    )
+  }
 
-  ...((isStaff || isAdmin) ? [
-    { name: "Order", path: "/order", icon: "🧾" },
-    { name: "Kitchen", path: "/kitchen", icon: "🍳" },
-    { name: "Billing", path: "/billing", icon: "💰" }
-  ] : [])
-]
+  function Section({ title, children }: any) {
+    return (
+      <div style={section}>
+        <p style={sectionTitle}>{title}</p>
+        {children}
+      </div>
+    )
+  }
+
   return (
     <aside style={sidebar}>
-
-      {/* 🔥 BRAND */}
+      
+      {/* BRAND */}
       <div style={brandBox}>
         <div style={logoWrap}>
           {logo ? (
@@ -116,7 +138,6 @@ const mainMenu = [
         </div>
 
         <h2 style={brand}>{restaurantName}</h2>
-
         <p style={subBrand}>
           {role === "super_admin"
             ? "SaaS Control Panel"
@@ -124,88 +145,61 @@ const mainMenu = [
         </p>
       </div>
 
-      {/* 🔥 USER */}
+      {/* USER */}
       <div style={profileBox}>
         <p style={email}>{userEmail}</p>
         <span style={roleBadge(role)}>{role}</span>
       </div>
 
-      {/* 🔥 MENU */}
+      {/* MENU */}
       <div style={{ flex: 1 }}>
-
-        {/* 👑 SUPER ADMIN ONLY */}
         {role === "super_admin" && (
           <Section title="SUPER ADMIN">
             {superAdminMenu.map(renderLink)}
           </Section>
         )}
 
-        {/* 🏢 ADMIN */}
         {role === "admin" && (
           <Section title="ADMIN">
             {adminMenu.map(renderLink)}
           </Section>
         )}
 
-        {/* 🔥 MAIN (HIDE FOR SUPER ADMIN) */}
         {role !== "super_admin" && (
           <Section title="MAIN">
             {mainMenu.map(renderLink)}
           </Section>
         )}
-
       </div>
 
-      {/* 🔥 LOGOUT */}
-      <button onClick={handleLogout} style={logoutBtn}>
+      {/* LOGOUT */}
+      <button
+        onClick={handleLogout}
+        style={logoutBtn}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "scale(1.05)"
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "scale(1)"
+        }}
+      >
         🚪 Logout
       </button>
 
     </aside>
   )
-
-  // 🔥 LINK RENDER
-  function renderLink(item, i) {
-    const active = pathname === item.path
-
-    return (
-      <Link
-        key={i}
-        href={item.path}
-        style={{
-          ...link,
-          ...(active && activeLink)
-        }}
-      >
-        <span>{item.icon}</span>
-        {item.name}
-        {active && <div style={activeBar}></div>}
-      </Link>
-    )
-  }
-
-  // 🔥 SECTION
-  function Section({ title, children }) {
-    return (
-      <div style={section}>
-        <p style={sectionTitle}>{title}</p>
-        {children}
-      </div>
-    )
-  }
 }
 
-/* 🎨 ULTRA PREMIUM UI */
+/* 🎨 STYLES */
 
 const sidebar = {
-  width: 270,
+  width: 280,
   padding: 20,
   minHeight: "100vh",
   display: "flex",
   flexDirection: "column",
-  background: "rgba(15,23,42,0.9)",
-  backdropFilter: "blur(25px)",
-  borderRight: "1px solid rgba(255,255,255,0.05)"
+  background: "linear-gradient(180deg,#020617,#0f172a)",
+  borderRight: "1px solid rgba(255,255,255,0.08)"
 }
 
 const brandBox = { textAlign: "center", marginBottom: 25 }
@@ -222,20 +216,25 @@ const logoStyle = { width: 60, height: 60, borderRadius: 12 }
 
 const logoPlaceholder = { fontSize: 32 }
 
-const brand = { color: "#fff", fontSize: 18, fontWeight: "600" }
+const brand = {
+  color: "#fff",
+  fontSize: 20,
+  fontWeight: "700"
+}
 
 const subBrand = { fontSize: 11, color: "#94a3b8" }
 
 const profileBox = {
-  padding: 12,
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.05)",
+  padding: 14,
+  borderRadius: 16,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.05)",
   marginBottom: 20
 }
 
 const email = { fontSize: 12, color: "#fff" }
 
-const roleBadge = (role) => ({
+const roleBadge = (role: string) => ({
   fontSize: 11,
   padding: "4px 10px",
   borderRadius: 20,
@@ -250,38 +249,39 @@ const roleBadge = (role) => ({
 
 const section = { marginBottom: 15 }
 
-const sectionTitle = { fontSize: 11, color: "#64748b", marginBottom: 6 }
+const sectionTitle = {
+  fontSize: 11,
+  color: "#94a3b8",
+  marginBottom: 6,
+  letterSpacing: "1px"
+}
 
 const link = {
   display: "flex",
-  gap: 10,
-  padding: "12px",
-  borderRadius: 12,
+  alignItems: "center",
+  gap: 12,
+  padding: "12px 14px",
+  borderRadius: 14,
   textDecoration: "none",
   color: "#cbd5f5",
-  marginBottom: 8
+  marginBottom: 8,
+  transition: "all 0.25s ease"
 }
 
 const activeLink = {
-  background: "linear-gradient(135deg,#3b82f6,#1d4ed8)",
-  color: "#fff"
-}
-
-const activeBar = {
-  position: "absolute",
-  left: 0,
-  top: 0,
-  bottom: 0,
-  width: 4,
-  background: "linear-gradient(#22c55e,#3b82f6)"
+  background: "linear-gradient(135deg,#3b82f6,#2563eb)",
+  color: "#fff",
+  boxShadow: "0 0 15px rgba(59,130,246,0.5)"
 }
 
 const logoutBtn = {
   marginTop: 10,
-  padding: 12,
-  borderRadius: 12,
-  background: "#ef4444",
+  padding: 14,
+  borderRadius: 14,
+  background: "linear-gradient(135deg,#ef4444,#dc2626)",
   color: "#fff",
   border: "none",
-  cursor: "pointer"
+  cursor: "pointer",
+  fontWeight: "600",
+  transition: "0.3s"
 }

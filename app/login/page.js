@@ -8,15 +8,16 @@ export default function Login() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState("")
 
   async function handleLogin(){
-
     if(!email || !password){
-      alert("Enter email & password")
+      setErrorMsg("Enter email & password")
       return
     }
 
     setLoading(true)
+    setErrorMsg("")
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -24,7 +25,7 @@ export default function Login() {
     })
 
     if(error){
-      alert("❌ Login failed")
+      setErrorMsg("❌ Invalid email or password")
       setLoading(false)
       return
     }
@@ -38,22 +39,17 @@ export default function Login() {
       .single()
 
     if(!profile){
-      alert("Profile not found ❌")
+      setErrorMsg("Profile not found")
       setLoading(false)
       return
     }
 
     if(profile.role === "staff"){
       window.location.href = "/staff"
-    }
-    else if(profile.role === "admin"){
+    } else if(profile.role === "admin"){
       window.location.href = "/dashboard"
-    }
-    else if(profile.role === "super_admin"){
+    } else if(profile.role === "super_admin"){
       window.location.href = "/super-admin"
-    }
-    else{
-      window.location.href = "/login"
     }
   }
 
@@ -65,7 +61,6 @@ export default function Login() {
 
       <div style={box}>
 
-        {/* LOGO */}
         <div style={logoBox}>
           <img src="/logo.png" style={logo} />
           <h2 style={brand}>Anaira Graphics</h2>
@@ -74,25 +69,35 @@ export default function Login() {
 
         <h3 style={title}>Welcome Back 👋</h3>
 
+        {errorMsg && <p style={error}>{errorMsg}</p>}
+
         {/* INPUTS */}
         <div style={inputWrap}>
-          <input
-            placeholder="Enter Email"
-            value={email}
-            onChange={(e)=>setEmail(e.target.value)}
-            style={input}
-          />
 
-          <input
-            type="password"
-            placeholder="Enter Password"
-            value={password}
-            onChange={(e)=>setPassword(e.target.value)}
-            style={input}
-          />
+          <div style={inputBox}>
+            <label style={label}>Email</label>
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e)=>setEmail(e.target.value)}
+              style={input}
+            />
+          </div>
+
+          <div style={inputBox}>
+            <label style={label}>Password</label>
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e)=>setPassword(e.target.value)}
+              style={input}
+            />
+          </div>
+
         </div>
 
-        {/* 🔥 NEON BORDER BUTTON */}
         <button onClick={handleLogin} style={btn}>
           {loading ? "Logging..." : "Login"}
         </button>
@@ -106,7 +111,7 @@ export default function Login() {
   )
 }
 
-/* 🎨 UI */
+/* UI */
 
 const container = {
   display: "flex",
@@ -114,116 +119,103 @@ const container = {
   alignItems: "center",
   height: "100vh",
   background: "radial-gradient(circle at top,#020617,#000)",
-  position: "relative",
-  overflow: "hidden"
+  position: "relative"
 }
 
 const glow1 = {
   position: "absolute",
-  width: 280,
-  height: 280,
+  width: 300,
+  height: 300,
   background: "#22c55e",
-  filter: "blur(120px)",
-  top: -60,
-  left: -60,
-  opacity: 0.35
+  filter: "blur(140px)",
+  top: -80,
+  left: -80,
+  opacity: 0.4
 }
 
 const glow2 = {
   position: "absolute",
-  width: 280,
-  height: 280,
+  width: 300,
+  height: 300,
   background: "#3b82f6",
-  filter: "blur(120px)",
-  bottom: -60,
-  right: -60,
-  opacity: 0.35
+  filter: "blur(140px)",
+  bottom: -80,
+  right: -80,
+  opacity: 0.4
 }
 
 const box = {
-  position: "relative",
-  zIndex: 2,
-  width: 320,
+  width: 360,
   padding: 30,
   borderRadius: 20,
   display: "flex",
   flexDirection: "column",
-  alignItems: "center",
-  gap: 12,
+  gap: 18,
   background: "rgba(255,255,255,0.05)",
   backdropFilter: "blur(20px)",
   border: "1px solid rgba(255,255,255,0.08)",
-  boxShadow: "0 0 30px rgba(34,197,94,0.15)"
+  boxShadow: "0 0 40px rgba(0,0,0,0.6)"
 }
 
-/* CENTER FIX */
-
-const logoBox = {
-  textAlign: "center",
-  marginBottom: 10
-}
+const logoBox = { textAlign: "center" }
 
 const logo = {
   width: 70,
   height: 70,
-  borderRadius: 14,
-  marginBottom: 6,
-  boxShadow: "0 0 15px #22c55e66"
+  borderRadius: 12,
+  marginBottom: 6
 }
 
-const brand = {
-  margin: 0,
-  fontSize: 18,
-  color: "#fff"
+const brand = { color: "#fff", fontSize: 18, fontWeight: "600" }
+const subBrand = { fontSize: 11, color: "#94a3b8" }
+const title = { color: "#fff" }
+
+const error = {
+  color: "#ef4444",
+  fontSize: 12
 }
 
-const subBrand = {
-  fontSize: 11,
+/* FIXED INPUT ALIGN */
+
+const inputWrap = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 14
+}
+
+const inputBox = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6
+}
+
+const label = {
+  fontSize: 12,
   color: "#94a3b8"
 }
 
-const title = {
-  color: "#fff",
-  marginBottom: 10
-}
-
-/* 🔥 PERFECT ALIGN */
-
-const inputWrap = {
-  width: "100%",
-  display: "flex",
-  flexDirection: "column",
-  gap: 10
-}
-
 const input = {
-  width: "100%",
-  padding: 12,
+  padding: "12px",
   borderRadius: 10,
-  border: "1px solid rgba(103, 103, 103, 0.1)",
-  background: "rgba(101, 101, 101, 0.04)",
-  color: "#4a4a4a",
+  border: "1px solid rgba(255,255,255,0.15)",
+  background: "rgba(255,255,255,0.08)",
+  color: "#fff",
   outline: "none"
 }
 
-/* 🔥 NEON BORDER BUTTON */
-
 const btn = {
-  width: "100%",
   marginTop: 10,
   padding: 12,
   borderRadius: 12,
-  background: "transparent",
-  border: "2px solid #49dd7f",
-  color: "#026426",
+  background: "linear-gradient(135deg,#22c55e,#16a34a)",
+  border: "none",
+  color: "#fff",
   fontWeight: "600",
-  cursor: "pointer",
-  boxShadow: "0 0 12px #00572088, inset 0 0 8px #036d2a74",
-  transition: "0.3s"
+  cursor: "pointer"
 }
 
 const footer = {
   fontSize: 10,
-  color: "#3e4c5f",
+  color: "#64748b",
   textAlign: "center"
 }
