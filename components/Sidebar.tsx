@@ -60,11 +60,16 @@ export default function Sidebar() {
   }
 
   const superAdminMenu = [
-    { name: "Dashboard", path: "/super-admin", icon: "👑" },
-    { name: "Restaurants", path: "/super-admin/restaurants", icon: "🏢" },
-    { name: "Users", path: "/super-admin/users", icon: "👥" },
-  ]
+  { name: "Dashboard", path: "/super-admin", icon: "👑" },
+  { name: "Restaurants", path: "/super-admin/restaurants", icon: "🏢" },
+  { name: "Users", path: "/super-admin/users", icon: "👥" },
 
+  // 🔥 NEW ADD
+  { name: "AI Image", path: "/ai/image", icon: "🎨" },
+{ name: "AI Logo", path: "/ai/logo", icon: "🔥" },
+{ name: "Poster Maker", path: "/ai/poster", icon: "🪧" },
+{ name: "Business Card", path: "/business-card", icon: "💳" }
+]
   const adminMenu = [
     { name: "Admin Panel", path: "/admin", icon: "⚙️" },
     { name: "Inventory", path: "/dashboard/inventory", icon: "📦" },

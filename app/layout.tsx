@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase"
 import Sidebar from "@/components/Sidebar"
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+
   const router = useRouter()
   const pathname = usePathname()
 
@@ -15,20 +16,27 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any>(null)
   const [role, setRole] = useState<string>("")
 
-  // ✅ RUN ONLY ONCE
   useEffect(() => {
+
     const initAuth = async () => {
+
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
 
-      if (!user && pathname !== "/login" && pathname !== "/order") {
+      // ✅ QR ROUTE CHECK
+      const isQRRoute = pathname.includes("/order/")
+
+      // 🔥 LOGIN PROTECT (QR FREE)
+      if (!user && pathname !== "/login" && !isQRRoute) {
         router.replace("/login")
       }
 
+      // 🔁 Already login → dashboard
       if (user && pathname === "/login") {
         router.replace("/dashboard")
       }
 
+      // 👤 Role fetch
       if (user) {
         const { data: profile } = await supabase
           .from("profiles")
@@ -44,12 +52,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
     initAuth()
 
+    // 🔁 Auth listener
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+
         const currentUser = session?.user || null
         setUser(currentUser)
 
-        if (!currentUser && pathname !== "/login" && pathname !== "/order") {
+        const isQRRoute = pathname.includes("/order/")
+
+        if (!currentUser && pathname !== "/login" && !isQRRoute) {
           router.replace("/login")
         }
       }
@@ -58,7 +70,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => {
       listener.subscription.unsubscribe()
     }
-  }, []) // ❗ dependency hata diya
+
+  }, [])
 
   // ⏳ Loading UI
   if (loading) {
@@ -81,9 +94,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>
+
         <div style={{ display: "flex" }}>
 
-          {user && pathname !== "/login" && pathname !== "/order" && (
+          {/* ✅ Sidebar only for admin */}
+          {user && pathname !== "/login" && !pathname.includes("/order") && (
             <Sidebar role={role} />
           )}
 
@@ -92,6 +107,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </main>
 
         </div>
+
       </body>
     </html>
   )

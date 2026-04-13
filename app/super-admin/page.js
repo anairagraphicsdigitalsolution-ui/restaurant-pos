@@ -9,9 +9,10 @@ export default function SuperAdmin() {
   const [restaurants, setRestaurants] = useState([])
   const [summary, setSummary] = useState({ total:0, active:0, inactive:0 })
 
-  const [form, setForm] = useState({
-    name:"", owner_name:"", phone:"", address:"", gst:"", logo:""
-  })
+ const [form, setForm] = useState({
+  name:"", owner_name:"", phone:"", address:"", gst:"", logo:"",
+  whatsapp:""
+})
 
   const [editingId, setEditingId] = useState(null)
 
@@ -30,8 +31,10 @@ export default function SuperAdmin() {
   const [imageFile,setImageFile] = useState(null)
   const [excelFile,setExcelFile] = useState(null)
 
+
   // 🔥 BULK DELETE STATE
   const [selectedItems,setSelectedItems] = useState([])
+  const [whatsappNumbers, setWhatsappNumbers] = useState({})
 
   useEffect(()=>{ loadRestaurants() },[])
 
@@ -44,6 +47,17 @@ export default function SuperAdmin() {
     }))
 
     setRestaurants(fixed)
+    const { data: wp } = await supabase
+  .from("plugin_settings")
+  .select("*")
+  .eq("plugin_slug","whatsapp")
+
+const map = {}
+;(wp || []).forEach(i=>{
+  map[i.restaurant_id] = i.config?.number || ""
+})
+
+setWhatsappNumbers(map)
 
     setSummary({
       total: fixed.length,
@@ -69,6 +83,12 @@ export default function SuperAdmin() {
     const file = e.target.files[0]
     if(file) setExcelFile(file)
   }
+  function handleWhatsappChange(id,value){
+  setWhatsappNumbers(prev => ({
+    ...prev,
+    [id]: value
+  }))
+}
 
   // 🔥 BULK SELECT
   function toggleSelect(id){
@@ -90,7 +110,7 @@ export default function SuperAdmin() {
       .in("id", selectedItems)
 
     setSelectedItems([])
-    handleEdit(selected)
+    await handleEdit(selected)
   }
 
   async function uploadImage(file){
@@ -113,42 +133,40 @@ export default function SuperAdmin() {
     return data.publicUrl
   }
 
-  async function saveRestaurant(){
-    if(!form.name) return alert("Enter name")
 
-    if(editingId){
-      await supabase.from("restaurants").update(form).eq("id", editingId)
-    }else{
-      await supabase.from("restaurants").insert([{...form,status:"active"}])
-    }
+ async function handleEdit(r){
 
-    setEditingId(null)
-    setForm({ name:"", owner_name:"", phone:"", address:"", gst:"", logo:"" })
-    loadRestaurants()
-  }
+  setSelected(r)
+  setEditingId(r.id)
+  setSelectedItems([]) // 🔥 reset selection
 
-  async function handleEdit(r){
-    setEditingId(r.id)
-    setSelected(r)
+  // ✅ ADD THIS
+  const { data: menuData } = await supabase
+    .from("menu_items")
+    .select("*")
+    .eq("restaurant_id", r.id)
 
-    setForm({
-      name:r.name||"",
-      owner_name:r.owner_name||"",
-      phone:r.phone||"",
-      address:r.address||"",
-      gst:r.gst||"",
-      logo:r.logo||""
-    })
+  setMenu(menuData || [])
 
-    const { data: m } = await supabase
-      .from("menu_items")
-      .select("*")
-      .eq("restaurant_id", r.id)
+  const { data: wp } = await supabase
+    .from("plugin_settings")
+    .select("*")
+    .eq("restaurant_id", r.id)
+    .eq("plugin_slug","whatsapp")
+    .single()
 
-    setMenu(m || [])
-  }
+  setForm({
+  name: r.name || "",
+  owner_name: r.owner_name || "",
+  phone: r.phone || "",
+  address: r.address || "",
+  gst: r.gst || "",
+  logo: r.logo || "",
+  whatsapp: wp?.config?.number || ""
+})
+ }
 
-  async function addMenuItem(){
+   async function addMenuItem(){
     if(!item.name || !item.price) return alert("Fill item")
 
     let imageUrl = item.image
@@ -168,7 +186,7 @@ export default function SuperAdmin() {
     setItem({name:"",price:"",category:"",image:""})
     setImageFile(null)
 
-    handleEdit(selected)
+    await handleEdit(selected)
   }
 
   async function uploadExcel(){
@@ -193,7 +211,7 @@ export default function SuperAdmin() {
     await supabase.from("menu_items").insert(formatted)
 
     alert("Bulk upload success ✅")
-    handleEdit(selected)
+    await handleEdit(selected)
   }
 
   async function replaceImage(id,file){
@@ -201,12 +219,12 @@ export default function SuperAdmin() {
     if(!url) return
 
     await supabase.from("menu_items").update({image:url}).eq("id",id)
-    handleEdit(selected)
+    await handleEdit(selected)
   }
 
   async function deleteItem(id){
     await supabase.from("menu_items").delete().eq("id", id)
-    handleEdit(selected)
+   await handleEdit(selected)
   }
 
   async function deleteRestaurant(id){
@@ -221,17 +239,101 @@ export default function SuperAdmin() {
 
     loadRestaurants()
   }
+ 
+async function saveRestaurant(){
+
+  if(!form.name) return alert("Enter name")
+
+  let restaurantId = editingId
+
+  if(editingId){
+    await supabase
+      .from("restaurants")
+      .update({
+        name: form.name,
+        owner_name: form.owner_name,
+        phone: form.phone,
+        address: form.address,
+        gst: form.gst,
+        logo: form.logo
+      })
+      .eq("id", editingId)
+
+  } else {
+
+    const { data } = await supabase
+      .from("restaurants")
+      .insert([{
+        name: form.name,
+        owner_name: form.owner_name,
+        phone: form.phone,
+        address: form.address,
+        gst: form.gst,
+        logo: form.logo,
+        status:"active"
+      }])
+      .select()
+      .single()
+
+    restaurantId = data.id
+  }
+
+  // ✅ WHATSAPP SAVE (AUTO)
+  if(form.whatsapp){
+    await supabase
+  .from("plugin_settings")
+  .upsert({
+    restaurant_id: restaurantId,
+    plugin_slug: "whatsapp",
+    config: { number: form.whatsapp }
+  }, {
+    onConflict: "restaurant_id,plugin_slug"
+  })
+}
+
+  // RESET
+  setEditingId(null)
+  setForm({
+    name:"",
+    owner_name:"",
+    phone:"",
+    address:"",
+    gst:"",
+    logo:"",
+    whatsapp:""
+  })
+
+  loadRestaurants()
+}
 
   return (
     <div style={layout}>
 
       <h1 style={title}>🚀 Super Admin Dashboard</h1>
 
-      <div style={statsGrid}>
-        <StatCard title="Total" value={summary.total}/>
-        <StatCard title="Active" value={summary.active}/>
-        <StatCard title="Inactive" value={summary.inactive}/>
-      </div>
+     <div style={statsGrid}>
+  <StatCard title="Total" value={summary.total}/>
+  <StatCard title="Active" value={summary.active}/>
+  <StatCard title="Inactive" value={summary.inactive}/>
+
+  {/* 🔥 PLUGIN BUTTON */}
+  <button
+    onClick={() => window.location.href="/super-admin/plugins"}
+    style={{
+      padding:"14px",
+      borderRadius:14,
+      background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+      border:"none",
+      color:"#fff",
+      cursor:"pointer",
+      fontWeight:"700",
+      boxShadow:"0 0 15px #0004f9aa"
+    }}
+  >
+    🔌 Plugins Manager
+  </button>
+
+</div>
 
       <div style={formBox}>
         <input name="name" value={form.name} onChange={handleChange} placeholder="Name" style={input}/>
@@ -240,7 +342,8 @@ export default function SuperAdmin() {
         <input name="address" value={form.address} onChange={handleChange} placeholder="Address" style={input}/>
         <input name="gst" value={form.gst} onChange={handleChange} placeholder="GST" style={input}/>
         <input name="logo" value={form.logo} onChange={handleChange} placeholder="Logo URL" style={input}/>
-
+        <input name="whatsapp" value={form.whatsapp} onChange={handleChange} placeholder="WhatsApp Number" style={input}
+/>
         <button onClick={saveRestaurant} style={btn}>
           {editingId ? "Update" : "Add"}
         </button>
@@ -253,6 +356,7 @@ export default function SuperAdmin() {
             <h3>{r.name}</h3>
             <p>{r.owner_name}</p>
             <p>{r.phone}</p>
+            
 
             <div style={actions}>
               <button onClick={()=>handleEdit(r)} style={btnSmall}>Edit</button>
