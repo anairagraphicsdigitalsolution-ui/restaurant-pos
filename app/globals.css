@@ -1,0 +1,1666 @@
+/* 🔥 PREMIUM GLASS EFFECT */
+.glass-pro {
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.08),
+    rgba(255,255,255,0.02)
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 18px;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.5),
+    inset 0 0 10px rgba(255,255,255,0.05);
+  padding: 20px;
+}
+
+/* 🔥 INPUT UPGRADE */
+.input-pro {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: white;
+  outline: none;
+  transition: 0.3s;
+}
+
+.input-pro:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 10px rgba(59,130,246,0.5);
+}
+
+/* 🔥 BUTTON PRO */
+.btn-pro {
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg,#3b82f6,#9333ea);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.btn-pro:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(99,102,241,0.6);
+}
+
+/* 🔥 GLOW EFFECT */
+.glow {
+  box-shadow: 0 0 20px rgba(59,130,246,0.6);
+}
+
+/* 🔥 SCROLLBAR */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--primary),var(--accent));
+  border-radius: 10px;
+}
+
+/* 🔥 CARD HOVER ANIMATION */
+.card:hover {
+  transform: translateY(-5px);
+  transition: 0.3s;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+/* 🔥 GRADIENT TEXT */
+.gradient-text {
+  background: linear-gradient(135deg,#3b82f6,#9333ea);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 🔥 BADGE */
+.badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.2);
+}
+
+/* 🔥 FLOAT ANIMATION */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+/* Premium Gold Scrollbar */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: linear-gradient(
+    180deg,
+    rgba(15,23,42,.9),
+    rgba(2,6,23,.95)
+  );
+
+  border-radius: 999px;
+
+  border: 1px solid rgba(var(--primary-rgb),.12);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 80%, white), var(--primary), color-mix(in srgb, var(--primary) 70%, black));
+
+  border-radius: 999px;
+
+  border: 2px solid rgba(15,23,42,.8);
+
+  box-shadow:
+    0 0 12px rgba(var(--primary-rgb),.6),
+    inset 0 1px 2px rgba(255,255,255,.25);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 70%, white), var(--primary), color-mix(in srgb, var(--primary) 70%, black));
+
+  box-shadow:
+    0 0 18px rgba(var(--primary-rgb),.8),
+    0 0 30px rgba(var(--primary-rgb),.4);
+}
+input[type="date"]{
+  color-scheme: dark;
+}
+*{
+  box-sizing:border-box;
+}
+
+html,
+body{
+  margin:0;
+  padding:0;
+  background:var(--background, #020617);
+  color:var(--text, #ffffff);
+  
+}
+
+
+/* =========================================================
+   APPLICATION SHELL + MOBILE RESPONSIVE SYSTEM
+========================================================= */
+
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 0;
+}
+
+.app-shell {
+  width: 100%;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.app-shell.has-sidebar {
+  display: flex;
+  align-items: stretch;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.app-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--background, #020617);
+  color: var(--text, #fff);
+}
+
+.app-loading-card {
+  width: min(100%, 320px);
+  box-sizing: border-box;
+  padding: 28px;
+  border-radius: 22px;
+  text-align: center;
+  background: linear-gradient(135deg, #111827, #1f2937);
+  border: 1px solid rgba(251,191,36,.2);
+}
+
+.app-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 14px;
+  border: 3px solid rgba(251,191,36,.18);
+  border-top-color: #fbbf24;
+  border-radius: 50%;
+  animation: app-spin .8s linear infinite;
+}
+
+@keyframes app-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mobile-menu-button,
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .app-shell.has-sidebar {
+    display: block;
+  }
+
+  .app-main {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .pos-sidebar {
+    position: fixed !important;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(86vw, 320px) !important;
+    min-height: 100dvh !important;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transform: translateX(-105%);
+    transition: transform .25s ease;
+    box-shadow: 20px 0 60px rgba(0,0,0,.45);
+  }
+
+  .pos-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-menu-button {
+    display: flex;
+    position: fixed;
+    z-index: 9000;
+    top: max(12px, env(safe-area-inset-top));
+    left: 12px;
+    width: 46px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(251,191,36,.3);
+    border-radius: 14px;
+    background: rgba(15,23,42,.94);
+    color: #fbbf24;
+    font-size: 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  .mobile-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    border: 0;
+    background: rgba(0,0,0,.58);
+    backdrop-filter: blur(2px);
+  }
+
+  /* Common responsive safety for inline-style pages */
+  img, video, canvas, svg {
+    max-width: 100%;
+  }
+
+  input, select, textarea, button {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-loading-card {
+    padding: 24px 18px;
+  }
+
+  .mobile-menu-button {
+    width: 42px;
+    height: 42px;
+    font-size: 22px;
+  }
+}
+
+/* =========================================================
+   ANAIRA POS WHITE-LABEL THEME TOKENS
+   All shared UI colors should consume these variables.
+========================================================= */
+:root {
+  --primary: #e9a72d;
+  --primary-rgb: 233, 167, 45;
+  --secondary: #071b12;
+  --secondary-rgb: 7, 27, 18;
+  --accent: #4a9b3c;
+  --accent-rgb: 74, 155, 60;
+  --background: #020a06;
+  --background-rgb: 2, 10, 6;
+  --surface: #0b2118;
+  --surface-rgb: 11, 33, 24;
+  --surface-2: #102b20;
+  --surface-2-rgb: 16, 43, 32;
+  --text: #fffaf0;
+  --muted: #b7c7bd;
+  --muted-rgb: 183, 199, 189;
+  --border: #e9a72d;
+  --success: #4ade80;
+  --success-rgb: 74, 222, 128;
+  --danger: #ef4444;
+  --danger-rgb: 239, 68, 68;
+  --warning: #f59e0b;
+  --warning-rgb: 245, 158, 11;
+  --info: #60a5fa;
+  --info-rgb: 96, 165, 250;
+  --accent-rgb: 74, 155, 60;
+  --radius: 20px;
+}
+
+html, body {
+  background: var(--background);
+  color: var(--text);
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button, a, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Prevent common fixed-width dashboard panels from escaping mobile. */
+@media (max-width: 767px) {
+  .app-main > * {
+    max-width: 100%;
+  }
+
+  .app-main table {
+    width: 100%;
+  }
+
+  .app-main pre,
+  .app-main code {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .app-main [style*="width: 100vw"],
+  .app-main [style*="width:100vw"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* Theme-aware reusable utility classes. */
+.theme-surface {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .22) !important;
+}
+
+.theme-primary {
+  color: var(--primary) !important;
+}
+
+.theme-button {
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 68%, var(--accent))) !important;
+  color: #111 !important;
+}
+
+.sidebar-powered-by {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 10px 8px 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.sidebar-powered-by img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--primary-rgb), .28);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 767px) {
+  .sidebar-powered-by {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 767px) {
+  .theme-live-preview {
+    flex-direction: column;
+  }
+  .theme-live-sidebar {
+    width: 100% !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .theme-live-sidebar span {
+    padding: 5px 8px;
+  }
+}
+
+@media (max-width: 520px) {
+  .theme-live-preview {
+    padding: 8px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .app-shell.has-sidebar .app-main {
+    padding-top: 62px;
+  }
+}
+
+
+/* =========================================================
+   LIGHT THEME COMPATIBILITY
+   Several legacy POS screens still contain inline dark
+   colors. Convert those common legacy tokens to the active
+   light-theme tokens so dashboard data remains readable.
+========================================================= */
+
+html[data-theme-mode="light"] .app-main [style*="color: rgb(255, 255, 255)"],
+html[data-theme-mode="light"] .app-main [style*="color: #fff"],
+html[data-theme-mode="light"] .pos-sidebar [style*="color: rgb(255, 255, 255)"],
+html[data-theme-mode="light"] .pos-sidebar [style*="color: #fff"],
+html[data-theme-mode="light"] .app-main [style*="color:#fff"],
+html[data-theme-mode="light"] .app-main [style*="color: #ffffff"],
+html[data-theme-mode="light"] .app-main [style*="color:#ffffff"] {
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="#020617"],
+html[data-theme-mode="light"] .app-main [style*="#111827"],
+html[data-theme-mode="light"] .app-main [style*="#1f2937"],
+html[data-theme-mode="light"] .app-main [style*="rgb(2, 6, 23)"],
+html[data-theme-mode="light"] .app-main [style*="rgb(17, 24, 39)"],
+html[data-theme-mode="light"] .app-main [style*="rgb(31, 41, 55)"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+
+
+html[data-theme-mode="light"] .pos-sidebar [style*="#020617"],
+html[data-theme-mode="light"] .pos-sidebar [style*="#111827"],
+html[data-theme-mode="light"] .pos-sidebar [style*="#1f2937"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="rgba(255,255,255"],
+html[data-theme-mode="light"] .app-main [style*="rgba(255, 255, 255"] {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .app-main input,
+html[data-theme-mode="light"] .app-main select,
+html[data-theme-mode="light"] .app-main textarea {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .28) !important;
+}
+
+html[data-theme-mode="light"] .app-main button {
+  border-color: rgba(var(--primary-rgb), .28);
+}
+
+html[data-theme-mode="light"] .app-main table {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .app-main th,
+html[data-theme-mode="light"] .app-main td {
+  color: inherit;
+}
+
+@media (max-width: 767px) {
+  .theme-live-sidebar {
+    width: 100% !important;
+  }
+
+  .theme-live-preview {
+    min-height: 0 !important;
+  }
+}
+
+/* =========================================================
+   FINAL RESPONSIVE PASS
+   Phone + tablet + small laptop safety for legacy inline UI.
+========================================================= */
+
+img, svg, video, canvas {
+  max-width: 100%;
+}
+
+.app-main,
+.app-main > *,
+.billing-page,
+.qr-page {
+  min-width: 0;
+}
+
+/* Any legacy inline grid should never force the viewport wider on phones. */
+@media (max-width: 767px) {
+  .app-main [style*="grid-template-columns"],
+  .app-main [style*="gridTemplateColumns"],
+  .billing-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-main [style*="min-width"],
+  .app-main [style*="minWidth"] {
+    min-width: 0 !important;
+  }
+
+  .app-main [style*="width: 1050px"],
+  .app-main [style*="width:1050px"],
+  .app-main [style*="width: 1000px"],
+  .app-main [style*="width:1000px"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .app-main table {
+    display: block;
+    width: 100% !important;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-main input,
+  .app-main select,
+  .app-main textarea,
+  .app-main button {
+    max-width: 100%;
+  }
+
+  .app-main h1 {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .app-main [style*="grid-template-columns: 420px 1fr"],
+  .app-main [style*="grid-template-columns:420px 1fr"],
+  .billing-main-grid {
+    grid-template-columns: minmax(260px, 34%) minmax(0, 1fr) !important;
+  }
+}
+
+/* ---------------- BILLING ---------------- */
+.billing-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.billing-main-grid {
+  min-width: 0;
+}
+
+.billing-invoice-card {
+  width: 100%;
+  max-width: 100%;
+}
+
+.billing-invoice-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.billing-invoice-actions button {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 767px) {
+  .billing-page {
+    padding: 12px !important;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .billing-page > div:first-child {
+    padding: 18px !important;
+    border-radius: 20px !important;
+  }
+
+  .billing-page h1 {
+    font-size: 28px !important;
+    line-height: 1.12 !important;
+  }
+
+  .billing-main-grid {
+    gap: 12px !important;
+  }
+
+  .billing-main-grid > * {
+    min-width: 0 !important;
+  }
+
+  .billing-invoice-card {
+    padding: 16px !important;
+    border-radius: 20px !important;
+    overflow-x: hidden !important;
+  }
+
+  .billing-invoice-card table {
+    font-size: 12px;
+  }
+
+  .billing-invoice-card th,
+  .billing-invoice-card td {
+    padding: 7px 5px !important;
+  }
+
+  .billing-invoice-card h2 {
+    font-size: 20px;
+  }
+
+  .billing-invoice-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-page select,
+  .billing-page input,
+  .billing-page button {
+    width: 100%;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .billing-page {
+    padding: 18px !important;
+  }
+
+  .billing-invoice-card {
+    padding: 24px !important;
+  }
+}
+
+/* ---------------- PUBLIC QR MENU ---------------- */
+.qr-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.qr-hero {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  border-radius: 0 0 24px 24px;
+}
+
+.qr-header {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-menu-grid {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-search-box {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-category-bar {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.qr-category-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.qr-branding-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 22px 12px 34px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  opacity: .9;
+}
+
+.qr-branding-footer img {
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--primary-rgb), .35);
+}
+
+@media (max-width: 767px) {
+  .qr-page {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .qr-hero {
+    height: 220px !important;
+    border-radius: 0 0 18px 18px;
+  }
+
+  .qr-header {
+    padding: 14px !important;
+  }
+
+  .qr-header img {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .qr-header h1 {
+    font-size: 19px !important;
+    max-width: 70vw;
+    overflow-wrap: anywhere;
+  }
+
+  .qr-menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    padding: 10px !important;
+  }
+
+  .qr-menu-grid > * {
+    min-width: 0;
+  }
+
+  .qr-menu-grid img {
+    height: 120px !important;
+  }
+
+  .qr-menu-grid h3 {
+    font-size: 14px !important;
+  }
+
+  .qr-category-bar {
+    padding: 4px 10px 10px !important;
+  }
+
+  .qr-category-bar button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 390px) {
+  .qr-menu-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .qr-menu-grid img {
+    height: 170px !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .qr-menu-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .qr-hero {
+    height: 280px !important;
+  }
+}
+
+/* ---------------- SIDEBAR SAFE AREA ---------------- */
+@media (max-width: 767px) {
+  .pos-sidebar {
+    padding-top: calc(18px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+
+/* =========================================================
+   ANAIRA POS 2026 — CROSS-PAGE POLISH / RESPONSIVE QA
+========================================================= */
+
+.app-main {
+  min-width: 0;
+}
+
+/* Better form controls across legacy inline-style screens */
+.app-main input,
+.app-main select,
+.app-main textarea {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.app-main select option {
+  background: #0f172a;
+  color: #fff;
+}
+
+/* Billing */
+.billing-page {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: clamp(18px, 2.4vw, 32px) !important;
+}
+.billing-page > div:first-child {
+  position: relative;
+  overflow: hidden;
+}
+.billing-page > div:first-child::after {
+  content: "";
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -90px;
+  top: -110px;
+  border-radius: 50%;
+  background: rgba(var(--primary-rgb), .08);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.billing-page .billing-main-grid {
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) !important;
+}
+.billing-page .billing-invoice-card {
+  min-width: 0;
+}
+.billing-empty-state {
+  min-height: 520px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 42px;
+  text-align: center;
+  border-radius: 28px;
+  color: var(--text);
+  background: linear-gradient(145deg, var(--surface), var(--surface-2));
+  border: 1px dashed rgba(var(--primary-rgb), .28);
+  box-shadow: 0 25px 70px rgba(0,0,0,.24);
+}
+.billing-empty-state h2 { margin: 0; font-size: 24px; }
+.billing-empty-state p { max-width: 540px; margin: 0; color: var(--muted); line-height: 1.7; }
+.billing-empty-icon {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: rgba(var(--primary-rgb), .10);
+  border: 1px solid rgba(var(--primary-rgb), .22);
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+.billing-invoice-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.billing-invoice-actions button { margin-top: 0 !important; }
+
+/* Staff / Kitchen */
+.staff-page,
+.kitchen-page,
+.order-page,
+.admin-page,
+.super-admin-page,
+.super-admin-restaurants-page,
+.super-admin-users-page,
+.offers-page,
+.reservations-page,
+.theme-page,
+.tables-page,
+.operations-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.staff-page > *,
+.kitchen-page > *,
+.admin-page > *,
+.super-admin-page > *,
+.super-admin-restaurants-page > *,
+.super-admin-users-page > *,
+.offers-page > *,
+.reservations-page > *,
+.theme-page > *,
+.tables-page > *,
+.operations-page > * {
+  max-width: 100%;
+}
+
+/* Keep dense dashboards readable on medium laptops */
+@media (max-width: 1280px) {
+  .dashboardPage { padding: 22px !important; }
+  .dashboardPage .statsGrid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .dashboardPage .mainGrid,
+  .dashboardPage .threeGrid,
+  .dashboardPage .twoGrid { grid-template-columns: 1fr; }
+  .dashboardPage .categoryGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+  .billing-page .chartGrid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .leftPanel { position: static !important; }
+}
+
+@media (max-width: 900px) {
+  .admin-page,
+  .super-admin-page,
+  .super-admin-restaurants-page,
+  .super-admin-users-page,
+  .offers-page,
+  .reservations-page,
+  .theme-page,
+  .tables-page,
+  .operations-page,
+  .staff-page,
+  .kitchen-page {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  .admin-page [style*="grid-template-columns"],
+  .super-admin-page [style*="grid-template-columns"],
+  .super-admin-restaurants-page [style*="grid-template-columns"],
+  .super-admin-users-page [style*="grid-template-columns"] {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .billing-page { padding: 74px 12px 20px !important; }
+  .billing-page .billing-main-grid,
+  .billing-page .chartGrid { grid-template-columns: 1fr !important; }
+  .billing-page .topBar { flex-direction: column; align-items: stretch; }
+  .billing-page .topBar > * { width: 100%; min-width: 0 !important; }
+  .billing-page .summaryWrap { display: grid !important; grid-template-columns: 1fr !important; }
+  .billing-page .summaryCard { min-width: 0 !important; }
+  .billing-page .billing-invoice-actions { grid-template-columns: 1fr; }
+  .billing-page .billing-invoice-card { padding: 20px !important; border-radius: 20px !important; }
+  .billing-page .billing-invoice-card table { min-width: 520px; }
+  .billing-page .billing-invoice-card { overflow-x: auto; }
+
+  .dashboardPage { padding: 72px 12px 20px !important; }
+  .dashboardPage .heroCard { flex-direction: column; align-items: stretch; padding: 22px !important; }
+  .dashboardPage .heroSide { align-items: flex-start; }
+  .dashboardPage .statsGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .dashboardPage .categoryGrid { grid-template-columns: 1fr; }
+  .dashboardPage .quickGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+  .order-page { padding-top: 62px !important; }
+  .order-page > div:first-child { grid-template-columns: 1fr !important; }
+  .order-page [style*="grid-template-columns: 260px 1fr 300px"] { grid-template-columns: 1fr !important; }
+
+  .staff-page,
+  .kitchen-page,
+  .admin-page,
+  .super-admin-page,
+  .super-admin-restaurants-page,
+  .super-admin-users-page,
+  .offers-page,
+  .reservations-page,
+  .theme-page,
+  .tables-page,
+  .operations-page {
+    padding-top: 74px !important;
+  }
+
+  .staff-page [style*="grid-template-columns:repeat(3,1fr)"],
+  .kitchen-page [style*="grid-template-columns:repeat(3,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .kitchen-page [style*="repeat(5,280px)"] {
+    grid-template-columns: 1fr !important;
+    padding: 12px !important;
+  }
+
+  .super-admin-users-page .grid,
+  .super-admin-users-page [style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboardPage .statsGrid { grid-template-columns: 1fr; }
+  .dashboardPage .quickGrid { grid-template-columns: 1fr 1fr; }
+  .billing-page .chartCard,
+  .billing-page .card { padding: 16px !important; }
+  .billing-page h1 { font-size: 30px !important; }
+  .operations-page .heroStats { min-width: 0 !important; width: 100%; }
+}
+
+/* Tables / lists should scroll inside their cards instead of breaking the page */
+.app-main table { max-width: 100%; }
+.app-main .table-responsive,
+.app-main [style*="overflowX:\"auto\""] { max-width: 100%; }
+
+/* Consistent hover feedback */
+.app-main button:not(:disabled) { transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
+.app-main button:not(:disabled):hover { transform: translateY(-1px); }
+.app-main button:disabled { cursor: not-allowed; }
+
+.billing-invoice-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #111827;
+}
+.billing-toolbar-label {
+  display: block;
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 3px;
+}
+.billing-edit-btn {
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  color: #111827;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.billing-field-label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+@media (max-width: 520px) {
+  .billing-invoice-toolbar { align-items: flex-start; }
+  .billing-edit-btn { flex: 0 0 auto; }
+}
+
+
+/* =========================================================
+   ANAIRA POS — FINAL OPERATIONS + SUPER ADMIN POLISH
+========================================================= */
+.operations-page input,
+.operations-page select,
+.operations-page textarea {
+  color: #fff;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.10);
+  padding: 11px 12px;
+  outline: none;
+}
+.operations-page input:focus,
+.operations-page select:focus,
+.operations-page textarea:focus {
+  border-color: rgba(var(--primary-rgb),.5);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb),.08);
+}
+.operations-page button:disabled {
+  opacity: .55;
+  cursor: not-allowed !important;
+}
+.super-admin-page input::placeholder,
+.operations-page input::placeholder,
+.operations-page textarea::placeholder {
+  color: #718096;
+}
+@media (max-width: 767px) {
+  .operations-page {
+    padding: 16px 12px 36px !important;
+  }
+  .operations-page header {
+    border-radius: 22px !important;
+  }
+  .operations-page table {
+    min-width: 760px;
+  }
+  .super-admin-page {
+    padding: 14px !important;
+  }
+  .super-admin-page .formBox {
+    grid-template-columns: 1fr !important;
+  }
+  .super-admin-page .actions {
+    flex-wrap: wrap;
+  }
+  .super-admin-page .actions button {
+    flex: 1 1 90px;
+  }
+}
+@media (max-width: 520px) {
+  .operations-page section {
+    min-width: 0;
+  }
+}
+
+
+/* =========================================================
+   FINAL MOBILE QA — BILLING + APP SHELL
+========================================================= */
+.billing-topbar,
+.billing-summary-wrap,
+.billing-chart-grid,
+.billing-left-panel {
+  min-width: 0;
+}
+
+.billing-topbar > *,
+.billing-summary-wrap > *,
+.billing-chart-grid > *,
+.billing-main-grid > * {
+  min-width: 0;
+}
+
+.billing-page .billing-topbar select,
+.billing-page .billing-topbar input,
+.billing-page .billing-topbar button {
+  min-height: 46px;
+}
+
+.billing-page .billing-topbar select {
+  flex: 1 1 260px;
+}
+
+.billing-page .billing-topbar input[type="date"] {
+  flex: 0 1 190px;
+}
+
+.billing-page .billing-summary-wrap {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.billing-page .billing-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.billing-page .billing-invoice-card table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.billing-page .billing-invoice-card th:first-child,
+.billing-page .billing-invoice-card td:first-child { width: 46%; }
+.billing-page .billing-invoice-card th:nth-child(2),
+.billing-page .billing-invoice-card td:nth-child(2) { width: 14%; }
+.billing-page .billing-invoice-card th:nth-child(3),
+.billing-page .billing-invoice-card td:nth-child(3) { width: 18%; }
+.billing-page .billing-invoice-card th:nth-child(4),
+.billing-page .billing-invoice-card td:nth-child(4) { width: 22%; }
+.billing-page .billing-invoice-card td,
+.billing-page .billing-invoice-card th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+@media (max-width: 1100px) {
+  .billing-page .billing-summary-wrap { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .billing-page .billing-chart-grid { grid-template-columns: 1fr; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-left-panel { position: static !important; }
+}
+
+@media (max-width: 767px) {
+  .billing-page {
+    padding: 70px 10px 24px !important;
+  }
+  .billing-page > div:first-child {
+    padding: 18px !important;
+    margin-bottom: 14px !important;
+  }
+  .billing-page h1 { font-size: 27px !important; }
+  .billing-page .billing-topbar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px !important;
+    padding: 12px !important;
+    position: sticky;
+    top: 8px;
+    z-index: 30;
+    backdrop-filter: blur(18px);
+  }
+  .billing-page .billing-topbar select {
+    grid-column: 1 / -1;
+    width: 100% !important;
+  }
+  .billing-page .billing-topbar input[type="date"],
+  .billing-page .billing-topbar button {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 13px;
+    padding: 12px 10px !important;
+  }
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+  }
+  .billing-page .billing-summary-wrap .summaryCard,
+  .billing-page .summaryCard { padding: 18px 10px !important; border-radius: 18px !important; }
+  .billing-page .summaryCard h2 { font-size: 22px; }
+  .billing-page .billing-chart-grid { grid-template-columns: 1fr !important; }
+  .billing-page .chartCard { padding: 14px !important; overflow: hidden; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-left-panel { width: 100%; }
+  .billing-page .billing-invoice-card {
+    padding: 14px !important;
+    border-radius: 18px !important;
+  }
+  .billing-page .billing-invoice-card table {
+    min-width: 0 !important;
+    font-size: 11px;
+  }
+  .billing-page .billing-invoice-card th,
+  .billing-page .billing-invoice-card td {
+    padding: 6px 4px !important;
+  }
+  .billing-page .billing-invoice-header {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .billing-page .billing-invoice-header > div:last-child {
+    text-align: left !important;
+  }
+  .billing-page .billing-invoice-toolbar {
+    flex-wrap: wrap;
+  }
+  .billing-page .billing-invoice-actions {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-empty-state {
+    min-height: 360px !important;
+    padding: 26px 16px !important;
+  }
+  .billing-page .billing-empty-state h2 { font-size: 20px; }
+}
+
+@media (max-width: 420px) {
+  .billing-page .billing-summary-wrap { grid-template-columns: 1fr 1fr; }
+  .billing-page .billing-summary-wrap .summaryCard p { font-size: 12px; }
+  .billing-page .billing-summary-wrap .summaryCard h2 { font-size: 19px; }
+}
+
+/* Prevent fixed/absolute legacy controls from creating mobile horizontal overflow. */
+@media (max-width: 767px) {
+  .app-main { overflow-x: clip; }
+  .app-main [style*="position: fixed"] { max-width: 100vw; }
+  .app-main img { height: auto; }
+}
+
+
+/* =========================================================
+   ANAIRA ENTERPRISE PREMIUM DESIGN SYSTEM
+   Shared by every new Enterprise page. No page should carry
+   a hard-coded dark palette; active restaurant/platform theme
+   tokens drive surfaces, borders, typography and controls.
+========================================================= */
+:root {
+  --page-glow: rgba(var(--primary-rgb), .12);
+  --panel-glow: rgba(var(--accent-rgb), .08);
+  --shadow-premium: 0 22px 60px rgba(0,0,0,.22);
+}
+
+body {
+  background:
+    radial-gradient(circle at 88% 4%, var(--page-glow), transparent 26%),
+    radial-gradient(circle at 12% 94%, var(--panel-glow), transparent 24%),
+    var(--background);
+  color: var(--text);
+}
+
+.app-main {
+  background: transparent;
+}
+
+.app-main .page,
+.app-main .shell {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+.app-main .page {
+  padding: clamp(20px, 3vw, 36px);
+}
+
+.app-main .page h1,
+.app-main .page h2,
+.app-main .page h3,
+.app-main .shell h1,
+.app-main .shell h2,
+.app-main .shell h3 {
+  color: var(--text) !important;
+}
+
+.app-main .page p,
+.app-main .shell p,
+.app-main .page small,
+.app-main .shell small,
+.app-main .page span,
+.app-main .shell span {
+  color: var(--muted);
+}
+
+.app-main .page .card,
+.app-main .shell .card,
+.app-main .page .metric,
+.app-main .shell .metric,
+.app-main .page .plan,
+.app-main .shell .plan,
+.app-main .page .stats > div,
+.app-main .shell .stats > div {
+  background: linear-gradient(145deg, rgba(var(--surface-rgb), .97), rgba(var(--surface-2-rgb), .94)) !important;
+  border: 1px solid rgba(var(--primary-rgb), .16) !important;
+  box-shadow: var(--shadow-premium);
+  color: var(--text);
+  border-radius: var(--radius);
+}
+
+.app-main .page input,
+.app-main .page select,
+.app-main .page textarea,
+.app-main .shell input,
+.app-main .shell select,
+.app-main .shell textarea {
+  background: rgba(var(--surface-rgb), .82) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(var(--primary-rgb), .22) !important;
+  border-radius: calc(var(--radius) * .65);
+  outline: none;
+}
+
+.app-main .page input:focus,
+.app-main .page select:focus,
+.app-main .page textarea:focus,
+.app-main .shell input:focus,
+.app-main .shell select:focus,
+.app-main .shell textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .10), 0 0 24px rgba(var(--primary-rgb), .10);
+}
+
+.app-main .page button,
+.app-main .shell button {
+  font-family: inherit;
+}
+
+.app-main .page .btn,
+.app-main .page .primary,
+.app-main .page .primaryBtn,
+.app-main .shell .primary,
+.app-main .shell .primaryBtn {
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 68%, var(--accent))) !important;
+  color: var(--secondary) !important;
+  border: 1px solid rgba(var(--primary-rgb), .55) !important;
+  box-shadow: 0 12px 30px rgba(var(--primary-rgb), .15);
+}
+
+.app-main .page .ghost,
+.app-main .page .head button,
+.app-main .shell .head button {
+  background: rgba(var(--surface-2-rgb), .72) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(var(--primary-rgb), .18) !important;
+}
+
+.app-main .page .eyebrow,
+.app-main .shell .eyebrow,
+.app-main .page .head span,
+.app-main .shell .head span {
+  color: var(--primary) !important;
+}
+
+.app-main .page .row,
+.app-main .shell .row,
+.app-main .page th,
+.app-main .page td {
+  border-color: rgba(var(--primary-rgb), .10) !important;
+}
+
+.app-main .page .note,
+.app-main .shell .note {
+  background: transparent;
+}
+
+.app-main .page .icon,
+.app-main .shell .icon {
+  background: rgba(var(--primary-rgb), .10) !important;
+  border: 1px solid rgba(var(--primary-rgb), .14);
+}
+
+@media (max-width: 767px) {
+  .app-main .page,
+  .app-main .shell {
+    padding: 78px 16px 24px !important;
+  }
+}
+
+
+/* =========================================================
+   CONSOLIDATED RESPONSIVE QA BASELINE
+========================================================= */
+@media (max-width: 767px) {
+  button, a[role="button"], input, select, textarea {
+    min-height: 42px;
+  }
+  table {
+    max-width: 100%;
+  }
+  .app-main > main,
+  .app-main > div {
+    max-width: 100%;
+  }
+}
+@media (max-width: 480px) {
+  button, a[role="button"] {
+    min-height: 44px;
+  }
+}
+
+
+/* =========================================================
+   ANAIRA TYPOGRAPHY + DATA HIERARCHY
+   Titles = strong, values = strong, supporting copy = regular.
+   Prevents number/text collisions across cards and dashboards.
+========================================================= */
+.ui-data-stack{display:grid;gap:4px;min-width:0}
+.ui-data-label{font-size:12px;font-weight:700;line-height:1.3;color:var(--text)}
+.ui-data-value{font-size:28px;font-weight:900;line-height:1.05;color:var(--primary);letter-spacing:-.35px}
+.ui-data-hint{font-size:11px;font-weight:400;line-height:1.4;color:var(--muted)}
+.ui-section-title{font-weight:850;line-height:1.2;color:var(--text)}
+.ui-body-copy{font-weight:400;line-height:1.5;color:var(--muted)}
+.ui-action{font-weight:800;white-space:nowrap}
+
+/* =========================================================
+   FINAL UI QA SAFETY PASS
+   Keep hover motion desktop-only and preserve readable hierarchy.
+========================================================= */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover,
+  .quickAction:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .card:hover,
+  .quickAction:hover {
+    transform: none !important;
+  }
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary, #fbbf24);
+  outline-offset: 2px;
+}
+
+
+/* =========================================================
+   GLOBAL CONTENT-FIT / CARD SAFETY
+   Prevent long text, IDs, emails and labels from escaping
+   cards across desktop, tablet and mobile layouts.
+========================================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+.app-main,
+.app-shell,
+main,
+section,
+article,
+aside,
+header,
+footer,
+.card,
+.panel {
+  min-width: 0;
+}
+
+h1, h2, h3, h4, h5, h6,
+p, span, small, strong, label,
+button, a, td, th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
+input, select, textarea, button {
+  max-width: 100%;
+}
+
+
+/* Billing page responsive layout */
+.billing-page,
+.billing-page * {
+  box-sizing: border-box;
+}
+.billing-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+.billing-page .billing-summary-wrap {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 15px !important;
+}
+.billing-page .billing-summary-card {
+  min-width: 0 !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+.billing-page .billing-summary-card h2 {
+  margin: 8px 0 !important;
+  line-height: 1.15 !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+.billing-page .billing-chart-grid {
+  min-width: 0 !important;
+}
+.billing-page .billing-chart-card {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+.billing-page .billing-main-grid {
+  min-width: 0 !important;
+}
+.billing-page .billing-left-panel,
+.billing-page .billing-card,
+.billing-page .billing-bill-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.billing-page .billing-invoice-table {
+  width: 100%;
+  max-width: 100%;
+}
+.billing-page .billing-invoice-table th,
+.billing-page .billing-invoice-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 1200px) {
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  .billing-page .billing-main-grid {
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) !important;
+  }
+  .billing-page .billing-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .billing-page .billing-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-left-panel {
+    position: static !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .billing-page {
+    padding: 14px !important;
+  }
+  .billing-page .billing-topbar {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    padding: 14px !important;
+    gap: 10px !important;
+  }
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .billing-page .billing-summary-card {
+    padding: 18px !important;
+  }
+  .billing-page .billing-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-chart-card {
+    padding: 16px !important;
+  }
+  .billing-page .billing-input,
+  .billing-page .billing-action {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}

@@ -1,0 +1,250 @@
+"use client"
+
+import { useCallback, useEffect, useRef, useState } from "react"
+import { supabase } from "@/lib/supabase"
+
+type Notice = {
+  id: string
+  title: string
+  message?: string | null
+  action_url?: string | null
+  created_at: string
+  type?: string
+}
+
+function playOrderTone() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const now = ctx.currentTime
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65)
+    gain.connect(ctx.destination)
+
+    const osc1 = ctx.createOscillator()
+    const osc2 = ctx.createOscillator()
+    osc1.type = "sine"
+    osc2.type = "sine"
+    osc1.frequency.setValueAtTime(880, now)
+    osc1.frequency.setValueAtTime(1175, now + 0.16)
+    osc2.frequency.setValueAtTime(659, now)
+    osc2.frequency.setValueAtTime(880, now + 0.16)
+    osc1.connect(gain)
+    osc2.connect(gain)
+    osc1.start(now)
+    osc2.start(now)
+    osc1.stop(now + 0.65)
+    osc2.stop(now + 0.65)
+
+    window.setTimeout(() => {
+      try { void ctx.close() } catch {}
+    }, 900)
+  } catch {}
+}
+
+export default function OrderNotificationListener({ user, restaurantId, role }: { user: any, restaurantId: string | null, role: string }) {
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [permission, setPermission] = useState<string>(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission
+  )
+  const initialized = useRef(false)
+  const seenIds = useRef(new Set<string>())
+  const lastCreatedAt = useRef<string | null>(null)
+  const audioUnlocked = useRef(false)
+
+  const unlockAudio = useCallback(() => {
+    if (audioUnlocked.current) return
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioCtx) return
+      const ctx = new AudioCtx()
+      if (ctx.state === "suspended") void ctx.resume()
+      audioUnlocked.current = true
+      window.setTimeout(() => { try { void ctx.close() } catch {} }, 300)
+    } catch {}
+  }, [])
+
+  const showNotice = useCallback((row: Notice) => {
+    if (!row?.id || seenIds.current.has(row.id)) return
+    seenIds.current.add(row.id)
+    setNotice(row)
+    playOrderTone()
+
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      try {
+        const n = new Notification(row.title || "New order", {
+          body: row.message || "A new order has arrived in the kitchen.",
+          tag: `anaira-order-${row.id}`,
+          requireInteraction: true,
+        })
+        n.onclick = () => {
+          window.focus()
+          if (row.action_url) window.location.href = row.action_url
+          n.close()
+        }
+      } catch {}
+    }
+
+    window.setTimeout(() => {
+      setNotice(current => current?.id === row.id ? null : current)
+    }, 7000)
+  }, [])
+
+  const requestPermission = useCallback(async () => {
+    unlockAudio()
+    if (typeof Notification === "undefined") return
+    try {
+      const value = await Notification.requestPermission()
+      setPermission(value)
+    } catch {}
+  }, [unlockAudio])
+
+  useEffect(() => {
+    window.addEventListener("pointerdown", unlockAudio, { once: true })
+    return () => window.removeEventListener("pointerdown", unlockAudio)
+  }, [unlockAudio])
+
+  useEffect(() => {
+    if (!user || !restaurantId || role === "super_admin") return
+
+    let cancelled = false
+    let channel: any = null
+    let pollTimer: number | null = null
+
+    async function start() {
+      const { data: latest } = await supabase
+        .from("notifications")
+        .select("id,created_at")
+        .eq("restaurant_id", restaurantId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+
+      if (cancelled) return
+      if (latest?.[0]) lastCreatedAt.current = latest[0].created_at
+      initialized.current = true
+
+      channel = supabase
+        .channel(`restaurant-notifications-${restaurantId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `restaurant_id=eq.${restaurantId}`,
+          },
+          payload => {
+            if (!cancelled) showNotice(payload.new as Notice)
+          }
+        )
+        .subscribe()
+
+      const poll = async () => {
+        if (cancelled) return
+        let query = supabase
+          .from("notifications")
+          .select("id,title,message,action_url,created_at,type")
+          .eq("restaurant_id", restaurantId)
+          .order("created_at", { ascending: true })
+          .limit(20)
+
+        if (lastCreatedAt.current) {
+          query = query.gt("created_at", lastCreatedAt.current)
+        }
+
+        const { data } = await query
+        if (cancelled) return
+
+        for (const row of data || []) {
+          if (!lastCreatedAt.current || row.created_at > lastCreatedAt.current) {
+            lastCreatedAt.current = row.created_at
+          }
+          showNotice(row as Notice)
+        }
+      }
+
+      pollTimer = window.setInterval(poll, 5000)
+    }
+
+    start()
+
+    return () => {
+      cancelled = true
+      if (pollTimer) window.clearInterval(pollTimer)
+      if (channel) void supabase.removeChannel(channel)
+    }
+  }, [user, restaurantId, role, showNotice])
+
+  if (!user || !restaurantId || role === "super_admin") return null
+
+  return (
+    <>
+      {permission !== "granted" && (
+        <button
+          type="button"
+          onClick={requestPermission}
+          aria-label="Enable order notifications and sound"
+          style={{
+            position: "fixed",
+            right: 18,
+            bottom: 18,
+            zIndex: 9999,
+            border: "1px solid rgba(var(--primary-rgb),.35)",
+            background: "var(--surface)",
+            color: "var(--text)",
+            borderRadius: 14,
+            padding: "10px 13px",
+            fontWeight: 800,
+            fontSize: 12,
+            boxShadow: "0 14px 36px rgba(0,0,0,.25)",
+            cursor: "pointer",
+          }}
+        >
+          🔔 Enable order alerts
+        </button>
+      )}
+
+      {notice && (
+        <button
+          type="button"
+          onClick={() => {
+            if (notice.action_url) window.location.href = notice.action_url
+            setNotice(null)
+          }}
+          style={{
+            position: "fixed",
+            top: 18,
+            right: 18,
+            zIndex: 10000,
+            width: "min(420px, calc(100vw - 36px))",
+            display: "flex",
+            alignItems: "center",
+            gap: 13,
+            textAlign: "left",
+            border: "1px solid rgba(var(--primary-rgb),.35)",
+            background: "linear-gradient(135deg,var(--surface),var(--surface-2))",
+            color: "var(--text)",
+            borderRadius: 18,
+            padding: 15,
+            boxShadow: "0 20px 55px rgba(0,0,0,.35)",
+            cursor: "pointer",
+          }}
+        >
+          <span style={{ fontSize: 28 }}>🔔</span>
+          <span style={{ minWidth: 0 }}>
+            <strong style={{ display: "block", fontSize: 15 }}>{notice.title}</strong>
+            <span style={{ display: "block", marginTop: 3, color: "var(--muted)", fontSize: 12 }}>
+              {notice.message || "A new order has arrived."}
+            </span>
+            <span style={{ display: "block", marginTop: 6, color: "var(--primary)", fontSize: 11, fontWeight: 800 }}>
+              Tap to open Kitchen
+            </span>
+          </span>
+        </button>
+      )}
+    </>
+  )
+}
