@@ -3,6 +3,22 @@ import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
 
+function dateKeyInIndia(value) {
+  if (!value) return ""
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ""
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(d)
+}
+
+function todayIndiaKey() {
+  return dateKeyInIndia(new Date())
+}
+
 export async function GET(req) {
   try {
     const user = await requireApiUser(req)
@@ -136,6 +152,32 @@ export async function GET(req) {
       })
     }
 
+    const todayKey = todayIndiaKey()
+    const cancelledStatuses = new Set(["cancelled","canceled","void","voided","refunded"])
+    const todayOrders = orders.filter(order => {
+      const status = String(order.status || "").toLowerCase()
+      if (cancelledStatuses.has(status)) return false
+      return dateKeyInIndia(order.created_at || order.billed_at) === todayKey
+    })
+    const todaySales = todayOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0)
+    const pendingOrders = orders.filter(order => ["pending","new"].includes(String(order.status || "").toLowerCase())).length
+    const preparingOrders = orders.filter(order => ["preparing","in_kitchen","in-kitchen"].includes(String(order.status || "").toLowerCase())).length
+    const readyOrders = orders.filter(order => String(order.status || "").toLowerCase() === "ready").length
+    const completedOrders = orders.filter(order => ["done","completed","served","paid"].includes(String(order.status || "").toLowerCase())).length
+
+    // Customers should never silently become zero just because the customers
+    // table is unavailable/incomplete. Fall back to unique customer IDs from orders.
+    const customerIds = new Set(
+      orders.map(order => order.customer_id).filter(Boolean).map(String)
+    )
+    const customerCount = customersRes.error
+      ? customerIds.size
+      : Math.max(customersRes.data?.length || 0, customerIds.size)
+
+    const todayReservations = (reservationsRes.data || []).filter(
+      reservation => String(reservation.date || "").slice(0, 10) === todayKey
+    )
+
     return Response.json({
       success:true,
       restaurant_id:rid,
@@ -148,6 +190,18 @@ export async function GET(req) {
       reservations:reservationsRes.data || [],
       tables:tablesRes.data || [],
       orderItems,
+      summary: {
+        todayKey,
+        todayOrderCount: todayOrders.length,
+        todaySales,
+        averageBill: todayOrders.length ? todaySales / todayOrders.length : 0,
+        customerCount,
+        todayReservationCount: todayReservations.length,
+        pendingOrders,
+        preparingOrders,
+        readyOrders,
+        completedOrders
+      },
       errors
     })
   } catch (error) {

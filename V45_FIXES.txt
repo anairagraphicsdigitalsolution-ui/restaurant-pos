@@ -1,0 +1,7 @@
+V45 fixes
+- Dashboard metrics use a server-side Asia/Kolkata day boundary and a summary payload.
+- Customer count falls back to unique customer IDs from orders instead of silently showing zero.
+- Dashboard today's sales/order/average/reservation values prefer the server summary.
+- Offers Smart Promotions hero is forced into a clean single-column mobile layout.
+- Offers stat cards have explicit spacing and overflow handling so labels do not merge.
+- Existing order mobile 3-column layout and prior migration fixes are retained.

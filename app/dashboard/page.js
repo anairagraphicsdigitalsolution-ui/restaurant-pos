@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [live, setLive] = useState(false)
   const [activeImage, setActiveImage] = useState(0)
+  const [summary, setSummary] = useState(null)
 
   useEffect(() => {
     let channel
@@ -147,6 +148,7 @@ export default function Dashboard() {
       setCustomers(customerData)
       setReservations(reservationData)
       setTables(payload.tables || [])
+      setSummary(payload.summary || null)
 
       const itemMap = new Map(itemData.map((item) => [String(item.id), item]))
       const salesMap = {}
@@ -234,13 +236,13 @@ export default function Dashboard() {
     }),
     [orders]
   )
-  const todaySales = useMemo(() => todayOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0), [todayOrders])
-  const paidToday = useMemo(() => todayOrders.filter((o) => o.payment_status === "paid" || Number(o.total_amount || 0) > 0).reduce((sum, o) => sum + Number(o.total_amount || 0), 0), [todayOrders])
-  const averageBill = todayOrders.length ? todaySales / todayOrders.length : 0
-  const pendingOrders = orders.filter((o) => ["pending", "new"].includes(String(o.status || "").toLowerCase())).length
-  const preparingOrders = orders.filter((o) => ["preparing", "in_kitchen", "in-kitchen"].includes(String(o.status || "").toLowerCase())).length
-  const readyOrders = orders.filter((o) => String(o.status || "").toLowerCase() === "ready").length
-  const todayReservations = reservations.filter((r) => r.date === new Date().toISOString().slice(0, 10))
+  const todaySales = summary?.todaySales ?? todayOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
+  const paidToday = todayOrders.filter((o) => o.payment_status === "paid" || Number(o.total_amount || 0) > 0).reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
+  const averageBill = summary?.averageBill ?? (todayOrders.length ? todaySales / todayOrders.length : 0)
+  const pendingOrders = summary?.pendingOrders ?? orders.filter((o) => ["pending", "new"].includes(String(o.status || "").toLowerCase())).length
+  const preparingOrders = summary?.preparingOrders ?? orders.filter((o) => ["preparing", "in_kitchen", "in-kitchen"].includes(String(o.status || "").toLowerCase())).length
+  const readyOrders = summary?.readyOrders ?? orders.filter((o) => String(o.status || "").toLowerCase() === "ready").length
+  const todayReservations = reservations.filter((r) => r.date === (summary?.todayKey || new Date().toISOString().slice(0, 10)))
   const activeOffers = offers.filter((o) => !o.valid_till || o.valid_till >= new Date().toISOString().slice(0, 10))
   const maxSales = Math.max(...salesDays.map((d) => d.total), 1)
 
@@ -279,7 +281,7 @@ export default function Dashboard() {
           <StatCard icon="₹" label="Today's Sales" value={money(todaySales)} note={`${todayOrders.length} orders today`} />
           <StatCard icon="🧾" label="Today's Orders" value={todayOrders.length} note={`${pendingOrders} pending`} />
           <StatCard icon="◉" label="Average Bill" value={money(averageBill)} note="Per order today" />
-          <StatCard icon="👥" label="Customers" value={customers.length} note={`${todayReservations.length} reservations today`} />
+          <StatCard icon="👥" label="Customers" value={summary?.customerCount ?? customers.length} note={`${summary?.todayReservationCount ?? todayReservations.length} reservations today`} />
           <StatCard icon="🎁" label="Active Offers" value={activeOffers.length} note="Currently available" />
           <StatCard icon="🍳" label="Kitchen Queue" value={pendingOrders + preparingOrders} note={`${readyOrders} ready for service`} />
         </section>
@@ -305,7 +307,7 @@ export default function Dashboard() {
               <FlowCard label="Pending" value={pendingOrders} icon="🕐" tone="pending" />
               <FlowCard label="Preparing" value={preparingOrders} icon="🔥" tone="warning" />
               <FlowCard label="Ready" value={readyOrders} icon="✓" tone="info" />
-              <FlowCard label="Completed" value={orders.filter((o) => ["done", "completed", "served"].includes(String(o.status || "").toLowerCase())).length} icon="✓" tone="success" />
+              <FlowCard label="Completed" value={summary?.completedOrders ?? orders.filter((o) => ["done", "completed", "served"].includes(String(o.status || "").toLowerCase())).length} icon="✓" tone="success" />
             </div>
             <button className="wideBtn" onClick={() => router.push("/kitchen")}>Open Kitchen Display</button>
           </div>
