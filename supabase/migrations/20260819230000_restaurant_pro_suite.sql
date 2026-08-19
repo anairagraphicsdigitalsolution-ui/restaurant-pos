@@ -1,7 +1,5 @@
 -- Restaurant Pro Suite
 -- GST is optional and disabled by default.
-create extension if not exists "pgcrypto";
-
 alter table public.restaurants
   add column if not exists gst_enabled boolean default false,
   add column if not exists gst_number text,

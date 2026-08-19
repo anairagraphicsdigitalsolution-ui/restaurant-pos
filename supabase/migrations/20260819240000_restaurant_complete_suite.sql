@@ -2,8 +2,6 @@
 -- All restaurant operational features are optional/configurable.
 -- GST remains OFF by default.
 
-create extension if not exists "pgcrypto";
-
 -- Existing order/table configuration
 alter table public.orders
   add column if not exists order_mode text default 'dine_in',

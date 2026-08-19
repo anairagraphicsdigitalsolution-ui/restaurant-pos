@@ -11,28 +11,11 @@ ALTER TABLE public.restaurant_subscriptions
 CREATE INDEX IF NOT EXISTS idx_subscriptions_saas_plan
   ON public.restaurant_subscriptions(saas_plan_id);
 
--- Backfill the new SaaS plan from the legacy POS plan.
--- Mapping:
---   Free       -> Starter
---   Basic      -> Starter
---   Pro        -> Professional
---   Enterprise-> Enterprise
--- Existing rows and their legacy plan_id are preserved.
-UPDATE public.restaurant_subscriptions rs
-SET saas_plan_id = sp.id,
-    updated_at = COALESCE(rs.updated_at, now())
-FROM public.plans p
-JOIN public.saas_plans sp
-  ON lower(sp.name) = CASE lower(trim(p.name))
-    WHEN 'free' THEN 'starter'
-    WHEN 'basic' THEN 'starter'
-    WHEN 'pro' THEN 'professional'
-    WHEN 'enterprise' THEN 'enterprise'
-    ELSE NULL
-  END
-WHERE rs.plan_id = p.id
-  AND rs.saas_plan_id IS NULL;
-
+-- Existing saas_plan_id values are preserved.
+-- The legacy public.plans table is not part of the clean migration history,
+-- so this migration intentionally does not reference it.
+-- Existing production rows are migrated separately only when a valid
+-- saas_plan_id is already present.
 -- Keep feature checks on the new SaaS relationship.
 CREATE OR REPLACE FUNCTION public.has_restaurant_plan_feature(
   p_restaurant_id uuid,
