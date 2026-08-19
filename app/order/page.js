@@ -26,6 +26,7 @@ export default function OrderPage() {
   const [type, setType] = useState("table")
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState("")
+  const [activeCategory, setActiveCategory] = useState("All")
   const [restaurantId, setRestaurantId] = useState(null)
   const [restaurantName, setRestaurantName] = useState("")
   
@@ -293,11 +294,23 @@ export default function OrderPage() {
   }
 
   const groupedMenu = menu.reduce((acc, item) => {
-    const cat = item.category || "Other"
+    const cat = String(item.category || "Other").trim() || "Other"
     if (!acc[cat]) acc[cat] = []
     acc[cat].push(item)
     return acc
   }, {})
+
+  const categories = Object.keys(groupedMenu)
+
+  useEffect(() => {
+    if (categories.length && activeCategory !== "All" && !categories.includes(activeCategory)) {
+      setActiveCategory(categories[0])
+    }
+  }, [menu.length, activeCategory])
+
+  const visibleItems = activeCategory === "All"
+    ? menu
+    : (groupedMenu[activeCategory] || [])
 
   return (
   <div style={getLayout(isMobile)} className="order-page">
@@ -360,28 +373,62 @@ export default function OrderPage() {
       </div>
 
       <div style={{...glass, ...menuBox}}>
-        {Object.entries(groupedMenu).map(([cat, items]) => (
-          <div key={cat}>
-           <h3
-  style={{
-    color:"var(--primary)",
-    marginBottom:14,
-    fontWeight:700
-  }}
->
-  {cat}
-</h3>
-            <div style={getGrid(isMobile)}>
-              {items.map(item=>(
-                <div key={item.id} style={menuCard} onClick={()=>addToCart(item)}>
-                  <img src={item.image} style={imageStyle}/>
-                  <p>{item.name}</p>
-                  <p>₹{item.price}</p>
-                </div>
-              ))}
-            </div>
+        <div style={categoryHeader}>
+          <div>
+            <div style={categoryEyebrow}>MENU</div>
+            <h2 style={{margin:"3px 0 0",fontSize:isMobile ? 20 : 24}}>
+              Choose your food
+            </h2>
           </div>
-        ))}
+          <span style={categoryCount}>{visibleItems.length} items</span>
+        </div>
+
+        <div className="order-category-tabs" style={categoryTabs}>
+          {categories.map(cat => (
+            <button
+              type="button"
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              style={{
+                ...categoryTab,
+                ...(activeCategory === cat ? categoryTabActive : {})
+              }}
+            >
+              {cat}
+              <span style={{
+                ...categoryTabCount,
+                ...(activeCategory === cat ? categoryTabCountActive : {})
+              }}>
+                {groupedMenu[cat].length}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div style={categoryTitle}>
+          <span>{activeCategory === "All" ? "All Items" : activeCategory}</span>
+          <small>Tap to add</small>
+        </div>
+
+        <div style={getGrid(isMobile)}>
+          {visibleItems.map(item => (
+            <button
+              type="button"
+              className="order-menu-card"
+              key={item.id}
+              style={menuCard}
+              onClick={() => addToCart(item)}
+            >
+              <img src={item.image} alt={item.name} style={imageStyle}/>
+              <span className="order-item-name" style={itemName}>{item.name}</span>
+              <span className="order-item-price" style={itemPrice}>
+                ₹{Number(item.price || 0).toLocaleString("en-IN")}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {!visibleItems.length && <div style={emptyMenu}>No items in this category.</div>}
       </div>
 
       <div style={{...glass, ...panel}}>
@@ -542,30 +589,132 @@ const getGrid = (isMobile) => ({
   gap:8
 })
 
+const categoryHeader = {
+  display:"flex",
+  alignItems:"center",
+  justifyContent:"space-between",
+  gap:12,
+  marginBottom:10
+}
+
+const categoryEyebrow = {
+  color:"var(--primary)",
+  fontSize:10,
+  fontWeight:900,
+  letterSpacing:1.5
+}
+
+const categoryCount = {
+  color:"var(--muted)",
+  fontSize:12,
+  fontWeight:700
+}
+
+const categoryTabs = {
+  display:"flex",
+  gap:8,
+  overflowX:"auto",
+  padding:"3px 2px 10px",
+  marginBottom:4,
+  scrollbarWidth:"thin",
+  WebkitOverflowScrolling:"touch"
+}
+
+const categoryTab = {
+  flex:"0 0 auto",
+  display:"inline-flex",
+  alignItems:"center",
+  gap:7,
+  border:"1px solid rgba(var(--primary-rgb),.18)",
+  background:"rgba(255,255,255,.04)",
+  color:"#fff",
+  borderRadius:999,
+  padding:"8px 11px",
+  fontSize:12,
+  fontWeight:800,
+  cursor:"pointer",
+  whiteSpace:"nowrap"
+}
+
+const categoryTabActive = {
+  background:"rgba(var(--primary-rgb),.14)",
+  borderColor:"var(--primary)",
+  color:"var(--primary)"
+}
+
+const categoryTabCount = {
+  minWidth:18,
+  height:18,
+  display:"inline-grid",
+  placeItems:"center",
+  borderRadius:999,
+  background:"rgba(255,255,255,.08)",
+  color:"var(--muted)",
+  fontSize:10
+}
+
+const categoryTabCountActive = {
+  background:"var(--primary)",
+  color:"#111"
+}
+
+const categoryTitle = {
+  display:"flex",
+  alignItems:"baseline",
+  justifyContent:"space-between",
+  gap:8,
+  margin:"4px 0 10px",
+  color:"#fff",
+  fontWeight:900
+}
+
+const itemName = {
+  display:"block",
+  marginTop:7,
+  fontSize:13,
+  fontWeight:800,
+  lineHeight:1.2,
+  overflow:"hidden",
+  textOverflow:"ellipsis",
+  whiteSpace:"nowrap"
+}
+
+const itemPrice = {
+  display:"block",
+  marginTop:4,
+  color:"var(--primary)",
+  fontSize:13,
+  fontWeight:900
+}
+
+const emptyMenu = {
+  padding:"35px 12px",
+  textAlign:"center",
+  color:"var(--muted)"
+}
+
 const menuCard = {
+  appearance:"none",
+  width:"100%",
+  minWidth:0,
   padding:7,
   borderRadius:16,
-
   background:"rgba(255,255,255,.05)",
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.15)",
-
+  border:"1px solid rgba(var(--primary-rgb),.15)",
   backdropFilter:"blur(16px)",
-
-  boxShadow:
-    "0 15px 35px rgba(0,0,0,.35)",
-
+  boxShadow:"0 15px 35px rgba(0,0,0,.35)",
+  color:"#fff",
+  textAlign:"left",
   cursor:"pointer",
-
-  transition:"0.3s"
-  
+  transition:"transform .18s ease, border-color .18s ease, background .18s ease"
 }
 
 
 const imageStyle = {
+  display:"block",
   width:"100%",
-  height:112,
+  aspectRatio:"1 / 1",
+  height:"auto",
   objectFit:"cover",
   borderRadius:12
 }
