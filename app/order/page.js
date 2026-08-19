@@ -431,77 +431,94 @@ export default function OrderPage() {
         {!visibleItems.length && <div style={emptyMenu}>No items in this category.</div>}
       </div>
 
-      <div style={{...glass, ...panel}}>
-        <div
-  style={{
-    marginBottom:16,
-    padding:14,
-    borderRadius:14,
-    background:"rgba(255,255,255,.04)",
-    border:"1px solid rgba(var(--primary-rgb),.15)"
-  }}
->
-  <div style={{color:"var(--muted)"}}>
-    Total
-  </div>
-
-  <div
-    style={{
-      color:"var(--primary)",
-      fontSize:28,
-      fontWeight:"bold"
-    }}
-  >
-    ₹{cart.reduce((t,i)=>t+(Number(i.price||0)+Number(i.modifierTotal||0))*i.qty,0)}
-  </div>
-</div>
-        <button style={placeBtn} onClick={placeOrder}>
-          🚀 Place Order
-        </button>
-
-        {cart.map(item=>(
-          <div key={item.cartKey} style={cartItem}>
-            <div>
-              <b>{item.name}</b>
-              {item.selectedModifiers?.length > 0 && (
-                <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
-                  + {item.selectedModifiers.map(m=>m.name).join(", ")}
-                </div>
-              )}
-            </div>
-            <div
-  style={{
-    display:"flex",
-    alignItems:"center",
-    gap:6
-  }}
->
-  <button
-    onClick={() => removeItem(item.cartKey)}
-    style={{
-      background:"var(--danger)",
-      color:"#fff",
-      border:"none",
-      borderRadius:6,
-      padding:"4px 8px",
-      cursor:"pointer"
-    }}
-  >
-    🗑️
-  </button>
-
-  <button onClick={()=>updateQty(item.cartKey,-1)}>
-    -
-  </button>
-
-  {item.qty}
-
-  <button onClick={()=>updateQty(item.cartKey,1)}>
-    +
-  </button>
-</div>
+      <div className="order-cart-panel" style={{...glass, ...panel}}>
+        <div style={cartHeader}>
+          <div>
+            <div style={cartEyebrow}>YOUR ORDER</div>
+            <h2 style={cartTitle}>Cart</h2>
           </div>
-        ))}
+          <span style={cartBadge}>
+            {cart.reduce((sum, item) => sum + Number(item.qty || 0), 0)} items
+          </span>
+        </div>
+
+        {cart.length === 0 ? (
+          <div style={emptyCart}>
+            <div style={emptyCartIcon}>🛒</div>
+            <strong>Your cart is empty</strong>
+            <span>Add food items from the menu.</span>
+          </div>
+        ) : (
+          <>
+            <div className="order-cart-list" style={cartList}>
+              {cart.map(item => {
+                const unitTotal = Number(item.price || 0) + Number(item.modifierTotal || 0)
+                return (
+                  <div className="order-cart-item" key={item.cartKey} style={cartItem}>
+                    <div style={cartItemMain}>
+                      <div style={cartItemName}>{item.name}</div>
+
+                      {item.selectedModifiers?.length > 0 && (
+                        <div style={cartModifiers}>
+                          + {item.selectedModifiers.map(m => m.name).join(", ")}
+                        </div>
+                      )}
+
+                      <div style={cartItemPrice}>
+                        ₹{unitTotal.toLocaleString("en-IN")} each
+                      </div>
+                    </div>
+
+                    <div style={cartItemActions}>
+                      <button
+                        type="button"
+                        onClick={() => updateQty(item.cartKey, -1)}
+                        style={qtyBtn}
+                        aria-label={`Decrease ${item.name}`}
+                      >
+                        −
+                      </button>
+                      <span style={qtyValue}>{item.qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateQty(item.cartKey, 1)}
+                        style={qtyBtn}
+                        aria-label={`Increase ${item.name}`}
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.cartKey)}
+                        style={removeBtn}
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={cartSummary}>
+              <div style={summaryRow}>
+                <span>Items</span>
+                <strong>{cart.reduce((t,i)=>t+Number(i.qty||0),0)}</strong>
+              </div>
+              <div style={summaryRowTotal}>
+                <span>Total</span>
+                <strong>
+                  ₹{cart.reduce((t,i)=>t+(Number(i.price||0)+Number(i.modifierTotal||0))*i.qty,0).toLocaleString("en-IN")}
+                </strong>
+              </div>
+            </div>
+
+            <button type="button" style={placeBtn} onClick={placeOrder}>
+              🚀 Place Order
+            </button>
+          </>
+        )}
       </div>
 
       {modifierItem && (
@@ -750,11 +767,179 @@ const dropdownItem = {
   cursor:"pointer"
 }
 
+const cartHeader = {
+  display:"flex",
+  alignItems:"center",
+  justifyContent:"space-between",
+  gap:10,
+  marginBottom:12
+}
+
+const cartEyebrow = {
+  color:"var(--primary)",
+  fontSize:10,
+  fontWeight:900,
+  letterSpacing:1.5
+}
+
+const cartTitle = {
+  margin:"3px 0 0",
+  fontSize:22,
+  fontWeight:900
+}
+
+const cartBadge = {
+  padding:"6px 9px",
+  borderRadius:999,
+  background:"rgba(var(--primary-rgb),.10)",
+  border:"1px solid rgba(var(--primary-rgb),.20)",
+  color:"var(--primary)",
+  fontSize:11,
+  fontWeight:800,
+  whiteSpace:"nowrap"
+}
+
+const emptyCart = {
+  minHeight:180,
+  display:"grid",
+  placeItems:"center",
+  alignContent:"center",
+  gap:6,
+  textAlign:"center",
+  color:"var(--muted)"
+}
+
+const emptyCartIcon = {
+  width:52,
+  height:52,
+  display:"grid",
+  placeItems:"center",
+  borderRadius:18,
+  background:"rgba(255,255,255,.05)",
+  fontSize:24,
+  marginBottom:4
+}
+
+const cartList = {
+  display:"grid",
+  gap:8,
+  maxHeight:360,
+  overflowY:"auto",
+  paddingRight:2
+}
+
 const cartItem = {
   display:"flex",
+  alignItems:"center",
   justifyContent:"space-between",
-  marginTop:10
+  gap:10,
+  padding:"10px 9px",
+  borderRadius:14,
+  background:"rgba(255,255,255,.035)",
+  border:"1px solid rgba(255,255,255,.07)"
 }
+
+const cartItemMain = {
+  minWidth:0,
+  flex:1
+}
+
+const cartItemName = {
+  fontSize:13,
+  fontWeight:850,
+  lineHeight:1.25,
+  overflow:"hidden",
+  textOverflow:"ellipsis",
+  whiteSpace:"nowrap"
+}
+
+const cartModifiers = {
+  marginTop:3,
+  color:"var(--muted)",
+  fontSize:10,
+  lineHeight:1.3,
+  overflow:"hidden",
+  textOverflow:"ellipsis",
+  whiteSpace:"nowrap"
+}
+
+const cartItemPrice = {
+  marginTop:4,
+  color:"var(--primary)",
+  fontSize:10,
+  fontWeight:800
+}
+
+const cartItemActions = {
+  flex:"0 0 auto",
+  display:"flex",
+  alignItems:"center",
+  gap:5
+}
+
+const qtyBtn = {
+  width:28,
+  height:28,
+  padding:0,
+  display:"grid",
+  placeItems:"center",
+  borderRadius:9,
+  border:"1px solid rgba(var(--primary-rgb),.25)",
+  background:"rgba(var(--primary-rgb),.08)",
+  color:"#fff",
+  fontSize:17,
+  fontWeight:800,
+  cursor:"pointer"
+}
+
+const qtyValue = {
+  minWidth:18,
+  textAlign:"center",
+  fontSize:12,
+  fontWeight:900
+}
+
+const removeBtn = {
+  width:27,
+  height:27,
+  marginLeft:2,
+  display:"grid",
+  placeItems:"center",
+  borderRadius:8,
+  border:"1px solid rgba(255,80,80,.22)",
+  background:"rgba(255,80,80,.08)",
+  color:"#ff8c8c",
+  fontSize:18,
+  lineHeight:1,
+  cursor:"pointer"
+}
+
+const cartSummary = {
+  marginTop:10,
+  padding:"10px 11px",
+  borderRadius:14,
+  background:"rgba(var(--primary-rgb),.06)",
+  border:"1px solid rgba(var(--primary-rgb),.14)"
+}
+
+const summaryRow = {
+  display:"flex",
+  justifyContent:"space-between",
+  color:"var(--muted)",
+  fontSize:11,
+  marginBottom:7
+}
+
+const summaryRowTotal = {
+  display:"flex",
+  justifyContent:"space-between",
+  alignItems:"center",
+  color:"#fff",
+  fontSize:14,
+  fontWeight:800
+}
+
+
 
 const tabBtn = (active,color)=>({
   flex:1,
