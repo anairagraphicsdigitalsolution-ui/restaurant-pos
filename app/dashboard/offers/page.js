@@ -198,10 +198,52 @@ export default function OffersPage(){
     border-radius:19px!important;
   }
 }
-</style>
+@media(max-width:768px){
+  .offers-page{padding-left:12px!important;padding-right:12px!important}
+  .offers-smart-hero{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:14px!important;
+    padding:20px!important;
+    border-radius:22px!important;
+  }
+  .offers-smart-badge{
+    width:100%!important;
+    min-width:0!important;
+    display:flex!important;
+    align-items:center!important;
+    gap:12px!important;
+    box-sizing:border-box!important;
+  }
+  .offers-smart-badge b,
+  .offers-smart-badge small{
+    display:block!important;
+  }
+  .offers-smart-badge small{
+    margin-top:4px!important;
+    line-height:1.35!important;
+  }
+  .offers-page .statsGrid{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:9px!important;
+  }
+  .offers-page .statsGrid > div{
+    min-width:0!important;
+    padding:13px!important;
+    gap:9px!important;
+  }
+  .offers-page .statsGrid > div > div:last-child{
+    min-width:0!important;
+  }
+  .offers-page .statsGrid strong{
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+}</style>
     {activeTab==="combos" ? <CombosPage /> : <>
 
-    <section style={hero}><div><div style={eyebrow}>✦ ADVANCED PROMOTIONS ENGINE</div><h1 style={title}>Offers & Campaigns</h1><p style={subtitle}>Product targeting, coupons, BOGO, free items, scheduling, loyalty eligibility and offer analytics — all in one place.</p></div><div style={heroBadge}><span style={{fontSize:28}}>🎯</span><div><b>Smart Promotions</b><small>Auto-select the best eligible offer</small></div></div></section>
+    <section className="offers-smart-hero" style={hero}><div><div style={eyebrow}>✦ ADVANCED PROMOTIONS ENGINE</div><h1 style={title}>Offers & Campaigns</h1><p style={subtitle}>Product targeting, coupons, BOGO, free items, scheduling, loyalty eligibility and offer analytics — all in one place.</p></div><div className="offers-smart-badge" style={heroBadge}><span style={{fontSize:28}}>🎯</span><div><b>Smart Promotions</b><small>Auto-select the best eligible offer</small></div></div></section>
     <div style={statsGrid}><Stat icon="🎁" value={stats.total} label="Total Offers"/><Stat icon="🟢" value={stats.active} label="Active"/><Stat icon="🎯" value={stats.product} label="Product Targeted"/><Stat icon="🏷️" value={stats.coupon} label="Coupons"/><Stat icon="💸" value={`₹${stats.saved.toFixed(0)}`} label="Discount Given"/></div>
     <div style={toolbar}><input placeholder="Search title, coupon..." value={search} onChange={e=>setSearch(e.target.value)} style={input}/><select value={filter} onChange={e=>setFilter(e.target.value)} style={input}><option value="all">All Offers</option><option value="active">Active</option><option value="product">Individual Products</option><option value="coupon">Coupons</option><option value="bogo">BOGO / Free Item</option><option value="soon">Ending Soon</option><option value="expired">Expired</option></select></div>
 
@@ -244,7 +286,7 @@ export default function OffersPage(){
   </div>
 }
 
-function Stat({icon,value,label}){return <div style={statCard}><div style={statIcon}>{icon}</div><div><strong>{value}</strong><span>{label}</span></div></div>}
+function Stat({icon,value,label}){return <div style={statCard}><div style={statIcon}>{icon}</div><div style={{minWidth:0,display:"grid",gap:4}}><strong style={{display:"block",lineHeight:1}}>{value}</strong><span style={{display:"block",lineHeight:1.2}}>{label}</span></div></div>}
 function Field({label,children}){return <label style={field}><span>{label}</span>{children}</label>}
 function OfferCard({offer,menuItems,usage,onEdit,onDelete,onToggle}){
   const now=new Date(),t=offer.valid_till?new Date(`${offer.valid_till}T23:59:59`):null,expired=!!t&&t<now,days=t?Math.ceil((t-now)/86400000):null

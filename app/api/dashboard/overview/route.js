@@ -84,17 +84,56 @@ export async function GET(req) {
       tables: tablesRes.error?.message || null
     }
 
-    const orders = ordersRes.data || []
+    let orders = ordersRes.data || []
     let orderItems = []
 
     if (orders.length) {
+      const orderIds = orders.map(o => o.id)
       const { data, error } = await supabaseAdmin
         .from("order_items")
-        .select("id,order_id,item_id,quantity")
-        .in("order_id",orders.map(o=>o.id))
+        .select("id,order_id,item_id,quantity,item_name,unit_price,line_total")
+        .in("order_id", orderIds)
 
       if (error) errors.order_items = error.message
       orderItems = data || []
+
+      const { data: modifierRows, error: modifierError } = await supabaseAdmin
+        .from("order_item_modifiers")
+        .select("order_item_id,price,quantity")
+        .in("order_item_id", orderItems.map(item => item.id))
+
+      if (modifierError) {
+        errors.order_item_modifiers = modifierError.message
+      }
+
+      const modifierTotals = {}
+      for (const row of modifierRows || []) {
+        modifierTotals[row.order_item_id] =
+          (modifierTotals[row.order_item_id] || 0) +
+          Number(row.price || 0) * Number(row.quantity || 1)
+      }
+
+      const calculatedTotals = {}
+      for (const item of orderItems) {
+        const base =
+          Number(item.line_total ?? 0) ||
+          Number(item.unit_price || 0) * Number(item.quantity || 0)
+        const modifierTotal =
+          Number(modifierTotals[item.id] || 0) * Number(item.quantity || 0)
+
+        calculatedTotals[item.order_id] =
+          (calculatedTotals[item.order_id] || 0) + base + modifierTotal
+      }
+
+      orders = orders.map(order => {
+        const stored = Number(order.total_amount || 0)
+        const calculated = Number(calculatedTotals[order.id] || 0)
+        const total = stored > 0 ? stored : calculated
+
+        return total > 0
+          ? { ...order, total_amount: total, subtotal: Number(order.subtotal || total) }
+          : order
+      })
     }
 
     return Response.json({

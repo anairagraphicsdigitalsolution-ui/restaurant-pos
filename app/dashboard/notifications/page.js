@@ -45,9 +45,29 @@ export default function Notifications() {
         .select("id,total_amount,subtotal,tax_amount,discount_amount")
         .eq("restaurant_id", p.restaurant_id)
 
+      const ids = (orders || []).map(o => o.id)
+      const { data: orderItems } = ids.length
+        ? await supabase
+            .from("order_items")
+            .select("id,order_id,quantity,unit_price,line_total")
+            .in("order_id", ids)
+        : { data: [] }
+
+      const calculated = {}
+      ;(orderItems || []).forEach(item => {
+        const line =
+          Number(item.line_total || 0) ||
+          Number(item.unit_price || 0) * Number(item.quantity || 0)
+        calculated[item.order_id] = (calculated[item.order_id] || 0) + line
+      })
+
       const map = {}
       ;(orders || []).forEach(o => {
-        map[String(o.id).slice(0, 8).toLowerCase()] = o
+        const fallback = Number(calculated[o.id] || 0)
+        map[String(o.id).slice(0, 8).toLowerCase()] = {
+          ...o,
+          total_amount: Number(o.total_amount || 0) || fallback
+        }
       })
       setOrderTotals(map)
     } else {
@@ -95,7 +115,28 @@ export default function Notifications() {
                 .eq("restaurant_id", restaurantId)
 
               const found = (orders || []).find(o => String(o.id).slice(0, 8).toLowerCase() === shortId)
-              if (found) setOrderTotals(prev => ({ ...prev, [shortId]: found }))
+              if (!found) return
+
+              let total = Number(found.total_amount || 0)
+              if (!total) {
+                const { data: items } = await supabase
+                  .from("order_items")
+                  .select("quantity,unit_price,line_total")
+                  .eq("order_id", found.id)
+
+                total = (items || []).reduce(
+                  (sum, item) =>
+                    sum +
+                    (Number(item.line_total || 0) ||
+                      Number(item.unit_price || 0) * Number(item.quantity || 0)),
+                  0
+                )
+              }
+
+              setOrderTotals(prev => ({
+                ...prev,
+                [shortId]: { ...found, total_amount: total }
+              }))
             }, 500)
           }
         }
@@ -132,17 +173,27 @@ export default function Notifications() {
         <div className="card">
           {!notifications.length ? (
             <div className="empty">🎉 No notifications right now.</div>
-          ) : notifications.map(x => (
-            <div className={`note ${x.read_at ? "read" : ""}`} key={x.id} onClick={() => read(x.id)}>
-              <div className="icon">{x.type === "order" ? "🍳" : x.type === "warning" ? "⚠️" : x.type === "success" ? "✅" : "🔔"}</div>
-              <div>
-                <b>{x.title}</b>
-                <p>{x.message || ""}</p>
-                <small>{new Date(x.created_at).toLocaleString("en-IN")}</small>
-                {x.action_url && <div className="open">Open Kitchen →</div>}
+          ) : notifications.map(x => {
+            const match = String(x.message || "").match(/Order #([a-f0-9]{8})/i)
+            const shortId = match?.[1]?.toLowerCase()
+            const resolvedTotal = shortId ? orderTotals[shortId]?.total_amount : null
+            const displayMessage =
+              resolvedTotal != null
+                ? String(x.message || "").replace(/₹[\d,]+(?:\.\d{1,2})?/, `₹${Number(resolvedTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+                : (x.message || "")
+
+            return (
+              <div className={`note ${x.read_at ? "read" : ""}`} key={x.id} onClick={() => read(x.id)}>
+                <div className="icon">{x.type === "order" ? "🍳" : x.type === "warning" ? "⚠️" : x.type === "success" ? "✅" : "🔔"}</div>
+                <div>
+                  <b>{x.title}</b>
+                  <p>{displayMessage}</p>
+                  <small>{new Date(x.created_at).toLocaleString("en-IN")}</small>
+                  {x.action_url && <div className="open">Open Kitchen →</div>}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </main>
       <style jsx global>{css}</style>

@@ -1664,3 +1664,36 @@ input, select, textarea, button {
     min-width: 0 !important;
   }
 }
+
+/* Shared mobile layout guard: prevent cards and long labels from overflowing. */
+@media (max-width: 768px){
+  .dashboardPage,
+  .offers-page,
+  .page,
+  .shell{
+    max-width:100%;
+    box-sizing:border-box;
+  }
+  button,
+  input,
+  select,
+  textarea{
+    max-width:100%;
+    box-sizing:border-box;
+  }
+}
+
+@media (max-width: 768px){
+  .order-alert-enable{
+    right:12px!important;
+    left:12px!important;
+    bottom:max(12px,env(safe-area-inset-bottom))!important;
+    width:calc(100vw - 24px)!important;
+    max-width:none!important;
+    text-align:center!important;
+    border-radius:12px!important;
+    padding:9px 12px!important;
+    font-size:11px!important;
+    opacity:.96;
+  }
+}

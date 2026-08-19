@@ -186,6 +186,7 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
         <button
           type="button"
           onClick={requestPermission}
+          className="order-alert-enable"
           aria-label="Enable order notifications and sound"
           style={{
             position: "fixed",
@@ -248,3 +249,4 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
     </>
   )
 }
+

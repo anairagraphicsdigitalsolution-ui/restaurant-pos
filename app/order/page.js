@@ -228,7 +228,13 @@ export default function OrderPage() {
     if (!restaurantId) return alert("Restaurant missing")
     if (cart.length === 0) return alert("Cart empty")
 
-    console.log("DEBUG:", { selected, restaurantId, cart })
+    const orderTotal = cart.reduce(
+      (sum, item) =>
+        sum +
+        (Number(item.price || 0) + Number(item.modifierTotal || 0)) *
+          Number(item.qty || 0),
+      0
+    )
 
     const { data: order, error } = await supabase
       .from("orders")
@@ -240,7 +246,11 @@ export default function OrderPage() {
             ? `Table ${selected.table_number}`
             : `Room ${selected.room_number}`,
         restaurant_id: restaurantId,
-        status: "pending"
+        status: "pending",
+        subtotal: orderTotal,
+        total_amount: orderTotal,
+        payment_status: "unpaid",
+        paid_amount: 0
       }])
       .select()
       .single()
@@ -261,7 +271,9 @@ export default function OrderPage() {
           quantity: cartItem.qty,
           item_name: comboDisplayName(cartItem),
           unit_price: Number(cartItem.price || 0),
-          line_total: Number(cartItem.price || 0) * Number(cartItem.qty || 0)
+          line_total:
+            (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) *
+            Number(cartItem.qty || 0)
         }])
         .select("id")
         .single()
