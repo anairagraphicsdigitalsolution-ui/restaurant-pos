@@ -410,7 +410,7 @@ export default function OrderPage() {
           <small>Tap to add</small>
         </div>
 
-        <div style={getGrid(isMobile)}>
+        <div className="order-food-grid" style={{...getGrid(isMobile), gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:isMobile ? 7 : 14}}>
           {visibleItems.map(item => (
             <button
               type="button"

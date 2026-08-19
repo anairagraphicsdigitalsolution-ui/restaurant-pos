@@ -60,22 +60,37 @@ export default function Dashboard() {
         .from("profiles")
         .select("restaurant_id, role")
         .eq("id", userData.user.id)
-        .single()
+        .maybeSingle()
 
-      if (!profile?.restaurant_id) {
+      let rid = profile?.restaurant_id || null
+      let resolvedRole = profile?.role || ""
+
+      if (!rid) {
+        const { data: ownedRestaurant } = await supabase
+          .from("restaurants")
+          .select("id")
+          .eq("owner_id", userData.user.id)
+          .limit(1)
+          .maybeSingle()
+        rid = ownedRestaurant?.id || null
+        if (rid && !resolvedRole) resolvedRole = "admin"
+      }
+
+      if (!rid) {
         setLoading(false)
+        console.error("DASHBOARD: no restaurant linked to current account")
         return
       }
 
-      setRole(profile.role || "")
-      setRestaurantId(profile.restaurant_id)
-      await loadData(profile.restaurant_id)
+      setRole(resolvedRole)
+      setRestaurantId(rid)
+      await loadData(rid)
 
       channel = supabase
-        .channel(`dashboard-${profile.restaurant_id}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${profile.restaurant_id}` }, () => loadData(profile.restaurant_id))
-        .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${profile.restaurant_id}` }, () => loadData(profile.restaurant_id))
-        .on("postgres_changes", { event: "*", schema: "public", table: "offers", filter: `restaurant_id=eq.${profile.restaurant_id}` }, () => loadData(profile.restaurant_id))
+        .channel(`dashboard-${rid}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
+        .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
+        .on("postgres_changes", { event: "*", schema: "public", table: "offers", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
         .subscribe((status) => setLive(status === "SUBSCRIBED"))
     }
 
@@ -138,12 +153,9 @@ export default function Dashboard() {
 
       for (const oi of payload.orderItems || []) {
         const menuItem = itemMap.get(String(oi.item_id))
-        const name = oi.item_name || menuItem?.name || "Unknown item"
+        const name = menuItem?.name || "Unknown item"
         const qty = Number(oi.quantity || 0)
-        const amount = Number(
-          oi.line_total ??
-          (Number(oi.unit_price ?? menuItem?.price ?? 0) * qty)
-        )
+        const amount = Number(menuItem?.price || 0) * qty
 
         if (!salesMap[name]) salesMap[name] = { name, qty: 0, amount: 0 }
         salesMap[name].qty += qty
@@ -216,7 +228,10 @@ export default function Dashboard() {
   }
 
   const todayOrders = useMemo(
-    () => orders.filter((o) => isToday(o.created_at || o.billed_at)),
+    () => orders.filter((o) => {
+      const status = String(o.status || "").toLowerCase()
+      return isToday(o.created_at || o.billed_at) && !["cancelled", "canceled", "void", "voided", "refunded"].includes(status)
+    }),
     [orders]
   )
   const todaySales = useMemo(() => todayOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0), [todayOrders])

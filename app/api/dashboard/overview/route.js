@@ -7,20 +7,36 @@ export async function GET(req) {
   try {
     const user = await requireApiUser(req)
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    // Admin accounts in this project are linked to the restaurant through
+    // restaurants.owner_id, while staff accounts are linked through profiles.
+    // Resolve both paths so the dashboard never silently falls back to zeros.
+    const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("restaurant_id,role")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
 
-    if (profileError || !profile?.restaurant_id) {
+    let rid = profile?.restaurant_id || null
+    let resolvedRole = profile?.role || ""
+
+    if (!rid) {
+      const { data: ownedRestaurant } = await supabaseAdmin
+        .from("restaurants")
+        .select("id")
+        .eq("owner_id", user.id)
+        .limit(1)
+        .maybeSingle()
+
+      rid = ownedRestaurant?.id || null
+      if (rid && !resolvedRole) resolvedRole = "admin"
+    }
+
+    if (!rid) {
       return Response.json(
-        { success:false, error:"Restaurant profile not found" },
+        { success:false, error:"No restaurant is linked to this account" },
         { status:403 }
       )
     }
-
-    const rid = profile.restaurant_id
 
     const [
       restaurantRes,
@@ -74,7 +90,7 @@ export async function GET(req) {
     if (orders.length) {
       const { data, error } = await supabaseAdmin
         .from("order_items")
-        .select("id,order_id,item_id,quantity,line_total,item_name,unit_price")
+        .select("id,order_id,item_id,quantity")
         .in("order_id",orders.map(o=>o.id))
 
       if (error) errors.order_items = error.message
@@ -84,7 +100,7 @@ export async function GET(req) {
     return Response.json({
       success:true,
       restaurant_id:rid,
-      role:profile.role || "",
+      role:resolvedRole,
       restaurant:restaurantRes.data || null,
       orders,
       items:itemsRes.data || [],
