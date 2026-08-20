@@ -201,10 +201,35 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       const requiredFeature = requiredFeatureForPath(pathname)
+
+      // Feature access can be granted either by the restaurant's plan
+      // or by an explicitly enabled restaurant plugin.
+      let pluginFeatureEnabled = false
+
+      if (
+        profile.role === "admin" &&
+        requiredFeature
+      ) {
+        const { data: pluginRow, error: pluginError } = await supabase
+          .from("restaurant_plugins")
+          .select("enabled")
+          .eq("restaurant_id", profile.restaurantId)
+          .eq("plugin_code", requiredFeature)
+          .eq("enabled", true)
+          .maybeSingle()
+
+        if (pluginError) {
+          console.warn("PLUGIN FEATURE CHECK:", pluginError)
+        }
+
+        pluginFeatureEnabled = !!pluginRow?.enabled
+      }
+
       if (
         profile.role === "admin" &&
         requiredFeature &&
-        (profile as any).planFeatures?.[requiredFeature] !== true
+        (profile as any).planFeatures?.[requiredFeature] !== true &&
+        !pluginFeatureEnabled
       ) {
         router.replace("/dashboard")
         return

@@ -1,34 +1,23 @@
 {
-  "name": "anaira-restaurant-pos",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+  "name":"anaira-restaurant-pos",
+  "version":"1.0.0",
+  "private":true,
+  "scripts":{"dev":"next dev","build":"next build","start":"next start","lint":"next lint"},
+  "dependencies":{
+    "@fontsource/inter":"^5.2.6",
+    "@fontsource/montserrat":"^5.2.6",
+    "@fontsource/poppins":"^5.2.6",
+    "@fontsource/roboto":"^5.2.6",
+    "@supabase/supabase-js":"^2.56.0",
+    "html2canvas":"^1.4.1",
+    "jspdf":"^3.0.1",
+    "next":"^15.5.2",
+    "openai":"^5.12.2",
+    "react":"^19.1.1",
+    "react-barcode":"^1.5.3",
+    "react-qr-code":"^2.0.15",
+    "recharts":"^3.1.2",
+    "xlsx":"^0.18.5"
   },
-  "dependencies": {
-    "@fontsource/inter": "^5.2.6",
-    "@fontsource/montserrat": "^5.2.6",
-    "@fontsource/poppins": "^5.2.6",
-    "@fontsource/roboto": "^5.3.0",
-    "@supabase/supabase-js": "^2.56.0",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^3.0.1",
-    "next": "^15.5.2",
-    "openai": "^5.12.2",
-    "react": "^19.1.1",
-    "react-barcode": "^1.5.3",
-    "react-qr-code": "^2.0.15",
-    "recharts": "^3.1.2",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^22.10.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.2"
-  }
+  "devDependencies":{"@types/node":"^22.10.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0","typescript":"^5.7.2"}
 }
