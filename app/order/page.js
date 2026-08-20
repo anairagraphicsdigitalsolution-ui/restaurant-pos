@@ -29,6 +29,14 @@ export default function OrderPage() {
   const [activeCategory, setActiveCategory] = useState("All")
   const [restaurantId, setRestaurantId] = useState(null)
   const [restaurantName, setRestaurantName] = useState("")
+  const [deliveryZones, setDeliveryZones] = useState([])
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [deliveryAddress, setDeliveryAddress] = useState("")
+  const [deliveryZone, setDeliveryZone] = useState("")
+  const [deliveryCharge, setDeliveryCharge] = useState(0)
+  const [customerNotes, setCustomerNotes] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState("cash")
   
   const [openSelect, setOpenSelect] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -92,14 +100,16 @@ export default function OrderPage() {
       { data: r },
       { data: g },
       { data: mods },
-      { data: links }
+      { data: links },
+      { data: zones }
     ] = await Promise.all([
       supabase.from("menu_items").select("*").eq("restaurant_id", rid),
       supabase.from("tables").select("*").eq("restaurant_id", rid),
       supabase.from("rooms").select("*").eq("restaurant_id", rid),
       supabase.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at"),
       supabase.from("modifiers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at"),
-      supabase.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid)
+      supabase.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid),
+      supabase.from("delivery_zones").select("*").eq("restaurant_id", rid).eq("active", true).order("name")
     ])
 
     setMenu(m || [])
@@ -108,11 +118,12 @@ export default function OrderPage() {
     setModifierGroups(g || [])
     setModifiers(mods || [])
     setModifierLinks(links || [])
+    setDeliveryZones(zones || [])
   }
 
   function autoQR() {
 
-    if (typeParam && idParam) {
+    if (typeParam && idParam && (typeParam === "table" || typeParam === "room")) {
 
       setType(typeParam)
 
@@ -133,6 +144,7 @@ export default function OrderPage() {
 
     if (!qrType || !qrId) return
 
+    if (qrType !== "table" && qrType !== "room") return
     setType(qrType)
 
     const list = qrType === "table" ? tables : rooms
@@ -221,35 +233,62 @@ export default function OrderPage() {
     return names.length ? `${item.name} [${names.join(", ")}]` : item.name
   }
 
-  // 🚀 FIXED PLACE ORDER
+  function changeOrderType(nextType) {
+    setType(nextType)
+    setSelected(null)
+    setOpenSelect(false)
+    if (nextType !== "delivery") {
+      setDeliveryCharge(0)
+      if (nextType === "takeaway") setCustomerNotes("")
+    }
+  }
+
+  function applyZone(zone) {
+    setDeliveryZone(zone?.name || "")
+    setDeliveryCharge(Number(zone?.charge || 0))
+  }
+
+  // Petpooja-style POS order flow: dine-in, takeaway and delivery share one cart.
   async function placeOrder() {
 
-    if (!selected) return alert("Select table/room")
     if (!restaurantId) return alert("Restaurant missing")
     if (cart.length === 0) return alert("Cart empty")
+    if ((type === "table" || type === "room") && !selected) return alert("Select table/room")
+    if (type === "delivery") {
+      if (!customerName.trim()) return alert("Customer name is required")
+      if (!customerPhone.trim()) return alert("Customer phone is required")
+      if (!deliveryAddress.trim()) return alert("Delivery address is required")
+    }
 
-    const orderTotal = cart.reduce(
+    const foodTotal = cart.reduce(
       (sum, item) =>
         sum +
         (Number(item.price || 0) + Number(item.modifierTotal || 0)) *
           Number(item.qty || 0),
       0
     )
+    const orderTotal = foodTotal + (type === "delivery" ? Number(deliveryCharge || 0) : 0)
+    const sourceLabel = type === "table"
+      ? `Table ${selected.table_number}`
+      : type === "room"
+        ? `Room ${selected.room_number}`
+        : type === "takeaway"
+          ? "Takeaway"
+          : `Delivery - ${customerName.trim()}`
 
     const { data: order, error } = await supabase
       .from("orders")
       .insert([{
         source_type: type,
-        source_id: selected.id,
-        source_label:
-          type === "table"
-            ? `Table ${selected.table_number}`
-            : `Room ${selected.room_number}`,
+        source_id: selected?.id || null,
+        source_label: sourceLabel,
+        order_mode: type === "table" || type === "room" ? "dine_in" : type,
         restaurant_id: restaurantId,
         status: "pending",
-        subtotal: orderTotal,
+        subtotal: foodTotal,
         total_amount: orderTotal,
         payment_status: "unpaid",
+        payment_method: type === "delivery" ? paymentMethod : null,
         paid_amount: 0
       }])
       .select()
@@ -301,8 +340,62 @@ export default function OrderPage() {
       }
     }
 
-    alert("✅ Order placed")
+    if (type === "delivery") {
+      const { data: slipNo, error: slipError } = await supabase.rpc("next_delivery_slip_no", {
+        p_restaurant_id: restaurantId
+      })
+      if (slipError) {
+        console.error("DELIVERY SLIP ERROR:", slipError)
+        alert("Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there.")
+      } else {
+        const { data: delivery, error: deliveryError } = await supabase
+          .from("restaurant_deliveries")
+          .insert([{
+            restaurant_id: restaurantId,
+            order_id: order.id,
+            slip_no: slipNo,
+            order_mode: "delivery",
+            customer_name: customerName.trim(),
+            phone: customerPhone.trim(),
+            address: deliveryAddress.trim(),
+            zone: deliveryZone || null,
+            delivery_charge: Number(deliveryCharge || 0),
+            payment_method: paymentMethod,
+            expected_amount: orderTotal,
+            payment_status: "pending",
+            settlement_status: "pending",
+            status: "pending",
+            customer_notes: customerNotes.trim() || null
+          }])
+          .select("*")
+          .single()
+        if (deliveryError) {
+          console.error("DELIVERY CREATE ERROR:", deliveryError)
+          alert("Order created, but delivery slip could not be saved: " + deliveryError.message)
+        } else {
+          await supabase.from("delivery_events").insert([{
+            restaurant_id: restaurantId,
+            delivery_id: delivery.id,
+            status: "pending",
+            note: "Delivery slip created from POS"
+          }])
+          alert(`✅ Delivery order created. Slip ${delivery.slip_no}`)
+          window.location.href = `/dashboard/delivery?slip=${encodeURIComponent(delivery.slip_no)}`
+          return
+        }
+      }
+    } else {
+      alert(`✅ ${type === "takeaway" ? "Takeaway" : "Dine-in"} order placed`)
+    }
+
     setCart([])
+    setSelected(null)
+    setCustomerName("")
+    setCustomerPhone("")
+    setDeliveryAddress("")
+    setDeliveryZone("")
+    setDeliveryCharge(0)
+    setCustomerNotes("")
   }
 
   const groupedMenu = menu.reduce((acc, item) => {
@@ -356,30 +449,60 @@ export default function OrderPage() {
 
     <div style={{...glass, ...panel}}>
       <h3>🔘 Select</h3>
-        <div style={{display:"flex", gap:10}}>
-          <button style={tabBtn(type==="table","var(--info)")} onClick={()=>setType("table")}>Table</button>
-          <button style={tabBtn(type==="room","#a855f7")} onClick={()=>setType("room")}>Room</button>
+        <div style={orderTypeGrid}>
+          <button style={tabBtn(type==="table","var(--info)")} onClick={()=>changeOrderType("table")}>🍽️ Dine-in</button>
+          <button style={tabBtn(type==="takeaway","#f59e0b")} onClick={()=>changeOrderType("takeaway")}>🥡 Takeaway</button>
+          <button style={tabBtn(type==="delivery","#22c55e")} onClick={()=>changeOrderType("delivery")}>🛵 Delivery</button>
+          <button style={tabBtn(type==="room","#a855f7")} onClick={()=>changeOrderType("room")}>🛏️ Room</button>
         </div>
 
-        <button style={selectBtn} onClick={()=>setOpenSelect(!openSelect)}>
-          {selected
-            ? (type==="table"
-                ? `🍽️ Table ${selected.table_number}`
-                : `🛏️ Room ${selected.room_number}`)
-            : "Select Table / Room"}
-        </button>
+        {(type === "table" || type === "room") && (
+          <>
+            <button style={selectBtn} onClick={()=>setOpenSelect(!openSelect)}>
+              {selected
+                ? (type==="table"
+                    ? `🍽️ Table ${selected.table_number}`
+                    : `🛏️ Room ${selected.room_number}`)
+                : "Select Table / Room"}
+            </button>
 
-        {openSelect && (
-          <div style={dropdown}>
-            {(type==="table"?tables:rooms).map(item=>(
-              <div key={item.id}
-                onClick={()=>{setSelected(item); setOpenSelect(false)}}
-                style={dropdownItem}>
-                {type==="table"
-                  ? `🍽️ Table ${item.table_number}`
-                  : `🛏️ Room ${item.room_number}`}
+            {openSelect && (
+              <div style={dropdown}>
+                {(type==="table"?tables:rooms).map(item=>(
+                  <div key={item.id}
+                    onClick={()=>{setSelected(item); setOpenSelect(false)}}
+                    style={dropdownItem}>
+                    {type==="table"
+                      ? `🍽️ Table ${item.table_number}`
+                      : `🛏️ Room ${item.room_number}`}
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+          </>
+        )}
+
+        {type === "takeaway" && (
+          <div style={modeInfoBox}>🥡 Quick takeaway — no table required. Print the bill/KOT after placing the order.</div>
+        )}
+
+        {type === "delivery" && (
+          <div style={{display:"grid",gap:8,marginTop:12}}>
+            <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name *" style={fieldInput}/>
+            <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone number *" inputMode="tel" style={fieldInput}/>
+            <textarea value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} placeholder="Delivery address *" rows={3} style={{...fieldInput,resize:"vertical"}}/>
+            <select value={deliveryZone} onChange={e=>applyZone(deliveryZones.find(z=>z.name===e.target.value))} style={fieldInput}>
+              <option value="">Select delivery zone</option>
+              {deliveryZones.map(z=><option key={z.id} value={z.name}>{z.name} — ₹{Number(z.charge||0).toLocaleString("en-IN")}</option>)}
+            </select>
+            <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)} style={fieldInput}>
+              <option value="cash">COD — Cash</option>
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
+              <option value="online">Online</option>
+            </select>
+            <textarea value={customerNotes} onChange={e=>setCustomerNotes(e.target.value)} placeholder="Delivery note (optional)" rows={2} style={{...fieldInput,resize:"vertical"}}/>
+            <div style={deliveryChargeBox}><span>Delivery charge</span><strong>₹{Number(deliveryCharge||0).toLocaleString("en-IN")}</strong></div>
           </div>
         )}
       </div>
@@ -755,6 +878,11 @@ const searchBox = {
   border:"1px solid rgba(255,255,255,0.2)",
   color:"#fff"
 }
+
+const orderTypeGrid = { display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:7 }
+const modeInfoBox = { marginTop:10, padding:10, borderRadius:12, background:"rgba(245,158,11,.08)", border:"1px solid rgba(245,158,11,.22)", color:"#f7c66a", fontSize:11, lineHeight:1.4 }
+const fieldInput = { width:"100%", boxSizing:"border-box", padding:"10px 11px", borderRadius:11, border:"1px solid rgba(255,255,255,.14)", background:"rgba(255,255,255,.045)", color:"#fff", outline:"none" }
+const deliveryChargeBox = { display:"flex", justifyContent:"space-between", padding:"10px 11px", borderRadius:11, background:"rgba(34,197,94,.08)", border:"1px solid rgba(34,197,94,.2)", color:"#86efac", fontSize:12 }
 
 const selectBtn = {
   marginTop:15,

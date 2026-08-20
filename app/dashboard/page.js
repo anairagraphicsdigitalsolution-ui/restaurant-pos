@@ -268,6 +268,7 @@ export default function Dashboard() {
               <button onClick={() => router.push("/billing")} className="ghostBtn">🧾 Billing</button>
               <button onClick={() => router.push("/dashboard/business")} className="ghostBtn">⚙️ Operations</button>
               <button onClick={() => router.push("/kitchen")} className="ghostBtn">🍳 Kitchen</button>
+              <button onClick={() => router.push("/dashboard/delivery")} className="ghostBtn">🛵 Delivery</button>
             </div>
           </div>
           <div className="heroSide">
@@ -357,6 +358,7 @@ export default function Dashboard() {
               <QuickAction icon="🧾" label="Create Order" onClick={() => router.push("/order")} />
               <QuickAction icon="💳" label="Billing" onClick={() => router.push("/billing")} />
               <QuickAction icon="🍳" label="Kitchen" onClick={() => router.push("/kitchen")} />
+              <QuickAction icon="🛵" label="Delivery" onClick={() => router.push("/dashboard/delivery")} />
               <QuickAction icon="🪑" label="Tables" onClick={() => router.push("/dashboard/tables")} />
               <QuickAction icon="🎁" label="Offers" onClick={() => router.push("/dashboard/offers")} />
               <QuickAction icon="👥" label="Customers" onClick={() => router.push("/dashboard/business")} />
