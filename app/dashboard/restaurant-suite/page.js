@@ -8,6 +8,14 @@ const money = (v) =>
     maximumFractionDigits: 2,
   })}`
 
+const todayISO = () => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 export default function RestaurantSuite() {
   const [rid, setRid] = useState(null)
   const [tab, setTab] = useState("overview")
@@ -69,27 +77,53 @@ export default function RestaurantSuite() {
     init()
   }, [])
 
+  useEffect(() => {
+    if (!msg) return
+
+    const timer = setTimeout(() => {
+      setMsg("")
+    }, 4000)
+
+    return () => clearTimeout(timer)
+  }, [msg])
+
   async function init() {
-    const { data: u } = await supabase.auth.getUser()
+    try {
+      setLoading(true)
 
-    if (!u?.user) {
+      const { data: u, error: userError } =
+        await supabase.auth.getUser()
+
+      if (userError || !u?.user) {
+        setLoading(false)
+        return
+      }
+
+      const { data: p, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("restaurant_id")
+          .eq("id", u.user.id)
+          .maybeSingle()
+
+      if (profileError) {
+        setMsg(profileError.message)
+        setLoading(false)
+        return
+      }
+
+      if (!p?.restaurant_id) {
+        setMsg("Restaurant is not assigned to this account.")
+        setLoading(false)
+        return
+      }
+
+      setRid(p.restaurant_id)
+      await load(p.restaurant_id)
+    } catch (error) {
+      setMsg(error?.message || "Unable to initialize Restaurant Suite.")
       setLoading(false)
-      return
     }
-
-    const { data: p } = await supabase
-      .from("profiles")
-      .select("restaurant_id")
-      .eq("id", u.user.id)
-      .maybeSingle()
-
-    if (!p?.restaurant_id) {
-      setLoading(false)
-      return
-    }
-
-    setRid(p.restaurant_id)
-    await load(p.restaurant_id)
   }
 
   async function load(r = rid) {
@@ -97,121 +131,153 @@ export default function RestaurantSuite() {
 
     setLoading(true)
 
-    const today = new Date().toISOString().slice(0, 10)
+    try {
+      const today = todayISO()
 
-    const results = await Promise.all([
-      supabase
-        .from("orders")
-        .select(
-          "id,source_label,order_mode,status,total_amount,payment_status,created_at"
-        )
-        .eq("restaurant_id", r)
-        .order("created_at", { ascending: false })
-        .limit(200),
+      const results = await Promise.all([
+        supabase
+          .from("orders")
+          .select(
+            "id,source_label,order_mode,status,total_amount,payment_status,created_at"
+          )
+          .eq("restaurant_id", r)
+          .order("created_at", { ascending: false })
+          .limit(200),
 
-      supabase
-        .from("order_tokens")
-        .select("*")
-        .eq("restaurant_id", r)
-        .eq("token_date", today)
-        .order("token_no"),
+        supabase
+          .from("order_tokens")
+          .select("*")
+          .eq("restaurant_id", r)
+          .eq("token_date", today)
+          .order("token_no"),
 
-      supabase
-        .from("online_channels")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("channel_name"),
+        supabase
+          .from("online_channels")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("channel_name"),
 
-      supabase
-        .from("online_order_reconciliations")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("order_date", { ascending: false })
-        .limit(100),
+        supabase
+          .from("online_order_reconciliations")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("order_date", { ascending: false })
+          .limit(100),
 
-      supabase
-        .from("marketing_campaigns")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("created_at", { ascending: false })
-        .limit(50),
+        supabase
+          .from("marketing_campaigns")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("created_at", { ascending: false })
+          .limit(50),
 
-      supabase
-        .from("captain_sessions")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("last_seen_at", { ascending: false }),
+        supabase
+          .from("captain_sessions")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("last_seen_at", { ascending: false }),
 
-      supabase
-        .from("menu_items")
-        .select("id,name,price")
-        .eq("restaurant_id", r)
-        .order("name"),
+        supabase
+          .from("menu_items")
+          .select("id,name,price")
+          .eq("restaurant_id", r)
+          .order("name"),
 
-      supabase
-        .from("pos_terminals")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("terminal_name"),
+        supabase
+          .from("pos_terminals")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("terminal_name"),
 
-      supabase
-        .from("delivery_settlements")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("created_at", { ascending: false })
-        .limit(100),
+        supabase
+          .from("delivery_settlements")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("created_at", { ascending: false })
+          .limit(100),
 
-      supabase
-        .from("aggregator_payouts")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("payout_date", { ascending: false })
-        .limit(100),
+        supabase
+          .from("aggregator_payouts")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("payout_date", { ascending: false })
+          .limit(100),
 
-      supabase
-        .from("digital_display_calls")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("created_at", { ascending: false })
-        .limit(50),
+        supabase
+          .from("digital_display_calls")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("created_at", { ascending: false })
+          .limit(50),
 
-      supabase
-        .from("customer_wallets")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("updated_at", { ascending: false })
-        .limit(100),
+        supabase
+          .from("customer_wallets")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("updated_at", { ascending: false })
+          .limit(100),
 
-      supabase
-        .from("report_exports")
-        .select("*")
-        .eq("restaurant_id", r)
-        .order("created_at", { ascending: false })
-        .limit(50),
-    ])
+        supabase
+          .from("report_exports")
+          .select("*")
+          .eq("restaurant_id", r)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ])
 
-    setOrders(results[0].data || [])
-    setTokens(results[1].data || [])
-    setChannels(results[2].data || [])
-    setRecon(results[3].data || [])
+      const [
+        ordersResult,
+        tokensResult,
+        channelsResult,
+        reconResult,
+        campaignsResult,
+        captainsResult,
+        itemsResult,
+        terminalsResult,
+        settlementsResult,
+        payoutsResult,
+        callsResult,
+        walletsResult,
+        exportsResult,
+      ] = results
 
-    setCampaigns(results[4].data || [])
-    setCaptains(results[5].data || [])
-    setItems(results[6].data || [])
+      setOrders(ordersResult.data || [])
+      setTokens(tokensResult.data || [])
+      setChannels(channelsResult.data || [])
+      setRecon(reconResult.data || [])
 
-    // FIXED: [] instead of ()
-    setTerminals(results[7].data || [])
+      setCampaigns(campaignsResult.data || [])
+      setCaptains(captainsResult.data || [])
+      setItems(itemsResult.data || [])
 
-    setSettlements(results[8].data || [])
-    setPayouts(results[9].data || [])
-    setCalls(results[10].data || [])
-    setWallets(results[11].data || [])
-    setExports(results[12].data || [])
+      setTerminals(terminalsResult.data || [])
 
-    setLoading(false)
+      setSettlements(settlementsResult.data || [])
+      setPayouts(payoutsResult.data || [])
+      setCalls(callsResult.data || [])
+      setWallets(walletsResult.data || [])
+      setExports(exportsResult.data || [])
+
+      if (channelsResult.data?.length) {
+        const firstChannel = channelsResult.data[0]
+
+        setOnline({
+          channel_code: firstChannel.channel_code || "swiggy",
+          channel_name:
+            firstChannel.channel_name || "Swiggy",
+          active: Boolean(firstChannel.active),
+        })
+      }
+    } catch (error) {
+      setMsg(error?.message || "Unable to load Restaurant Suite.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function patchToken(id, status) {
+    if (!rid || !id) return
+
     const patch = { status }
 
     if (status === "ready") {
@@ -228,15 +294,17 @@ export default function RestaurantSuite() {
       .eq("id", id)
       .eq("restaurant_id", rid)
 
-    setMsg(error?.message || "Token updated")
+    setMsg(error?.message || "Token updated successfully.")
 
     if (!error) {
-      load()
+      await load()
     }
   }
 
   async function saveChannel(e) {
     e.preventDefault()
+
+    if (!rid) return
 
     const { error } = await supabase
       .from("online_channels")
@@ -251,15 +319,17 @@ export default function RestaurantSuite() {
         }
       )
 
-    setMsg(error?.message || "Channel saved")
+    setMsg(error?.message || "Channel saved successfully.")
 
     if (!error) {
-      load()
+      await load()
     }
   }
 
   async function saveSettlement(e) {
     e.preventDefault()
+
+    if (!rid) return
 
     const ec = Number(settle.expected_cash || 0)
     const eu = Number(settle.expected_upi || 0)
@@ -269,7 +339,9 @@ export default function RestaurantSuite() {
     const su = Number(settle.submitted_upi || 0)
     const sd = Number(settle.submitted_card || 0)
 
-    const diff = Number(sc + su + sd - ec - eu - ed)
+    const expectedTotal = ec + eu + ed
+    const submittedTotal = sc + su + sd
+    const diff = submittedTotal - expectedTotal
 
     const numericSettlement = {
       expected_cash: ec,
@@ -284,10 +356,13 @@ export default function RestaurantSuite() {
       .from("delivery_settlements")
       .insert({
         restaurant_id: rid,
-        rider_name: settle.rider_name,
+        rider_name: settle.rider_name.trim(),
         ...numericSettlement,
         difference: diff,
-        status: Math.abs(diff) < 0.01 ? "settled" : "short_or_excess",
+        status:
+          Math.abs(diff) < 0.01
+            ? "settled"
+            : "short_or_excess",
         settled_at: new Date().toISOString(),
       })
 
@@ -307,12 +382,14 @@ export default function RestaurantSuite() {
         submitted_card: "",
       })
 
-      load()
+      await load()
     }
   }
 
   async function saveTerminal(e) {
     e.preventDefault()
+
+    if (!rid) return
 
     const { error } = await supabase
       .from("pos_terminals")
@@ -321,7 +398,7 @@ export default function RestaurantSuite() {
         restaurant_id: rid,
       })
 
-    setMsg(error?.message || "Terminal registered")
+    setMsg(error?.message || "Terminal registered successfully.")
 
     if (!error) {
       setTerminal({
@@ -330,12 +407,14 @@ export default function RestaurantSuite() {
         device_type: "pos",
       })
 
-      load()
+      await load()
     }
   }
 
   async function saveCall(e) {
     e.preventDefault()
+
+    if (!rid) return
 
     const { error } = await supabase
       .from("digital_display_calls")
@@ -344,7 +423,7 @@ export default function RestaurantSuite() {
         restaurant_id: rid,
       })
 
-    setMsg(error?.message || "Display call queued")
+    setMsg(error?.message || "Display call queued successfully.")
 
     if (!error) {
       setCall({
@@ -353,12 +432,14 @@ export default function RestaurantSuite() {
         message: "",
       })
 
-      load()
+      await load()
     }
   }
 
   async function saveCampaign(e) {
     e.preventDefault()
+
+    if (!rid) return
 
     const { data: u } = await supabase.auth.getUser()
 
@@ -371,7 +452,7 @@ export default function RestaurantSuite() {
         status: "draft",
       })
 
-    setMsg(error?.message || "Campaign saved")
+    setMsg(error?.message || "Campaign saved successfully.")
 
     if (!error) {
       setCampaign({
@@ -380,11 +461,13 @@ export default function RestaurantSuite() {
         message: "",
       })
 
-      load()
+      await load()
     }
   }
 
   async function requestExport(type) {
+    if (!rid) return
+
     const { data: u } = await supabase.auth.getUser()
 
     const { error } = await supabase
@@ -397,39 +480,89 @@ export default function RestaurantSuite() {
         status: "requested",
       })
 
-    setMsg(error?.message || "Report export requested")
+    setMsg(error?.message || "Report export requested.")
 
     if (!error) {
-      load()
+      await load()
     }
   }
 
   const stats = useMemo(() => {
-    const valid = orders.filter(
+    const valid = orders.filter((o) => {
+      const status = String(o.status || "").toLowerCase()
+
+      return ![
+        "cancelled",
+        "canceled",
+        "void",
+        "voided",
+        "refunded",
+      ].includes(status)
+    })
+
+    const today = todayISO()
+
+    const todayOrders = valid.filter(
       (o) =>
-        ![
-          "cancelled",
-          "canceled",
-          "void",
-          "voided",
-          "refunded",
-        ].includes(String(o.status || "").toLowerCase())
+        String(o.created_at || "").slice(0, 10) === today
     )
 
     return {
-      sales: valid.reduce(
+      sales: todayOrders.reduce(
         (s, o) => s + Number(o.total_amount || 0),
         0
       ),
-      orders: valid.length,
-      takeaway: valid.filter(
-        (o) => o.order_mode === "takeaway"
+
+      orders: todayOrders.length,
+
+      takeaway: todayOrders.filter(
+        (o) =>
+          String(o.order_mode || "").toLowerCase() ===
+          "takeaway"
       ).length,
-      delivery: valid.filter(
-        (o) => o.order_mode === "delivery"
+
+      delivery: todayOrders.filter(
+        (o) =>
+          String(o.order_mode || "").toLowerCase() ===
+          "delivery"
       ).length,
+
+      averageBill:
+        todayOrders.length > 0
+          ? todayOrders.reduce(
+              (s, o) =>
+                s + Number(o.total_amount || 0),
+              0
+            ) / todayOrders.length
+          : 0,
     }
   }, [orders])
+
+  const readyTokens = useMemo(
+    () =>
+      tokens.filter(
+        (x) =>
+          String(x.status || "").toLowerCase() ===
+          "ready"
+      ).length,
+    [tokens]
+  )
+
+  const activeChannels = useMemo(
+    () =>
+      channels.filter(
+        (x) => Boolean(x.active)
+      ).length,
+    [channels]
+  )
+
+  const activeTerminals = useMemo(
+    () =>
+      terminals.filter(
+        (x) => Boolean(x.active)
+      ).length,
+    [terminals]
+  )
 
   const tabs = [
     ["overview", "Overview"],
@@ -455,13 +588,14 @@ export default function RestaurantSuite() {
           <h1>Complete Restaurant Control Center</h1>
 
           <p>
-            Dine-in, takeaway, delivery, KOT, tokens, riders,
-            aggregators, inventory, CRM, staff, terminals,
-            kiosk, display and reports.
+            Dine-in, takeaway, delivery, KOT, tokens,
+            riders, aggregators, inventory, CRM, staff,
+            terminals, kiosk, display and reports.
           </p>
         </div>
 
         <button
+          type="button"
           onClick={() => load()}
           className="refresh"
         >
@@ -472,6 +606,7 @@ export default function RestaurantSuite() {
       <nav className="tabs">
         {tabs.map(([id, label]) => (
           <button
+            type="button"
             key={id}
             className={tab === id ? "active" : ""}
             onClick={() => setTab(id)}
@@ -486,21 +621,66 @@ export default function RestaurantSuite() {
       {tab === "overview" && (
         <>
           <section className="stats">
-            <Stat label="Sales" value={money(stats.sales)} />
-            <Stat label="Orders" value={stats.orders} />
-            <Stat label="Takeaway" value={stats.takeaway} />
-            <Stat label="Delivery" value={stats.delivery} />
+            <Stat
+              label="Today's Sales"
+              value={money(stats.sales)}
+            />
+
+            <Stat
+              label="Today's Orders"
+              value={stats.orders}
+            />
+
+            <Stat
+              label="Takeaway"
+              value={stats.takeaway}
+            />
+
+            <Stat
+              label="Delivery"
+              value={stats.delivery}
+            />
+
             <Stat
               label="Ready Tokens"
-              value={
-                tokens.filter(
-                  (x) => x.status === "ready"
-                ).length
-              }
+              value={readyTokens}
             />
+
+            <Stat
+              label="Active Channels"
+              value={activeChannels}
+            />
+          </section>
+
+          <section className="stats secondaryStats">
+            <Stat
+              label="Average Bill"
+              value={money(stats.averageBill)}
+            />
+
             <Stat
               label="Settlements"
               value={settlements.length}
+            />
+
+            <Stat
+              label="POS Terminals"
+              value={activeTerminals}
+            />
+
+            <Stat
+              label="Menu Items"
+              value={items.length}
+            />
+
+            <Stat
+              label="Campaigns"
+              value={campaigns.length}
+            />
+
+            <Stat
+              label="Payouts"
+              value={payouts.length}
             />
           </section>
 
@@ -535,7 +715,9 @@ export default function RestaurantSuite() {
             {tokens.length ? (
               tokens.map((t) => (
                 <div
-                  className={`token ${t.status}`}
+                  className={`token ${String(
+                    t.status || ""
+                  ).toLowerCase()}`}
                   key={t.id}
                 >
                   <div className="tokenNo">
@@ -543,7 +725,9 @@ export default function RestaurantSuite() {
                   </div>
 
                   <b>
-                    {String(t.token_type).toUpperCase()}
+                    {String(
+                      t.token_type || "pickup"
+                    ).toUpperCase()}
                   </b>
 
                   <small>
@@ -551,14 +735,14 @@ export default function RestaurantSuite() {
                   </small>
 
                   <strong>
-                    {String(t.status).replaceAll(
-                      "_",
-                      " "
-                    )}
+                    {String(
+                      t.status || "pending"
+                    ).replaceAll("_", " ")}
                   </strong>
 
                   <div className="actions">
                     <button
+                      type="button"
                       onClick={() =>
                         patchToken(t.id, "ready")
                       }
@@ -567,6 +751,7 @@ export default function RestaurantSuite() {
                     </button>
 
                     <button
+                      type="button"
                       onClick={() =>
                         patchToken(
                           t.id,
@@ -602,6 +787,7 @@ export default function RestaurantSuite() {
                   })
                 }
                 placeholder="Rider name"
+                required
               />
 
               {[
@@ -615,6 +801,8 @@ export default function RestaurantSuite() {
                 <input
                   key={k}
                   type="number"
+                  min="0"
+                  step="0.01"
                   value={settle[k]}
                   onChange={(e) =>
                     setSettle({
@@ -629,21 +817,27 @@ export default function RestaurantSuite() {
                 />
               ))}
 
-              <button>Settle Rider</button>
+              <button type="submit">
+                Settle Rider
+              </button>
             </form>
 
-            {settlements.map((s) => (
-              <div className="row" key={s.id}>
-                <b>
-                  {s.rider_name || "Rider"}
-                </b>
+            {settlements.length ? (
+              settlements.map((s) => (
+                <div className="row" key={s.id}>
+                  <b>
+                    {s.rider_name || "Rider"}
+                  </b>
 
-                <span>
-                  {s.status} • Difference{" "}
-                  {money(s.difference)}
-                </span>
-              </div>
-            ))}
+                  <span>
+                    {s.status} • Difference{" "}
+                    {money(s.difference)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No rider settlements yet." />
+            )}
           </Panel>
 
           <Panel title="Delivery operational links">
@@ -673,30 +867,36 @@ export default function RestaurantSuite() {
             >
               <select
                 value={online.channel_code}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const code = e.target.value
+
+                  const names = {
+                    swiggy: "Swiggy",
+                    zomato: "Zomato",
+                    website: "Website",
+                    qr: "QR",
+                  }
+
                   setOnline({
                     ...online,
-                    channel_code:
-                      e.target.value,
+                    channel_code: code,
                     channel_name:
-                      e.target.value === "swiggy"
-                        ? "Swiggy"
-                        : e.target.value ===
-                          "zomato"
-                        ? "Zomato"
-                        : e.target.value,
+                      names[code] || code,
                   })
-                }
+                }}
               >
                 <option value="swiggy">
                   Swiggy
                 </option>
+
                 <option value="zomato">
                   Zomato
                 </option>
+
                 <option value="website">
                   Website
                 </option>
+
                 <option value="qr">
                   QR
                 </option>
@@ -711,9 +911,10 @@ export default function RestaurantSuite() {
                       e.target.value,
                   })
                 }
+                placeholder="Channel name"
               />
 
-              <label>
+              <label className="checkbox">
                 <input
                   type="checkbox"
                   checked={online.active}
@@ -724,53 +925,73 @@ export default function RestaurantSuite() {
                         e.target.checked,
                     })
                   }
-                />{" "}
-                Active
+                />
+
+                <span>Active</span>
               </label>
 
-              <button>
+              <button type="submit">
                 Save Channel
               </button>
             </form>
 
-            {channels.map((c) => (
-              <div className="row" key={c.id}>
-                <b>{c.channel_name}</b>
-                <span>
-                  {c.active ? "ACTIVE" : "OFF"}
-                </span>
-              </div>
-            ))}
+            {channels.length ? (
+              channels.map((c) => (
+                <div className="row" key={c.id}>
+                  <b>{c.channel_name}</b>
+
+                  <span
+                    className={
+                      c.active
+                        ? "status activeStatus"
+                        : "status"
+                    }
+                  >
+                    {c.active ? "ACTIVE" : "OFF"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No aggregator channels configured." />
+            )}
           </Panel>
 
           <Panel title="Reconciliation">
             <div className="row">
               <b>Pending rows</b>
+
               <span>
                 {
                   recon.filter(
                     (r) =>
-                      r.settlement_status ===
+                      String(
+                        r.settlement_status || ""
+                      ).toLowerCase() ===
                       "pending"
                   ).length
                 }
               </span>
             </div>
 
-            {payouts.map((p) => (
-              <div className="row" key={p.id}>
-                <b>
-                  {p.channel_code} •{" "}
-                  {p.payout_reference ||
-                    "Payout"}
-                </b>
+            {payouts.length ? (
+              payouts.map((p) => (
+                <div className="row" key={p.id}>
+                  <b>
+                    {p.channel_code || "Aggregator"}{" "}
+                    •{" "}
+                    {p.payout_reference ||
+                      "Payout"}
+                  </b>
 
-                <span>
-                  {money(p.net_payout)} •{" "}
-                  {p.status}
-                </span>
-              </div>
-            ))}
+                  <span>
+                    {money(p.net_payout)} •{" "}
+                    {p.status || "pending"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No aggregator payouts yet." />
+            )}
           </Panel>
         </section>
       )}
@@ -779,10 +1000,9 @@ export default function RestaurantSuite() {
         <section className="grid">
           <Panel title="Inventory / Recipe">
             <p className="muted">
-              Existing Recipe/BOM and inventory
-              remain intact. Terminal sale triggers
-              recipe consumption through the existing
-              automation migration.
+              Existing Recipe/BOM and inventory remain
+              intact. Terminal sale triggers recipe
+              consumption through the existing automation.
             </p>
 
             <a
@@ -802,10 +1022,22 @@ export default function RestaurantSuite() {
 
           <Panel title="Food Cost">
             <p className="muted">
-              Use the existing food-cost
-              calculator/snapshots and menu prices to
-              monitor margin.
+              Use the existing food-cost calculator,
+              recipe/BOM and menu prices to monitor
+              margin.
             </p>
+
+            <div className="miniStats">
+              <div>
+                <span>Menu Items</span>
+                <strong>{items.length}</strong>
+              </div>
+
+              <div>
+                <span>Inventory Link</span>
+                <strong>Connected</strong>
+              </div>
+            </div>
 
             <a
               className="link"
@@ -833,6 +1065,7 @@ export default function RestaurantSuite() {
                   })
                 }
                 placeholder="Campaign name"
+                required
               />
 
               <select
@@ -845,13 +1078,15 @@ export default function RestaurantSuite() {
                 }
               >
                 <option value="whatsapp">
-                  whatsapp
+                  WhatsApp
                 </option>
+
                 <option value="sms">
-                  sms
+                  SMS
                 </option>
+
                 <option value="email">
-                  email
+                  Email
                 </option>
               </select>
 
@@ -865,44 +1100,54 @@ export default function RestaurantSuite() {
                   })
                 }
                 placeholder="Message"
+                required
               />
 
-              <button>Save Draft</button>
+              <button type="submit">
+                Save Draft
+              </button>
             </form>
 
-            {campaigns.map((c) => (
-              <div className="row" key={c.id}>
-                <b>{c.name}</b>
-                <span>
-                  {c.channel} • {c.status}
-                </span>
-              </div>
-            ))}
+            {campaigns.length ? (
+              campaigns.map((c) => (
+                <div className="row" key={c.id}>
+                  <b>{c.name}</b>
+
+                  <span>
+                    {c.channel} • {c.status}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No campaigns yet." />
+            )}
           </Panel>
 
           <Panel title="Loyalty Wallet">
             <p className="muted">
-              Wallet/points ledger foundation is
-              available without modifying existing
-              customer balances.
+              Customer wallet and points ledger remain
+              connected to the existing restaurant scope.
             </p>
 
-            {wallets.map((w) => (
-              <div className="row" key={w.id}>
-                <b>
-                  Customer{" "}
-                  {String(w.customer_id).slice(
-                    0,
-                    8
-                  )}
-                </b>
+            {wallets.length ? (
+              wallets.map((w) => (
+                <div className="row" key={w.id}>
+                  <b>
+                    Customer{" "}
+                    {String(
+                      w.customer_id || ""
+                    ).slice(0, 8)}
+                  </b>
 
-                <span>
-                  {money(w.balance)} •{" "}
-                  {w.points} points
-                </span>
-              </div>
-            ))}
+                  <span>
+                    {money(w.balance)} •{" "}
+                    {Number(w.points || 0)} points
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No loyalty wallets found." />
+            )}
           </Panel>
         </section>
       )}
@@ -910,27 +1155,30 @@ export default function RestaurantSuite() {
       {tab === "staff" && (
         <Panel title="Captain / Staff">
           <p className="muted">
-            Captain sessions are device-aware.
-            Connect staff mobile order screens to the
-            same restaurant scope.
+            Captain sessions are device-aware and
+            restaurant-scoped.
           </p>
 
-          {captains.map((c) => (
-            <div className="row" key={c.id}>
-              <b>
-                {c.staff_name || "Staff"}
-              </b>
+          {captains.length ? (
+            captains.map((c) => (
+              <div className="row" key={c.id}>
+                <b>
+                  {c.staff_name || "Staff"}
+                </b>
 
-              <span>
-                {c.device_name || "Device"} •{" "}
-                {new Date(
-                  c.last_seen_at
-                ).toLocaleString("en-IN")}
-              </span>
-            </div>
-          ))}
-
-          {!captains.length && (
+                <span>
+                  {c.device_name || "Device"} •{" "}
+                  {c.last_seen_at
+                    ? new Date(
+                        c.last_seen_at
+                      ).toLocaleString(
+                        "en-IN"
+                      )
+                    : "No activity"}
+                </span>
+              </div>
+            ))
+          ) : (
             <Empty text="No active captain sessions." />
           )}
         </Panel>
@@ -952,6 +1200,7 @@ export default function RestaurantSuite() {
                 })
               }
               placeholder="Terminal code"
+              required
             />
 
             <input
@@ -964,6 +1213,7 @@ export default function RestaurantSuite() {
                 })
               }
               placeholder="Terminal name"
+              required
             />
 
             <select
@@ -976,27 +1226,40 @@ export default function RestaurantSuite() {
                 })
               }
             >
-              <option>pos</option>
-              <option>kitchen</option>
-              <option>billing</option>
-              <option>captain</option>
+              <option value="pos">POS</option>
+              <option value="kitchen">
+                Kitchen
+              </option>
+              <option value="billing">
+                Billing
+              </option>
+              <option value="captain">
+                Captain
+              </option>
             </select>
 
-            <button>
+            <button type="submit">
               Register Terminal
             </button>
           </form>
 
-          {terminals.map((t) => (
-            <div className="row" key={t.id}>
-              <b>{t.terminal_name}</b>
+          {terminals.length ? (
+            terminals.map((t) => (
+              <div className="row" key={t.id}>
+                <b>
+                  {t.terminal_name ||
+                    "Unnamed Terminal"}
+                </b>
 
-              <span>
-                {t.terminal_code} •{" "}
-                {t.active ? "ACTIVE" : "OFF"}
-              </span>
-            </div>
-          ))}
+                <span>
+                  {t.terminal_code || "No code"} •{" "}
+                  {t.active ? "ACTIVE" : "OFF"}
+                </span>
+              </div>
+            ))
+          ) : (
+            <Empty text="No POS terminals registered." />
+          )}
         </Panel>
       )}
 
@@ -1017,6 +1280,7 @@ export default function RestaurantSuite() {
                   })
                 }
                 placeholder="Token"
+                required
               />
 
               <input
@@ -1043,21 +1307,27 @@ export default function RestaurantSuite() {
                 placeholder="Message"
               />
 
-              <button>
+              <button type="submit">
                 Call Token
               </button>
             </form>
 
-            {calls.map((c) => (
-              <div className="row" key={c.id}>
-                <b>
-                  #{c.token_no}{" "}
-                  {c.display_name}
-                </b>
+            {calls.length ? (
+              calls.map((c) => (
+                <div className="row" key={c.id}>
+                  <b>
+                    #{c.token_no}{" "}
+                    {c.display_name}
+                  </b>
 
-                <span>{c.status}</span>
-              </div>
-            ))}
+                  <span>
+                    {c.status || "queued"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <Empty text="No display calls yet." />
+            )}
           </Panel>
 
           <Panel title="Kiosk / Customer Ordering">
@@ -1101,6 +1371,7 @@ export default function RestaurantSuite() {
               "tax",
             ].map((x) => (
               <button
+                type="button"
                 key={x}
                 onClick={() =>
                   requestExport(x)
@@ -1111,76 +1382,204 @@ export default function RestaurantSuite() {
             ))}
           </div>
 
-          {exports.map((x) => (
-            <div className="row" key={x.id}>
-              <b>{x.report_type}</b>
+          {exports.length ? (
+            exports.map((x) => (
+              <div className="row" key={x.id}>
+                <b>{x.report_type}</b>
 
-              <span>
-                {x.status} •{" "}
-                {new Date(
-                  x.created_at
-                ).toLocaleString("en-IN")}
-              </span>
-            </div>
-          ))}
+                <span>
+                  {x.status} •{" "}
+                  {x.created_at
+                    ? new Date(
+                        x.created_at
+                      ).toLocaleString(
+                        "en-IN"
+                      )
+                    : "—"}
+                </span>
+              </div>
+            ))
+          ) : (
+            <Empty text="No report exports requested." />
+          )}
         </Panel>
       )}
 
       {loading && (
         <div className="loading">
-          Loading…
+          <span className="loader" />
+          Loading Restaurant Suite…
         </div>
       )}
 
       <style jsx>{`
+        /*
+          ============================================================
+          RESTAURANT SUITE THEME SYSTEM
+          ============================================================
+
+          This page now inherits the project's global theme variables.
+
+          Supported variables:
+          --background
+          --foreground
+          --card
+          --card-foreground
+          --primary
+          --primary-foreground
+          --secondary
+          --secondary-foreground
+          --accent
+          --accent-foreground
+          --muted
+          --muted-foreground
+          --border
+
+          If the project has not defined them, the fallback values
+          below keep the existing dark green/gold appearance.
+        */
+
         .suite {
-          min-height: 100vh;
-          padding: 24px;
-          background: linear-gradient(
-            180deg,
-            #07111c,
+          --suite-bg: var(
+            --background,
             #020617
           );
-          color: #fff;
+
+          --suite-fg: var(
+            --foreground,
+            #f8fafc
+          );
+
+          --suite-card: var(
+            --card,
+            #0f241b
+          );
+
+          --suite-card-fg: var(
+            --card-foreground,
+            #f8fafc
+          );
+
+          --suite-primary: var(
+            --primary,
+            #d4a72c
+          );
+
+          --suite-primary-fg: var(
+            --primary-foreground,
+            #07110a
+          );
+
+          --suite-secondary: var(
+            --secondary,
+            #17251f
+          );
+
+          --suite-secondary-fg: var(
+            --secondary-foreground,
+            #f8fafc
+          );
+
+          --suite-accent: var(
+            --accent,
+            #1c3328
+          );
+
+          --suite-accent-fg: var(
+            --accent-foreground,
+            #f8fafc
+          );
+
+          --suite-muted: var(
+            --muted,
+            #13231d
+          );
+
+          --suite-muted-fg: var(
+            --muted-foreground,
+            #94a3b8
+          );
+
+          --suite-border: var(
+            --border,
+            rgba(255, 255, 255, 0.1)
+          );
+
+          min-height: 100vh;
+          padding: 24px;
+
+          background:
+            radial-gradient(
+              circle at 100% 0%,
+              rgba(212, 167, 44, 0.08),
+              transparent 32%
+            ),
+            var(--suite-bg);
+
+          color: var(--suite-fg);
+
+          transition:
+            background 0.25s ease,
+            color 0.25s ease;
         }
 
         .hero,
         .panel,
         .stat {
-          background: rgba(15, 23, 42, 0.88);
-          border: 1px solid
-            rgba(255, 255, 255, 0.08);
+          background: var(--suite-card);
+          color: var(--suite-card-fg);
+
+          border: 1px solid var(--suite-border);
+
           border-radius: 20px;
-          box-shadow: 0 18px 45px
-            rgba(0, 0, 0, 0.2);
+
+          box-shadow:
+            0 18px 45px
+              rgba(0, 0, 0, 0.16);
+
+          transition:
+            background 0.25s ease,
+            border-color 0.25s ease,
+            color 0.25s ease,
+            box-shadow 0.25s ease;
         }
 
         .hero {
           padding: 28px;
+
           display: flex;
+          align-items: center;
           justify-content: space-between;
+
           gap: 20px;
         }
 
         .eyebrow {
           font-size: 11px;
           letter-spacing: 0.16em;
-          color: #4ade80;
+
+          color: var(--suite-primary);
+
           font-weight: 900;
         }
 
         .hero h1 {
           margin: 8px 0;
+
+          color: var(--suite-fg);
+
           font-size: clamp(
             28px,
             4vw,
             46px
           );
+
+          line-height: 1.08;
         }
 
         .hero p,
         .muted {
-          color: #94a3b8;
+          color: var(--suite-muted-fg);
         }
 
         .refresh,
@@ -1189,209 +1588,556 @@ export default function RestaurantSuite() {
         .actions button,
         .reportGrid button {
           cursor: pointer;
-          border: 1px solid
-            rgba(255, 255, 255, 0.1);
+
+          border: 1px solid var(--suite-border);
+
           border-radius: 10px;
+
           padding: 10px 13px;
-          background: #111c2e;
-          color: #fff;
+
+          background: var(--suite-secondary);
+
+          color: var(--suite-secondary-fg);
+
           font-weight: 800;
+
+          transition:
+            background 0.2s ease,
+            color 0.2s ease,
+            border-color 0.2s ease,
+            transform 0.15s ease;
+        }
+
+        .refresh:hover,
+        .tabs button:hover,
+        .actions button:hover,
+        .reportGrid button:hover {
+          background: var(--suite-accent);
+
+          color: var(--suite-accent-fg);
+
+          border-color: var(--suite-primary);
+
+          transform: translateY(-1px);
+        }
+
+        .refresh:focus-visible,
+        .tabs button:focus-visible,
+        .form button:focus-visible,
+        .actions button:focus-visible,
+        .reportGrid button:focus-visible,
+        .link:focus-visible,
+        .form input:focus-visible,
+        .form select:focus-visible,
+        .form textarea:focus-visible {
+          outline: 2px solid var(--suite-primary);
+
+          outline-offset: 2px;
         }
 
         .tabs {
           display: flex;
+
           gap: 8px;
-          overflow: auto;
+
+          overflow-x: auto;
+
           padding: 14px 0;
+
+          scrollbar-width: thin;
+
+          scrollbar-color:
+            var(--suite-primary)
+            transparent;
+        }
+
+        .tabs::-webkit-scrollbar {
+          height: 5px;
+        }
+
+        .tabs::-webkit-scrollbar-thumb {
+          background: var(--suite-primary);
+
+          border-radius: 999px;
         }
 
         .tabs button {
+          flex: 0 0 auto;
+
           white-space: nowrap;
         }
 
         .tabs .active {
-          background: #4ade80;
-          color: #06110a;
+          background: var(--suite-primary);
+
+          color: var(--suite-primary-fg);
+
+          border-color: var(--suite-primary);
+
+          box-shadow:
+            0 8px 22px
+              rgba(0, 0, 0, 0.18);
         }
 
         .message {
-          padding: 12px;
-          border: 1px solid
-            rgba(74, 222, 128, 0.25);
-          background: rgba(
-            74,
-            222,
-            128,
-            0.08
-          );
-          border-radius: 12px;
+          padding: 12px 14px;
+
           margin-bottom: 14px;
+
+          border-radius: 12px;
+
+          border: 1px solid var(--suite-border);
+
+          background: var(--suite-accent);
+
+          color: var(--suite-fg);
+
+          font-weight: 700;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(
-            6,
-            1fr
-          );
+
+          grid-template-columns:
+            repeat(6, 1fr);
+
           gap: 12px;
+
           margin-bottom: 16px;
+        }
+
+        .secondaryStats {
+          margin-top: 0;
         }
 
         .stat {
           padding: 18px;
+
+          position: relative;
+
+          overflow: hidden;
+        }
+
+        .stat::before {
+          content: "";
+
+          position: absolute;
+
+          top: 0;
+          left: 0;
+          right: 0;
+
+          height: 2px;
+
+          background: var(--suite-primary);
+
+          opacity: 0.7;
         }
 
         .stat b {
           display: block;
+
           font-size: 11px;
-          color: #94a3b8;
+
+          color: var(--suite-muted-fg);
+
+          text-transform: uppercase;
+
+          letter-spacing: 0.05em;
         }
 
         .stat strong {
-          font-size: 25px;
           display: block;
+
           margin-top: 7px;
+
+          font-size: 25px;
+
+          color: var(--suite-fg);
         }
 
         .grid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+
+          grid-template-columns:
+            1fr 1fr;
+
           gap: 16px;
         }
 
         .panel {
           padding: 20px;
+
           margin-bottom: 16px;
+
+          overflow: hidden;
         }
 
         .panel h2 {
           margin: 0 0 15px;
+
+          color: var(--suite-fg);
+
+          font-size: 22px;
         }
 
         .flow {
           display: flex;
+
           gap: 10px;
+
           flex-wrap: wrap;
         }
 
         .flow span {
           padding: 11px;
+
           border-radius: 12px;
-          background: rgba(
-            74,
-            222,
-            128,
-            0.08
-          );
-          border: 1px solid
-            rgba(74, 222, 128, 0.15);
+
+          background: var(--suite-muted);
+
+          border: 1px solid var(--suite-border);
+
+          color: var(--suite-fg);
+
+          transition:
+            background 0.2s ease,
+            border-color 0.2s ease,
+            transform 0.2s ease;
+        }
+
+        .flow span:hover {
+          background: var(--suite-accent);
+
+          border-color: var(--suite-primary);
+
+          transform: translateY(-1px);
         }
 
         .tokenGrid {
           display: grid;
-          grid-template-columns: repeat(
-            auto-fill,
-            minmax(180px, 1fr)
-          );
+
+          grid-template-columns:
+            repeat(
+              auto-fill,
+              minmax(180px, 1fr)
+            );
+
           gap: 12px;
         }
 
         .token {
           padding: 16px;
+
           border-radius: 16px;
-          background: #0b1423;
-          border: 1px solid
-            rgba(255, 255, 255, 0.08);
+
+          background: var(--suite-muted);
+
+          border: 1px solid var(--suite-border);
+
+          transition:
+            transform 0.2s ease,
+            border-color 0.2s ease,
+            background 0.2s ease;
+        }
+
+        .token:hover {
+          transform: translateY(-2px);
+
+          border-color: var(--suite-primary);
+
+          background: var(--suite-accent);
         }
 
         .tokenNo {
           font-size: 30px;
+
           font-weight: 900;
-          color: #4ade80;
+
+          color: var(--suite-primary);
         }
 
-        .token small,
+        .token b {
+          display: block;
+
+          margin-top: 5px;
+
+          color: var(--suite-fg);
+        }
+
+        .token small {
+          display: block;
+
+          margin-top: 6px;
+
+          color: var(--suite-muted-fg);
+        }
+
         .token strong {
           display: block;
+
           margin-top: 6px;
+
+          color: var(--suite-fg);
+
+          text-transform: capitalize;
         }
 
         .actions {
           display: flex;
+
           gap: 6px;
+
           margin-top: 12px;
         }
 
         .actions button {
           font-size: 10px;
+
           padding: 7px;
         }
 
         .form {
           display: grid;
+
           gap: 9px;
+
           margin-bottom: 16px;
         }
 
         .form input,
         .form select,
         .form textarea {
-          background: #07111f;
-          color: #fff;
-          border: 1px solid
-            rgba(255, 255, 255, 0.1);
+          width: 100%;
+
+          box-sizing: border-box;
+
+          background: var(--suite-bg);
+
+          color: var(--suite-fg);
+
+          border: 1px solid var(--suite-border);
+
           border-radius: 10px;
+
           padding: 11px;
+
+          outline: none;
+
+          transition:
+            border-color 0.2s ease,
+            box-shadow 0.2s ease,
+            background 0.2s ease;
+        }
+
+        .form input::placeholder,
+        .form textarea::placeholder {
+          color: var(--suite-muted-fg);
+        }
+
+        .form input:focus,
+        .form select:focus,
+        .form textarea:focus {
+          border-color: var(--suite-primary);
+
+          box-shadow:
+            0 0 0 3px
+              rgba(212, 167, 44, 0.12);
         }
 
         .form button {
-          background: #4ade80;
-          color: #06110a;
-          border: 0;
+          min-height: 42px;
+
+          background: var(--suite-primary);
+
+          color: var(--suite-primary-fg);
+
+          border-color: var(--suite-primary);
+        }
+
+        .form button:hover {
+          filter: brightness(1.08);
+
+          transform: translateY(-1px);
+        }
+
+        .checkbox {
+          display: flex;
+
+          align-items: center;
+
+          gap: 8px;
+
+          min-height: 40px;
+
+          color: var(--suite-fg);
+
+          cursor: pointer;
+        }
+
+        .checkbox input {
+          width: 18px;
+          height: 18px;
+
+          accent-color: var(--suite-primary);
         }
 
         .row {
           display: flex;
+
+          align-items: center;
+
           justify-content: space-between;
+
           gap: 10px;
+
           padding: 11px 0;
-          border-bottom: 1px solid
-            rgba(255, 255, 255, 0.06);
+
+          border-bottom: 1px solid var(--suite-border);
+
+          color: var(--suite-fg);
+        }
+
+        .row:last-child {
+          border-bottom: 0;
+        }
+
+        .row span {
+          color: var(--suite-muted-fg);
+
+          text-align: right;
+        }
+
+        .status {
+          font-weight: 800;
+        }
+
+        .activeStatus {
+          color: var(--suite-primary) !important;
+        }
+
+        .miniStats {
+          display: grid;
+
+          grid-template-columns:
+            repeat(2, 1fr);
+
+          gap: 10px;
+
+          margin: 16px 0;
+        }
+
+        .miniStats > div {
+          padding: 14px;
+
+          border-radius: 14px;
+
+          background: var(--suite-muted);
+
+          border: 1px solid var(--suite-border);
+        }
+
+        .miniStats span {
+          display: block;
+
+          color: var(--suite-muted-fg);
+
+          font-size: 12px;
+        }
+
+        .miniStats strong {
+          display: block;
+
+          margin-top: 5px;
+
+          color: var(--suite-fg);
         }
 
         .link {
           display: block;
-          color: #4ade80;
+
+          color: var(--suite-primary);
+
           margin: 12px 0;
+
+          font-weight: 800;
+
+          text-decoration: none;
+
+          transition:
+            color 0.2s ease,
+            transform 0.2s ease;
+        }
+
+        .link:hover {
+          color: var(--suite-fg);
+
+          transform: translateX(3px);
         }
 
         .reportGrid {
           display: grid;
-          grid-template-columns: repeat(
-            3,
-            1fr
-          );
+
+          grid-template-columns:
+            repeat(3, 1fr);
+
           gap: 9px;
+
           margin-bottom: 18px;
         }
 
         .loading {
+          display: flex;
+
+          align-items: center;
+
+          justify-content: center;
+
+          gap: 10px;
+
           text-align: center;
+
           padding: 20px;
-          color: #94a3b8;
+
+          color: var(--suite-muted-fg);
+        }
+
+        .loader {
+          width: 18px;
+          height: 18px;
+
+          border-radius: 50%;
+
+          border: 2px solid var(--suite-border);
+
+          border-top-color: var(--suite-primary);
+
+          animation:
+            suite-spin
+            0.8s linear infinite;
+        }
+
+        @keyframes suite-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @media (max-width: 1100px) {
+          .stats {
+            grid-template-columns:
+              repeat(3, 1fr);
+          }
         }
 
         @media (max-width: 900px) {
-          .stats {
-            grid-template-columns: repeat(
-              3,
-              1fr
-            );
-          }
-
           .grid {
             grid-template-columns: 1fr;
+          }
+
+          .reportGrid {
+            grid-template-columns:
+              repeat(2, 1fr);
           }
         }
 
@@ -1402,17 +2148,65 @@ export default function RestaurantSuite() {
 
           .hero {
             flex-direction: column;
+
+            align-items: stretch;
+
+            padding: 20px;
+          }
+
+          .hero h1 {
+            font-size: 32px;
+          }
+
+          .hero p {
+            line-height: 1.6;
           }
 
           .stats {
-            grid-template-columns: repeat(
-              2,
-              1fr
-            );
+            grid-template-columns:
+              repeat(2, 1fr);
+
+            gap: 9px;
+          }
+
+          .stat {
+            padding: 14px;
+          }
+
+          .stat strong {
+            font-size: 21px;
           }
 
           .reportGrid {
             grid-template-columns: 1fr 1fr;
+          }
+
+          .panel {
+            padding: 16px;
+          }
+
+          .row {
+            align-items: flex-start;
+
+            flex-direction: column;
+          }
+
+          .row span {
+            text-align: left;
+          }
+
+          .miniStats {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .stats {
+            grid-template-columns: 1fr;
+          }
+
+          .reportGrid {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
@@ -1440,7 +2234,7 @@ function Panel({ title, children }) {
 
 function Empty({ text }) {
   return (
-    <div className="muted">
+    <div className="muted empty">
       {text}
     </div>
   )
