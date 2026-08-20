@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { supabase } from "@/lib/supabase"
 
 const money = (v) =>
   `₹${Number(v || 0).toLocaleString("en-IN", {
@@ -57,12 +58,28 @@ export default function DeliveryManagement() {
   })
   const [zoneEditorOpen, setZoneEditorOpen] = useState(false)
 
+  async function getAuthHeaders() {
+    const { data, error } = await supabase.auth.getSession()
+
+    if (error || !data?.session?.access_token) {
+      throw new Error("Authentication required. Please login again.")
+    }
+
+    return {
+      Authorization: `Bearer ${data.session.access_token}`,
+    }
+  }
+
   async function load() {
     setLoading(true)
     setError("")
 
     try {
-      const res = await fetch("/api/delivery", { cache: "no-store" })
+      const headers = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        cache: "no-store",
+        headers,
+      })
       const data = await res.json()
 
       if (!res.ok || !data.success) {
@@ -113,9 +130,13 @@ export default function DeliveryManagement() {
     setNotice("")
 
     try {
+      const authHeaders = await getAuthHeaders()
       const res = await fetch("/api/delivery", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       })
 
@@ -421,9 +442,13 @@ export default function DeliveryManagement() {
     setNotice("")
 
     try {
+      const authHeaders = await getAuthHeaders()
       const res = await fetch("/api/delivery", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           action: zoneForm.id ? "zone_update" : "zone_create",
           zone_id: zoneForm.id || undefined,
@@ -463,9 +488,13 @@ export default function DeliveryManagement() {
     setNotice("")
 
     try {
+      const authHeaders = await getAuthHeaders()
       const res = await fetch("/api/delivery", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           action: "zone_delete",
           zone_id: zone.id,
