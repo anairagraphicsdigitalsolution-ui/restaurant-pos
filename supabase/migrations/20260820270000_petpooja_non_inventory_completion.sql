@@ -136,15 +136,56 @@ create index if not exists idx_sms_deliveries_restaurant on public.sms_campaign_
 create index if not exists idx_scan_pay_requests_restaurant on public.scan_pay_requests(restaurant_id,created_at desc);
 
 do $$
-declare t text;
+declare
+  t record;
 begin
-  foreach t in array array[
-    'central_kitchens','kitchen_dispatches','forecast_snapshots','dynamic_report_definitions',
-    'e_bill_documents','printer_devices','payment_gateway_configs','sms_campaign_deliveries',
-    'website_order_settings','scan_pay_requests'
-  ] loop
-    execute format('alter table public.%I enable row level security',t);
-    execute format('drop policy if exists %I on public.%I','restaurant scoped '||t,t);
-    execute format('create policy %I on public.%I for all using (public.is_restaurant_member(restaurant_id)) with check (public.is_restaurant_member(restaurant_id))','restaurant scoped '||t,t);
+  for t in
+    select v.table_name
+    from (
+      values
+        ('central_kitchens'),
+        ('kitchen_dispatches'),
+        ('forecast_snapshots'),
+        ('dynamic_report_definitions'),
+        ('e_bill_documents'),
+        ('printer_devices'),
+        ('payment_gateway_configs'),
+        ('sms_campaign_deliveries'),
+        ('website_order_settings'),
+        ('scan_pay_requests')
+    ) as v(table_name)
+    where exists (
+      select 1
+      from information_schema.tables it
+      where it.table_schema = 'public'
+        and it.table_name = v.table_name
+    )
+      and exists (
+        select 1
+        from information_schema.columns ic
+        where ic.table_schema = 'public'
+          and ic.table_name = v.table_name
+          and ic.column_name = 'restaurant_id'
+      )
+  loop
+    execute format(
+      'alter table public.%I enable row level security',
+      t.table_name
+    );
+
+    execute format(
+      'drop policy if exists %I on public.%I',
+      'restaurant scoped ' || t.table_name,
+      t.table_name
+    );
+
+    execute format(
+      'create policy %I on public.%I
+       for all
+       using (public.is_restaurant_member(restaurant_id))
+       with check (public.is_restaurant_member(restaurant_id))',
+      'restaurant scoped ' || t.table_name,
+      t.table_name
+    );
   end loop;
 end $$;
