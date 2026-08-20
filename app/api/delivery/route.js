@@ -170,6 +170,148 @@ export async function POST(req) {
       return Response.json({ success:true, delivery })
     }
 
+    if (action === "zone_create" || action === "zone_update" || action === "zone_delete") {
+      const zoneId = String(body?.zone_id || "").trim()
+
+      if (action === "zone_delete") {
+        if (!zoneId) {
+          return Response.json(
+            { success: false, error: "Delivery zone is required" },
+            { status: 400 }
+          )
+        }
+
+        const { data: existing, error: findError } = await supabaseAdmin
+          .from("delivery_zones")
+          .select("id,name")
+          .eq("id", zoneId)
+          .eq("restaurant_id", restaurantId)
+          .maybeSingle()
+
+        if (findError) {
+          return Response.json(
+            { success: false, error: findError.message },
+            { status: 400 }
+          )
+        }
+
+        if (!existing) {
+          return Response.json(
+            { success: false, error: "Delivery zone not found" },
+            { status: 404 }
+          )
+        }
+
+        const { error } = await supabaseAdmin
+          .from("delivery_zones")
+          .delete()
+          .eq("id", zoneId)
+          .eq("restaurant_id", restaurantId)
+
+        if (error) {
+          return Response.json(
+            { success: false, error: error.message },
+            { status: 400 }
+          )
+        }
+
+        return Response.json({ success: true })
+      }
+
+      const name = String(body?.name || "").trim()
+      const charge = cleanMoney(body?.charge)
+      const minOrder = cleanMoney(body?.min_order)
+      const active = body?.active !== false
+
+      if (!name) {
+        return Response.json(
+          { success: false, error: "Zone name is required" },
+          { status: 400 }
+        )
+      }
+
+      if (action === "zone_update") {
+        if (!zoneId) {
+          return Response.json(
+            { success: false, error: "Delivery zone is required" },
+            { status: 400 }
+          )
+        }
+
+        const { data: duplicate } = await supabaseAdmin
+          .from("delivery_zones")
+          .select("id")
+          .eq("restaurant_id", restaurantId)
+          .ilike("name", name)
+          .neq("id", zoneId)
+          .limit(1)
+
+        if (duplicate?.length) {
+          return Response.json(
+            { success: false, error: "A delivery zone with this name already exists." },
+            { status: 409 }
+          )
+        }
+
+        const { data: zone, error } = await supabaseAdmin
+          .from("delivery_zones")
+          .update({
+            name,
+            charge,
+            min_order: minOrder,
+            active,
+          })
+          .eq("id", zoneId)
+          .eq("restaurant_id", restaurantId)
+          .select("*")
+          .single()
+
+        if (error) {
+          return Response.json(
+            { success: false, error: error.message },
+            { status: 400 }
+          )
+        }
+
+        return Response.json({ success: true, zone })
+      }
+
+      const { data: duplicate } = await supabaseAdmin
+        .from("delivery_zones")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .ilike("name", name)
+        .limit(1)
+
+      if (duplicate?.length) {
+        return Response.json(
+          { success: false, error: "A delivery zone with this name already exists." },
+          { status: 409 }
+        )
+      }
+
+      const { data: zone, error } = await supabaseAdmin
+        .from("delivery_zones")
+        .insert([{
+          restaurant_id: restaurantId,
+          name,
+          charge,
+          min_order: minOrder,
+          active,
+        }])
+        .select("*")
+        .single()
+
+      if (error) {
+        return Response.json(
+          { success: false, error: error.message },
+          { status: 400 }
+        )
+      }
+
+      return Response.json({ success: true, zone })
+    }
+
     const deliveryId = String(body?.delivery_id || "").trim()
     if (!deliveryId) return Response.json({ success:false,error:"Delivery is required" },{status:400})
 

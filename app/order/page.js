@@ -41,6 +41,7 @@ export default function OrderPage() {
 
   const [openSelect, setOpenSelect] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [placingOrder, setPlacingOrder] = useState(false)
 
   /* =========================================================
      RESPONSIVE
@@ -96,6 +97,7 @@ export default function OrderPage() {
 
         setRestaurantId(rest.id)
         setRestaurantName(rest.name || "")
+
         await fetchAll(rest.id)
         return
       }
@@ -116,11 +118,12 @@ export default function OrderPage() {
         return
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("restaurant_id")
-        .eq("id", userData.user.id)
-        .single()
+      const { data: profile, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("restaurant_id")
+          .eq("id", userData.user.id)
+          .single()
 
       if (profileError || !profile?.restaurant_id) {
         console.error("PROFILE ERROR:", profileError)
@@ -129,6 +132,7 @@ export default function OrderPage() {
       }
 
       setRestaurantId(profile.restaurant_id)
+
       await fetchAll(profile.restaurant_id)
     } catch (error) {
       console.error("INIT ERROR:", error)
@@ -243,7 +247,10 @@ export default function OrderPage() {
     ) {
       setType(typeParam)
 
-      const list = typeParam === "table" ? tables : rooms
+      const list =
+        typeParam === "table"
+          ? tables
+          : rooms
 
       const found = list.find((item) =>
         typeParam === "table"
@@ -265,11 +272,16 @@ export default function OrderPage() {
 
     if (!qrType || !qrId) return
 
-    if (qrType !== "table" && qrType !== "room") return
+    if (qrType !== "table" && qrType !== "room") {
+      return
+    }
 
     setType(qrType)
 
-    const list = qrType === "table" ? tables : rooms
+    const list =
+      qrType === "table"
+        ? tables
+        : rooms
 
     const found = list.find((item) =>
       qrType === "table"
@@ -289,14 +301,26 @@ export default function OrderPage() {
      ========================================================= */
 
   function itemGroups(item) {
-    const ids = modifierLinks
-      .filter((link) => link.menu_item_id === item.id)
-      .map((link) => link.modifier_group_id)
+    if (!item) return []
 
-    return modifierGroups.filter((group) => ids.includes(group.id))
+    const ids = modifierLinks
+      .filter(
+        (link) =>
+          String(link.menu_item_id) ===
+          String(item.id)
+      )
+      .map(
+        (link) => link.modifier_group_id
+      )
+
+    return modifierGroups.filter((group) =>
+      ids.includes(group.id)
+    )
   }
 
   function addToCart(item) {
+    if (!item) return
+
     const groups = itemGroups(item)
 
     if (groups.length) {
@@ -315,33 +339,45 @@ export default function OrderPage() {
     addConfiguredItem(item, [])
   }
 
-  function addConfiguredItem(item, selectedModifiers) {
-    const modifierTotal = selectedModifiers.reduce(
-      (sum, modifier) =>
-        sum +
-        Number(modifier.price || 0) *
-          Number(modifier.quantity || 1),
-      0
-    )
+  function addConfiguredItem(
+    item,
+    selectedModifiers
+  ) {
+    const modifierTotal =
+      selectedModifiers.reduce(
+        (sum, modifier) =>
+          sum +
+          Number(modifier.price || 0) *
+            Number(modifier.quantity || 1),
+        0
+      )
 
-    const key = `${item.id}:${
-      selectedModifiers.map((modifier) => modifier.id).sort().join(",") ||
-      "base"
-    }`
+    const modifierKey =
+      selectedModifiers
+        .map((modifier) => modifier.id)
+        .sort()
+        .join(",")
+
+    const key =
+      `${item.id}:${modifierKey || "base"}`
 
     setCart((previous) => {
       const existing = previous.find(
-        (item) => item.cartKey === key
+        (cartItem) =>
+          cartItem.cartKey === key
       )
 
       if (existing) {
-        return previous.map((item) =>
-          item.cartKey === key
+        return previous.map((cartItem) =>
+          cartItem.cartKey === key
             ? {
-                ...item,
-                qty: Number(item.qty || 0) + 1,
+                ...cartItem,
+                qty:
+                  Number(
+                    cartItem.qty || 0
+                  ) + 1,
               }
-            : item
+            : cartItem
         )
       }
 
@@ -361,61 +397,99 @@ export default function OrderPage() {
   function confirmModifiers() {
     if (!modifierItem) return
 
-    const groups = itemGroups(modifierItem)
+    const groups =
+      itemGroups(modifierItem)
 
     for (const group of groups) {
-      const chosen = modifierSelection[group.id] || []
+      const chosen =
+        modifierSelection[group.id] || []
 
-      if (group.required && !chosen.length) {
-        alert(`Please choose an option from ${group.name}`)
+      if (
+        group.required &&
+        !chosen.length
+      ) {
+        alert(
+          `Please choose an option from ${group.name}`
+        )
         return
       }
     }
 
-    const chosen = Object.values(modifierSelection).flat()
+    const chosen =
+      Object.values(
+        modifierSelection
+      ).flat()
 
-    addConfiguredItem(modifierItem, chosen)
+    addConfiguredItem(
+      modifierItem,
+      chosen
+    )
 
     setModifierItem(null)
     setModifierSelection({})
   }
 
-  function toggleModifier(group, modifier) {
-    setModifierSelection((previous) => {
-      const current = previous[group.id] || []
+  function toggleModifier(
+    group,
+    modifier
+  ) {
+    setModifierSelection(
+      (previous) => {
+        const current =
+          previous[group.id] || []
 
-      if (group.selection_type === "single") {
+        if (
+          group.selection_type ===
+          "single"
+        ) {
+          return {
+            ...previous,
+            [group.id]: [modifier],
+          }
+        }
+
+        const exists =
+          current.some(
+            (item) =>
+              item.id === modifier.id
+          )
+
         return {
           ...previous,
-          [group.id]: [modifier],
+          [group.id]: exists
+            ? current.filter(
+                (item) =>
+                  item.id !==
+                  modifier.id
+              )
+            : [
+                ...current,
+                modifier,
+              ],
         }
       }
-
-      const exists = current.some(
-        (item) => item.id === modifier.id
-      )
-
-      return {
-        ...previous,
-        [group.id]: exists
-          ? current.filter((item) => item.id !== modifier.id)
-          : [...current, modifier],
-      }
-    })
+    )
   }
 
   /* =========================================================
      CART
      ========================================================= */
 
-  function updateQty(cartKey, change) {
+  function updateQty(
+    cartKey,
+    change
+  ) {
     setCart((previous) =>
       previous.flatMap((item) => {
-        if (item.cartKey !== cartKey) {
+        if (
+          item.cartKey !== cartKey
+        ) {
           return [item]
         }
 
-        const qty = Number(item.qty || 0) + change
+        const qty =
+          Number(item.qty || 0) +
+          change
 
         if (qty <= 0) {
           return []
@@ -433,7 +507,10 @@ export default function OrderPage() {
 
   function removeItem(cartKey) {
     setCart((previous) =>
-      previous.filter((item) => item.cartKey !== cartKey)
+      previous.filter(
+        (item) =>
+          item.cartKey !== cartKey
+      )
     )
   }
 
@@ -442,23 +519,37 @@ export default function OrderPage() {
      ========================================================= */
 
   function comboDisplayName(item) {
-    if (item?.item_type !== "combo") {
+    if (
+      item?.item_type !== "combo"
+    ) {
       return item?.name || "Item"
     }
 
-    const config = item?.combo_config || {}
+    const config =
+      item?.combo_config || {}
 
     const ids =
       config.mode === "fixed"
-        ? (config.items || []).map((item) => item.item_id)
+        ? (config.items || []).map(
+            (comboItem) =>
+              comboItem.item_id
+          )
         : []
 
     const names = ids
-      .map((id) => menu.find((menuItem) => menuItem.id === id)?.name)
+      .map(
+        (id) =>
+          menu.find(
+            (menuItem) =>
+              menuItem.id === id
+          )?.name
+      )
       .filter(Boolean)
 
     return names.length
-      ? `${item.name} [${names.join(", ")}]`
+      ? `${item.name} [${names.join(
+          ", "
+        )}]`
       : item.name
   }
 
@@ -466,24 +557,35 @@ export default function OrderPage() {
      ORDER TYPE
      ========================================================= */
 
-  function changeOrderType(nextType) {
+  function changeOrderType(
+    nextType
+  ) {
     setType(nextType)
     setSelected(null)
     setOpenSelect(false)
 
-    if (nextType !== "delivery") {
+    if (
+      nextType !== "delivery"
+    ) {
       setDeliveryCharge(0)
       setDeliveryZone("")
     }
 
-    if (nextType === "takeaway") {
+    if (
+      nextType === "takeaway"
+    ) {
       setCustomerNotes("")
     }
   }
 
   function applyZone(zone) {
-    setDeliveryZone(zone?.name || "")
-    setDeliveryCharge(Number(zone?.charge || 0))
+    setDeliveryZone(
+      zone?.name || ""
+    )
+
+    setDeliveryCharge(
+      Number(zone?.charge || 0)
+    )
   }
 
   /* =========================================================
@@ -491,18 +593,21 @@ export default function OrderPage() {
      ========================================================= */
 
   async function placeOrder() {
+    if (placingOrder) return
+
     if (!restaurantId) {
       alert("Restaurant missing")
       return
     }
 
-    if (cart.length === 0) {
+    if (!cart.length) {
       alert("Cart empty")
       return
     }
 
     if (
-      (type === "table" || type === "room") &&
+      (type === "table" ||
+        type === "room") &&
       !selected
     ) {
       alert("Select table/room")
@@ -511,221 +616,362 @@ export default function OrderPage() {
 
     if (type === "delivery") {
       if (!customerName.trim()) {
-        alert("Customer name is required")
+        alert(
+          "Customer name is required"
+        )
         return
       }
 
       if (!customerPhone.trim()) {
-        alert("Customer phone is required")
+        alert(
+          "Customer phone is required"
+        )
         return
       }
 
       if (!deliveryAddress.trim()) {
-        alert("Delivery address is required")
+        alert(
+          "Delivery address is required"
+        )
         return
       }
     }
 
-    const foodTotal = cart.reduce(
-      (sum, item) =>
-        sum +
-        (Number(item.price || 0) +
-          Number(item.modifierTotal || 0)) *
-          Number(item.qty || 0),
-      0
-    )
+    try {
+      setPlacingOrder(true)
 
-    const orderTotal =
-      foodTotal +
-      (type === "delivery"
-        ? Number(deliveryCharge || 0)
-        : 0)
+      const foodTotal =
+        cart.reduce(
+          (sum, item) =>
+            sum +
+            (
+              Number(
+                item.price || 0
+              ) +
+              Number(
+                item.modifierTotal ||
+                  0
+              )
+            ) *
+              Number(
+                item.qty || 0
+              ),
+          0
+        )
 
-    const sourceLabel =
-      type === "table"
-        ? `Table ${selected.table_number}`
-        : type === "room"
-        ? `Room ${selected.room_number}`
-        : type === "takeaway"
-        ? "Takeaway"
-        : `Delivery - ${customerName.trim()}`
+      const orderTotal =
+        foodTotal +
+        (type === "delivery"
+          ? Number(
+              deliveryCharge || 0
+            )
+          : 0)
 
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert([
-        {
-          source_type: type,
-          source_id: selected?.id || null,
-          source_label: sourceLabel,
-          order_mode:
-            type === "table" || type === "room"
-              ? "dine_in"
-              : type,
-          restaurant_id: restaurantId,
-          status: "pending",
-          subtotal: foodTotal,
-          total_amount: orderTotal,
-          payment_status: "unpaid",
-          payment_method:
-            type === "delivery"
-              ? paymentMethod
-              : null,
-          paid_amount: 0,
-        },
-      ])
-      .select()
-      .single()
+      const sourceLabel =
+        type === "table"
+          ? `Table ${selected.table_number}`
+          : type === "room"
+          ? `Room ${selected.room_number}`
+          : type === "takeaway"
+          ? "Takeaway"
+          : `Delivery - ${customerName.trim()}`
 
-    if (error || !order) {
-      console.error("ORDER ERROR:", error)
+      const {
+        data: order,
+        error,
+      } = await supabase
+        .from("orders")
+        .insert([
+          {
+            source_type: type,
+            source_id:
+              selected?.id || null,
+            source_label:
+              sourceLabel,
 
-      alert(
-        error?.message ||
-          "Order could not be created."
-      )
+            order_mode:
+              type === "table" ||
+              type === "room"
+                ? "dine_in"
+                : type,
 
-      return
-    }
+            restaurant_id:
+              restaurantId,
 
-    /* =======================================================
-       ORDER ITEMS
-       ======================================================= */
+            status: "pending",
 
-    for (const cartItem of cart) {
-      const { data: orderItem, error: itemError } =
-        await supabase
-          .from("order_items")
-          .insert([
-            {
-              order_id: order.id,
-              item_id: cartItem.id,
-              quantity: cartItem.qty,
-              item_name: comboDisplayName(cartItem),
-              unit_price: Number(cartItem.price || 0),
-              line_total:
-                (Number(cartItem.price || 0) +
-                  Number(cartItem.modifierTotal || 0)) *
-                Number(cartItem.qty || 0),
-            },
-          ])
-          .select("id")
-          .single()
+            subtotal:
+              foodTotal,
 
-      if (itemError || !orderItem) {
-        console.error("ITEM ERROR:", itemError)
+            total_amount:
+              orderTotal,
+
+            payment_status:
+              "unpaid",
+
+            payment_method:
+              type === "delivery"
+                ? paymentMethod
+                : null,
+
+            paid_amount: 0,
+          },
+        ])
+        .select()
+        .single()
+
+      if (error || !order) {
+        console.error(
+          "ORDER ERROR:",
+          error
+        )
 
         alert(
-          itemError?.message ||
-            "Order item could not be saved."
+          error?.message ||
+            "Order could not be created."
         )
 
         return
       }
 
       /* =====================================================
-         ORDER MODIFIERS
+         ORDER ITEMS
          ===================================================== */
 
-      if (cartItem.selectedModifiers?.length) {
-        const modifierRows =
-          cartItem.selectedModifiers.map((modifier) => ({
-            order_item_id: orderItem.id,
-            modifier_id: modifier.id,
-            modifier_name: modifier.name,
-            price: Number(modifier.price || 0),
-            quantity: Number(
-              modifier.quantity || 1
-            ),
-          }))
+      for (
+        const cartItem of cart
+      ) {
+        const {
+          data: orderItem,
+          error: itemError,
+        } = await supabase
+          .from("order_items")
+          .insert([
+            {
+              order_id:
+                order.id,
 
-        const { error: modifierError } =
-          await supabase
-            .from("order_item_modifiers")
-            .insert(modifierRows)
+              item_id:
+                cartItem.id,
 
-        if (modifierError) {
+              quantity:
+                cartItem.qty,
+
+              item_name:
+                comboDisplayName(
+                  cartItem
+                ),
+
+              unit_price:
+                Number(
+                  cartItem.price ||
+                    0
+                ),
+
+              line_total:
+                (
+                  Number(
+                    cartItem.price ||
+                      0
+                  ) +
+                  Number(
+                    cartItem.modifierTotal ||
+                      0
+                  )
+                ) *
+                Number(
+                  cartItem.qty ||
+                    0
+                ),
+            },
+          ])
+          .select("id")
+          .single()
+
+        if (
+          itemError ||
+          !orderItem
+        ) {
           console.error(
-            "MODIFIER ERROR:",
-            modifierError
+            "ITEM ERROR:",
+            itemError
           )
 
           alert(
-            modifierError.message ||
-              "Modifier save failed."
+            itemError?.message ||
+              "Order item could not be saved."
           )
 
           return
         }
-      }
-    }
 
-    /* =======================================================
-       DELIVERY SLIP
-       ======================================================= */
+        /* ===================================================
+           ORDER MODIFIERS
+           =================================================== */
 
-    if (type === "delivery") {
-      const {
-        data: slipNo,
-        error: slipError,
-      } = await supabase.rpc(
-        "next_delivery_slip_no",
-        {
-          p_restaurant_id: restaurantId,
+        if (
+          cartItem
+            .selectedModifiers
+            ?.length
+        ) {
+          const modifierRows =
+            cartItem.selectedModifiers.map(
+              (modifier) => ({
+                order_item_id:
+                  orderItem.id,
+
+                modifier_id:
+                  modifier.id,
+
+                modifier_name:
+                  modifier.name,
+
+                price:
+                  Number(
+                    modifier.price ||
+                      0
+                  ),
+
+                quantity:
+                  Number(
+                    modifier.quantity ||
+                      1
+                  ),
+              })
+            )
+
+          const {
+            error:
+              modifierError,
+          } =
+            await supabase
+              .from(
+                "order_item_modifiers"
+              )
+              .insert(
+                modifierRows
+              )
+
+          if (
+            modifierError
+          ) {
+            console.error(
+              "MODIFIER ERROR:",
+              modifierError
+            )
+
+            alert(
+              modifierError.message ||
+                "Modifier save failed."
+            )
+
+            return
+          }
         }
-      )
+      }
 
-      if (slipError) {
-        console.error(
-          "DELIVERY SLIP ERROR:",
-          slipError
+      /* =====================================================
+         DELIVERY SLIP
+         ===================================================== */
+
+      if (
+        type === "delivery"
+      ) {
+        const {
+          data: slipNo,
+          error: slipError,
+        } = await supabase.rpc(
+          "next_delivery_slip_no",
+          {
+            p_restaurant_id:
+              restaurantId,
+          }
         )
 
-        alert(
-          "Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there."
-        )
-      } else {
+        if (slipError) {
+          console.error(
+            "DELIVERY SLIP ERROR:",
+            slipError
+          )
+
+          alert(
+            "Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there."
+          )
+
+          return
+        }
+
         const {
           data: delivery,
-          error: deliveryError,
+          error:
+            deliveryError,
         } = await supabase
-          .from("restaurant_deliveries")
+          .from(
+            "restaurant_deliveries"
+          )
           .insert([
             {
-              restaurant_id: restaurantId,
-              order_id: order.id,
-              slip_no: slipNo,
-              order_mode: "delivery",
+              restaurant_id:
+                restaurantId,
+
+              order_id:
+                order.id,
+
+              slip_no:
+                slipNo,
+
+              order_mode:
+                "delivery",
+
               customer_name:
                 customerName.trim(),
-              phone: customerPhone.trim(),
+
+              phone:
+                customerPhone.trim(),
+
               address:
                 deliveryAddress.trim(),
+
               zone:
-                deliveryZone || null,
+                deliveryZone ||
+                null,
+
               delivery_charge:
-                Number(deliveryCharge || 0),
+                Number(
+                  deliveryCharge ||
+                    0
+                ),
+
               payment_method:
                 paymentMethod,
-              expected_amount: orderTotal,
+
+              expected_amount:
+                orderTotal,
 
               /*
-               * COD / delivery money stays pending
-               * until rider/owner returns and settlement
-               * is confirmed.
+               * Delivery/COD payment remains
+               * pending until settlement.
                */
-              payment_status: "pending",
-              settlement_status: "pending",
+              payment_status:
+                "pending",
 
-              status: "pending",
+              settlement_status:
+                "pending",
+
+              status:
+                "pending",
 
               customer_notes:
-                customerNotes.trim() || null,
+                customerNotes.trim() ||
+                null,
             },
           ])
           .select("*")
           .single()
 
-        if (deliveryError) {
+        if (
+          deliveryError
+        ) {
           console.error(
             "DELIVERY CREATE ERROR:",
             deliveryError
@@ -735,106 +981,165 @@ export default function OrderPage() {
             "Order created, but delivery slip could not be saved: " +
               deliveryError.message
           )
-        } else {
-          await supabase
-            .from("delivery_events")
-            .insert([
-              {
-                restaurant_id: restaurantId,
-                delivery_id: delivery.id,
-                status: "pending",
-                note:
-                  "Delivery slip created from POS",
-              },
-            ])
-
-          alert(
-            `Delivery order created. Slip ${delivery.slip_no}`
-          )
-
-          window.location.href =
-            `/dashboard/delivery?slip=${encodeURIComponent(
-              delivery.slip_no
-            )}`
 
           return
         }
+
+        await supabase
+          .from("delivery_events")
+          .insert([
+            {
+              restaurant_id:
+                restaurantId,
+
+              delivery_id:
+                delivery.id,
+
+              status:
+                "pending",
+
+              note:
+                "Delivery slip created from POS",
+            },
+          ])
+
+        alert(
+          `Delivery order created. Slip ${delivery.slip_no}`
+        )
+
+        window.location.href =
+          `/dashboard/delivery?slip=${encodeURIComponent(
+            delivery.slip_no
+          )}`
+
+        return
       }
-    } else {
+
       alert(
         type === "takeaway"
           ? "Takeaway order placed"
+          : type === "room"
+          ? "Room order placed"
           : "Dine-in order placed"
       )
+
+      /* =====================================================
+         RESET
+         ===================================================== */
+
+      setCart([])
+      setSelected(null)
+
+      setCustomerName("")
+      setCustomerPhone("")
+      setDeliveryAddress("")
+      setDeliveryZone("")
+      setDeliveryCharge(0)
+      setCustomerNotes("")
+    } catch (error) {
+      console.error(
+        "PLACE ORDER ERROR:",
+        error
+      )
+
+      alert(
+        error?.message ||
+          "Something went wrong while placing the order."
+      )
+    } finally {
+      setPlacingOrder(false)
     }
-
-    /* =======================================================
-       RESET
-       ======================================================= */
-
-    setCart([])
-    setSelected(null)
-
-    setCustomerName("")
-    setCustomerPhone("")
-    setDeliveryAddress("")
-    setDeliveryZone("")
-    setDeliveryCharge(0)
-    setCustomerNotes("")
   }
 
   /* =========================================================
      MENU GROUPING
      ========================================================= */
 
-  const groupedMenu = menu.reduce(
-    (accumulator, item) => {
-      const category =
-        String(item.category || "Other").trim() ||
-        "Other"
+  const groupedMenu =
+    menu.reduce(
+      (accumulator, item) => {
+        const category =
+          String(
+            item.category ||
+              "Other"
+          ).trim() ||
+          "Other"
 
-      if (!accumulator[category]) {
-        accumulator[category] = []
-      }
+        if (
+          !accumulator[category]
+        ) {
+          accumulator[category] =
+            []
+        }
 
-      accumulator[category].push(item)
+        accumulator[
+          category
+        ].push(item)
 
-      return accumulator
-    },
-    {}
-  )
+        return accumulator
+      },
+      {}
+    )
 
-  const categories = Object.keys(groupedMenu)
+  const categories =
+    Object.keys(
+      groupedMenu
+    )
 
   useEffect(() => {
     if (
       categories.length &&
-      activeCategory !== "All" &&
-      !categories.includes(activeCategory)
+      activeCategory !==
+        "All" &&
+      !categories.includes(
+        activeCategory
+      )
     ) {
-      setActiveCategory(categories[0])
+      setActiveCategory(
+        categories[0]
+      )
     }
-  }, [menu.length, activeCategory])
+  }, [
+    menu.length,
+    activeCategory,
+    categories.length,
+  ])
 
   const visibleItems =
     activeCategory === "All"
       ? menu
-      : groupedMenu[activeCategory] || []
+      : groupedMenu[
+          activeCategory
+        ] || []
 
-  const cartCount = cart.reduce(
-    (total, item) =>
-      total + Number(item.qty || 0),
-    0
-  )
+  const cartCount =
+    cart.reduce(
+      (total, item) =>
+        total +
+        Number(
+          item.qty || 0
+        ),
+      0
+    )
 
-  const cartTotal = cart.reduce(
-    (total, item) =>
-      total +
-      (Number(item.price || 0) +
-        Number(item.modifierTotal || 0)) *
-        Number(item.qty || 0),
-    0
-  )
+  const cartTotal =
+    cart.reduce(
+      (total, item) =>
+        total +
+        (
+          Number(
+            item.price || 0
+          ) +
+          Number(
+            item.modifierTotal ||
+              0
+          )
+        ) *
+          Number(
+            item.qty || 0
+          ),
+      0
+    )
 
   /* =========================================================
      UI
@@ -842,13 +1147,16 @@ export default function OrderPage() {
 
   return (
     <div className="order-page">
+
       {/* =====================================================
           HEADER
           ===================================================== */}
 
       <div className="order-page-header">
         <div>
-          <h1>{restaurantName}</h1>
+          <h1>
+            {restaurantName}
+          </h1>
 
           <div className="order-page-subtitle">
             Premium Dining Experience
@@ -861,9 +1169,12 @@ export default function OrderPage() {
           ===================================================== */}
 
       <div className="order-type-panel">
-        <h3>🔘 Select</h3>
+        <h3>
+          🔘 Select
+        </h3>
 
         <div className="order-type-grid">
+
           <button
             type="button"
             className={
@@ -872,7 +1183,9 @@ export default function OrderPage() {
                 : "order-type-btn"
             }
             onClick={() =>
-              changeOrderType("table")
+              changeOrderType(
+                "table"
+              )
             }
           >
             🍽️ Dine-in
@@ -886,7 +1199,9 @@ export default function OrderPage() {
                 : "order-type-btn"
             }
             onClick={() =>
-              changeOrderType("takeaway")
+              changeOrderType(
+                "takeaway"
+              )
             }
           >
             🥡 Takeaway
@@ -900,7 +1215,9 @@ export default function OrderPage() {
                 : "order-type-btn"
             }
             onClick={() =>
-              changeOrderType("delivery")
+              changeOrderType(
+                "delivery"
+              )
             }
           >
             🛵 Delivery
@@ -914,7 +1231,9 @@ export default function OrderPage() {
                 : "order-type-btn"
             }
             onClick={() =>
-              changeOrderType("room")
+              changeOrderType(
+                "room"
+              )
             }
           >
             🛏️ Room
@@ -932,7 +1251,9 @@ export default function OrderPage() {
               type="button"
               className="select-table-btn"
               onClick={() =>
-                setOpenSelect(!openSelect)
+                setOpenSelect(
+                  !openSelect
+                )
               }
             >
               {selected
@@ -947,21 +1268,30 @@ export default function OrderPage() {
                 {(type === "table"
                   ? tables
                   : rooms
-                ).map((item) => (
-                  <button
-                    type="button"
-                    className="selection-dropdown-item"
-                    key={item.id}
-                    onClick={() => {
-                      setSelected(item)
-                      setOpenSelect(false)
-                    }}
-                  >
-                    {type === "table"
-                      ? `🍽️ Table ${item.table_number}`
-                      : `🛏️ Room ${item.room_number}`}
-                  </button>
-                ))}
+                ).map(
+                  (item) => (
+                    <button
+                      type="button"
+                      className="selection-dropdown-item"
+                      key={
+                        item.id
+                      }
+                      onClick={() => {
+                        setSelected(
+                          item
+                        )
+                        setOpenSelect(
+                          false
+                        )
+                      }}
+                    >
+                      {type ===
+                      "table"
+                        ? `🍽️ Table ${item.table_number}`
+                        : `🛏️ Room ${item.room_number}`}
+                    </button>
+                  )
+                )}
               </div>
             )}
           </>
@@ -971,11 +1301,14 @@ export default function OrderPage() {
             TAKEAWAY
             =================================================== */}
 
-        {type === "takeaway" && (
+        {type ===
+          "takeaway" && (
           <div className="mode-info-box">
-            🥡 Quick takeaway — no table
-            required. Print the bill/KOT after
-            placing the order.
+            🥡 Quick takeaway —
+            no table required.
+            Print the bill/KOT
+            after placing the
+            order.
           </div>
         )}
 
@@ -983,13 +1316,20 @@ export default function OrderPage() {
             DELIVERY
             =================================================== */}
 
-        {type === "delivery" && (
+        {type ===
+          "delivery" && (
           <div className="delivery-fields">
+
             <input
-              value={customerName}
-              onChange={(event) =>
+              value={
+                customerName
+              }
+              onChange={(
+                event
+              ) =>
                 setCustomerName(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder="Customer name *"
@@ -997,10 +1337,15 @@ export default function OrderPage() {
             />
 
             <input
-              value={customerPhone}
-              onChange={(event) =>
+              value={
+                customerPhone
+              }
+              onChange={(
+                event
+              ) =>
                 setCustomerPhone(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder="Phone number *"
@@ -1009,10 +1354,15 @@ export default function OrderPage() {
             />
 
             <textarea
-              value={deliveryAddress}
-              onChange={(event) =>
+              value={
+                deliveryAddress
+              }
+              onChange={(
+                event
+              ) =>
                 setDeliveryAddress(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder="Delivery address *"
@@ -1021,40 +1371,62 @@ export default function OrderPage() {
             />
 
             <select
-              value={deliveryZone}
-              onChange={(event) =>
+              value={
+                deliveryZone
+              }
+              onChange={(
+                event
+              ) =>
                 applyZone(
                   deliveryZones.find(
-                    (zone) =>
+                    (
+                      zone
+                    ) =>
                       zone.name ===
-                      event.target.value
+                      event.target
+                        .value
                   )
                 )
               }
               className="field-input"
             >
               <option value="">
-                Select delivery zone
+                Select delivery
+                zone
               </option>
 
-              {deliveryZones.map((zone) => (
-                <option
-                  key={zone.id}
-                  value={zone.name}
-                >
-                  {zone.name} — ₹
-                  {Number(
-                    zone.charge || 0
-                  ).toLocaleString("en-IN")}
-                </option>
-              ))}
+              {deliveryZones.map(
+                (zone) => (
+                  <option
+                    key={
+                      zone.id
+                    }
+                    value={
+                      zone.name
+                    }
+                  >
+                    {zone.name} — ₹
+                    {Number(
+                      zone.charge ||
+                        0
+                    ).toLocaleString(
+                      "en-IN"
+                    )}
+                  </option>
+                )
+              )}
             </select>
 
             <select
-              value={paymentMethod}
-              onChange={(event) =>
+              value={
+                paymentMethod
+              }
+              onChange={(
+                event
+              ) =>
                 setPaymentMethod(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               className="field-input"
@@ -1077,10 +1449,15 @@ export default function OrderPage() {
             </select>
 
             <textarea
-              value={customerNotes}
-              onChange={(event) =>
+              value={
+                customerNotes
+              }
+              onChange={(
+                event
+              ) =>
                 setCustomerNotes(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder="Delivery note (optional)"
@@ -1089,15 +1466,21 @@ export default function OrderPage() {
             />
 
             <div className="delivery-charge-box">
-              <span>Delivery charge</span>
+              <span>
+                Delivery charge
+              </span>
 
               <strong>
                 ₹
                 {Number(
-                  deliveryCharge || 0
-                ).toLocaleString("en-IN")}
+                  deliveryCharge ||
+                    0
+                ).toLocaleString(
+                  "en-IN"
+                )}
               </strong>
             </div>
+
           </div>
         )}
       </div>
@@ -1107,17 +1490,21 @@ export default function OrderPage() {
           ===================================================== */}
 
       <div className="menu-panel">
+
         <div className="category-header">
           <div>
             <div className="category-eyebrow">
               MENU
             </div>
 
-            <h2>Choose your food</h2>
+            <h2>
+              Choose your food
+            </h2>
           </div>
 
           <span className="category-count">
-            {visibleItems.length} items
+            {visibleItems.length}{" "}
+            items
           </span>
         </div>
 
@@ -1126,48 +1513,66 @@ export default function OrderPage() {
             =================================================== */}
 
         <div className="category-tabs">
+
           <button
             type="button"
             className={
-              activeCategory === "All"
+              activeCategory ===
+              "All"
                 ? "category-tab active"
                 : "category-tab"
             }
             onClick={() =>
-              setActiveCategory("All")
+              setActiveCategory(
+                "All"
+              )
             }
           >
             All
+
             <span className="category-tab-count">
               {menu.length}
             </span>
           </button>
 
-          {categories.map((category) => (
-            <button
-              type="button"
-              key={category}
-              className={
-                activeCategory === category
-                  ? "category-tab active"
-                  : "category-tab"
-              }
-              onClick={() =>
-                setActiveCategory(category)
-              }
-            >
-              {category}
+          {categories.map(
+            (category) => (
+              <button
+                type="button"
+                key={
+                  category
+                }
+                className={
+                  activeCategory ===
+                  category
+                    ? "category-tab active"
+                    : "category-tab"
+                }
+                onClick={() =>
+                  setActiveCategory(
+                    category
+                  )
+                }
+              >
+                {category}
 
-              <span className="category-tab-count">
-                {groupedMenu[category].length}
-              </span>
-            </button>
-          ))}
+                <span className="category-tab-count">
+                  {
+                    groupedMenu[
+                      category
+                    ].length
+                  }
+                </span>
+              </button>
+            )
+          )}
+
         </div>
 
         <div className="category-title">
           <span>
-            {activeCategory === "All"
+            {activeCategory ===
+            "All"
               ? "All Items"
               : activeCategory}
           </span>
@@ -1178,58 +1583,76 @@ export default function OrderPage() {
         </div>
 
         {/* ===================================================
-            COMPACT 8-COLUMN MENU
+            COMPACT PREMIUM PRODUCT GRID
             =================================================== */}
 
         <div className="order-food-grid">
-          {visibleItems.map((item) => (
-            <button
-              type="button"
-              className="order-menu-card"
-              key={item.id}
-              onClick={() =>
-                addToCart(item)
-              }
-            >
-              <div className="order-menu-image-wrap">
-                {item.image ? (
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                    className="order-menu-image"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div
-                    className="order-menu-image-fallback"
-                    aria-hidden="true"
-                  >
-                    🍽️
-                  </div>
-                )}
-              </div>
 
-              <div className="order-menu-card-content">
-                <span className="order-item-name">
-                  {item.name}
-                </span>
+          {visibleItems.map(
+            (item) => (
+              <button
+                type="button"
+                className="order-menu-card"
+                key={item.id}
+                onClick={() =>
+                  addToCart(
+                    item
+                  )
+                }
+              >
 
-                <span className="order-item-price">
-                  ₹
-                  {Number(
-                    item.price || 0
-                  ).toLocaleString("en-IN")}
-                </span>
-              </div>
-            </button>
-          ))}
+                <div className="order-menu-image-wrap">
+                  {item.image ? (
+                    <img
+                      src={
+                        item.image
+                      }
+                      alt={
+                        item.name
+                      }
+                      className="order-menu-image"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div
+                      className="order-menu-image-fallback"
+                      aria-hidden="true"
+                    >
+                      🍽️
+                    </div>
+                  )}
+                </div>
+
+                <div className="order-menu-card-content">
+
+                  <span className="order-item-name">
+                    {item.name}
+                  </span>
+
+                  <span className="order-item-price">
+                    ₹
+                    {Number(
+                      item.price ||
+                        0
+                    ).toLocaleString(
+                      "en-IN"
+                    )}
+                  </span>
+
+                </div>
+              </button>
+            )
+          )}
+
         </div>
 
         {!visibleItems.length && (
           <div className="empty-menu">
-            No items in this category.
+            No items in this
+            category.
           </div>
         )}
+
       </div>
 
       {/* =====================================================
@@ -1237,137 +1660,181 @@ export default function OrderPage() {
           ===================================================== */}
 
       <div className="cart-panel">
+
         <div className="cart-header">
+
           <div>
             <div className="cart-eyebrow">
               YOUR ORDER
             </div>
 
-            <h2>Cart</h2>
+            <h2>
+              Cart
+            </h2>
           </div>
 
           <span className="cart-badge">
             {cartCount} items
           </span>
+
         </div>
 
-        {cart.length === 0 ? (
+        {cart.length ===
+        0 ? (
           <div className="empty-cart">
+
             <div className="empty-cart-icon">
               🛒
             </div>
 
             <strong>
-              Your cart is empty
+              Your cart is
+              empty
             </strong>
 
             <span>
-              Add food items from the menu.
+              Add food items
+              from the menu.
             </span>
+
           </div>
         ) : (
           <>
+
             <div className="cart-list">
-              {cart.map((item) => {
-                const unitTotal =
-                  Number(item.price || 0) +
-                  Number(
-                    item.modifierTotal || 0
-                  )
 
-                return (
-                  <div
-                    className="cart-item"
-                    key={item.cartKey}
-                  >
-                    <div className="cart-item-main">
-                      <div className="cart-item-name">
-                        {item.name}
-                      </div>
+              {cart.map(
+                (item) => {
+                  const unitTotal =
+                    Number(
+                      item.price ||
+                        0
+                    ) +
+                    Number(
+                      item.modifierTotal ||
+                        0
+                    )
 
-                      {item.selectedModifiers
-                        ?.length > 0 && (
-                        <div className="cart-modifiers">
-                          +{" "}
-                          {item.selectedModifiers
-                            .map(
-                              (modifier) =>
-                                modifier.name
-                            )
-                            .join(", ")}
+                  return (
+                    <div
+                      className="cart-item"
+                      key={
+                        item.cartKey
+                      }
+                    >
+
+                      <div className="cart-item-main">
+
+                        <div className="cart-item-name">
+                          {
+                            item.name
+                          }
                         </div>
-                      )}
 
-                      <div className="cart-item-price">
-                        ₹
-                        {unitTotal.toLocaleString(
-                          "en-IN"
-                        )}{" "}
-                        each
+                        {item
+                          .selectedModifiers
+                          ?.length >
+                          0 && (
+                          <div className="cart-modifiers">
+                            +{" "}
+                            {item.selectedModifiers
+                              .map(
+                                (
+                                  modifier
+                                ) =>
+                                  modifier.name
+                              )
+                              .join(
+                                ", "
+                              )}
+                          </div>
+                        )}
+
+                        <div className="cart-item-price">
+                          ₹
+                          {unitTotal.toLocaleString(
+                            "en-IN"
+                          )}{" "}
+                          each
+                        </div>
+
                       </div>
+
+                      <div className="cart-item-actions">
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQty(
+                              item.cartKey,
+                              -1
+                            )
+                          }
+                          className="qty-btn"
+                          aria-label={`Decrease ${item.name}`}
+                        >
+                          −
+                        </button>
+
+                        <span className="qty-value">
+                          {
+                            item.qty
+                          }
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQty(
+                              item.cartKey,
+                              1
+                            )
+                          }
+                          className="qty-btn"
+                          aria-label={`Increase ${item.name}`}
+                        >
+                          +
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeItem(
+                              item.cartKey
+                            )
+                          }
+                          className="remove-btn"
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          ×
+                        </button>
+
+                      </div>
+
                     </div>
+                  )
+                }
+              )}
 
-                    <div className="cart-item-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateQty(
-                            item.cartKey,
-                            -1
-                          )
-                        }
-                        className="qty-btn"
-                        aria-label={`Decrease ${item.name}`}
-                      >
-                        −
-                      </button>
-
-                      <span className="qty-value">
-                        {item.qty}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateQty(
-                            item.cartKey,
-                            1
-                          )
-                        }
-                        className="qty-btn"
-                        aria-label={`Increase ${item.name}`}
-                      >
-                        +
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          removeItem(
-                            item.cartKey
-                          )
-                        }
-                        className="remove-btn"
-                        aria-label={`Remove ${item.name}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
             </div>
 
             <div className="cart-summary">
+
               <div className="summary-row">
-                <span>Items</span>
+                <span>
+                  Items
+                </span>
+
                 <strong>
                   {cartCount}
                 </strong>
               </div>
 
               <div className="summary-total">
-                <span>Total</span>
+
+                <span>
+                  Total
+                </span>
 
                 <strong>
                   ₹
@@ -1375,18 +1842,29 @@ export default function OrderPage() {
                     "en-IN"
                   )}
                 </strong>
+
               </div>
+
             </div>
 
             <button
               type="button"
               className="place-order-btn"
-              onClick={placeOrder}
+              onClick={
+                placeOrder
+              }
+              disabled={
+                placingOrder
+              }
             >
-              🚀 Place Order
+              {placingOrder
+                ? "⏳ Placing..."
+                : "🚀 Place Order"}
             </button>
+
           </>
         )}
+
       </div>
 
       {/* =====================================================
@@ -1397,127 +1875,174 @@ export default function OrderPage() {
         <div
           className="modal-backdrop"
           onClick={() =>
-            setModifierItem(null)
+            setModifierItem(
+              null
+            )
           }
         >
+
           <div
             className="modifier-modal"
-            onClick={(event) =>
+            onClick={(
+              event
+            ) =>
               event.stopPropagation()
             }
           >
+
             <div className="modifier-modal-header">
+
               <div>
+
                 <div className="modal-eyebrow">
                   CUSTOMIZE ITEM
                 </div>
 
                 <h2>
-                  {modifierItem.name}
+                  {
+                    modifierItem.name
+                  }
                 </h2>
 
                 <p>
-                  Choose your options before
-                  adding to the order.
+                  Choose your options
+                  before adding to
+                  the order.
                 </p>
+
               </div>
 
               <button
                 type="button"
                 className="close-btn"
                 onClick={() =>
-                  setModifierItem(null)
+                  setModifierItem(
+                    null
+                  )
                 }
               >
                 ✕
               </button>
+
             </div>
 
             <div className="modifier-groups">
+
               {itemGroups(
                 modifierItem
-              ).map((group) => (
-                <div
-                  key={group.id}
-                  className="modifier-group-box"
-                >
-                  <div className="modifier-group-title">
-                    <b>
-                      {group.name}
-                    </b>
+              ).map(
+                (group) => (
+                  <div
+                    key={
+                      group.id
+                    }
+                    className="modifier-group-box"
+                  >
 
-                    <small>
-                      {group.required
-                        ? "Required"
-                        : "Optional"}
-                    </small>
-                  </div>
+                    <div className="modifier-group-title">
 
-                  <div className="modifier-options">
-                    {modifiers
-                      .filter(
-                        (modifier) =>
-                          modifier.group_id ===
-                          group.id
-                      )
-                      .map((modifier) => {
-                        const chosen = (
-                          modifierSelection[
+                      <b>
+                        {
+                          group.name
+                        }
+                      </b>
+
+                      <small>
+                        {group.required
+                          ? "Required"
+                          : "Optional"}
+                      </small>
+
+                    </div>
+
+                    <div className="modifier-options">
+
+                      {modifiers
+                        .filter(
+                          (
+                            modifier
+                          ) =>
+                            modifier.group_id ===
                             group.id
-                          ] || []
-                        ).some(
-                          (selectedModifier) =>
-                            selectedModifier.id ===
-                            modifier.id
                         )
+                        .map(
+                          (
+                            modifier
+                          ) => {
 
-                        return (
-                          <button
-                            type="button"
-                            key={modifier.id}
-                            onClick={() =>
-                              toggleModifier(
-                                group,
-                                modifier
+                            const chosen =
+                              (
+                                modifierSelection[
+                                  group.id
+                                ] || []
+                              ).some(
+                                (
+                                  selectedModifier
+                                ) =>
+                                  selectedModifier.id ===
+                                  modifier.id
                               )
-                            }
-                            className={
-                              chosen
-                                ? "modifier-choice active"
-                                : "modifier-choice"
-                            }
-                          >
-                            <span>
-                              {chosen
-                                ? "✓"
-                                : "○"}{" "}
-                              {modifier.name}
-                            </span>
 
-                            <strong>
-                              +₹
-                              {Number(
-                                modifier.price ||
-                                  0
-                              ).toLocaleString(
-                                "en-IN"
-                              )}
-                            </strong>
-                          </button>
-                        )
-                      })}
+                            return (
+                              <button
+                                type="button"
+                                key={
+                                  modifier.id
+                                }
+                                onClick={() =>
+                                  toggleModifier(
+                                    group,
+                                    modifier
+                                  )
+                                }
+                                className={
+                                  chosen
+                                    ? "modifier-choice active"
+                                    : "modifier-choice"
+                                }
+                              >
+
+                                <span>
+                                  {chosen
+                                    ? "✓"
+                                    : "○"}{" "}
+                                  {
+                                    modifier.name
+                                  }
+                                </span>
+
+                                <strong>
+                                  +₹
+                                  {Number(
+                                    modifier.price ||
+                                      0
+                                  ).toLocaleString(
+                                    "en-IN"
+                                  )}
+                                </strong>
+
+                              </button>
+                            )
+                          }
+                        )}
+
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
+
             </div>
 
             <button
               type="button"
               className="place-order-btn modal-add-btn"
-              onClick={confirmModifiers}
+              onClick={
+                confirmModifiers
+              }
             >
               Add to Order
             </button>
+
           </div>
         </div>
       )}
@@ -1527,18 +2052,47 @@ export default function OrderPage() {
           ===================================================== */}
 
       <style jsx global>{`
+
         * {
           box-sizing: border-box;
         }
 
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+        }
+
+        button,
+        input,
+        textarea,
+        select {
+          font-family: inherit;
+        }
+
+        /* ==================================================
+           MAIN PAGE
+           ================================================== */
+
         .order-page {
           min-height: 100vh;
+
           display: grid;
-          grid-template-columns: 260px minmax(0, 1fr) 300px;
-          grid-template-rows: auto 1fr;
+
+          grid-template-columns:
+            285px
+            minmax(0, 1fr)
+            290px;
+
+          grid-template-rows:
+            auto
+            1fr;
+
           align-items: start;
-          gap: 12px;
-          padding: 12px;
+
+          gap: 10px;
+
+          padding: 10px;
 
           background:
             linear-gradient(
@@ -1551,25 +2105,46 @@ export default function OrderPage() {
           color: #fff;
         }
 
+        /* ==================================================
+           HEADER
+           ================================================== */
+
         .order-page-header {
           grid-column: 1 / -1;
-          margin-bottom: 2px;
-          padding: 2px 2px 0;
+
+          margin-bottom: 1px;
+
+          padding:
+            2px
+            2px
+            0;
         }
 
         .order-page-header h1 {
           margin: 0;
-          font-size: 30px;
+
+          font-size: 28px;
+
           line-height: 1.1;
+
           font-weight: 800;
-          color: var(--primary);
+
+          color:
+            var(--primary);
         }
 
         .order-page-subtitle {
-          margin-top: 5px;
-          color: var(--muted);
-          font-size: 13px;
+          margin-top: 4px;
+
+          color:
+            var(--muted);
+
+          font-size: 12px;
         }
+
+        /* ==================================================
+           PANELS
+           ================================================== */
 
         .order-type-panel,
         .menu-panel,
@@ -1577,156 +2152,308 @@ export default function OrderPage() {
           background:
             rgba(
               var(--surface-2-rgb),
-              .86
+              .88
             );
 
           border:
             1px solid
             rgba(
               var(--primary-rgb),
-              .15
+              .14
             );
 
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
+          backdrop-filter:
+            blur(20px);
 
-          border-radius: 20px;
+          -webkit-backdrop-filter:
+            blur(20px);
+
+          border-radius:
+            18px;
 
           box-shadow:
-            0 22px 55px
-            rgba(0, 0, 0, .38);
+            0 18px 48px
+            rgba(0,0,0,.34);
         }
 
         .order-type-panel,
         .cart-panel {
           position: sticky;
-          top: 12px;
+
+          top: 10px;
+
           height: fit-content;
-          padding: 14px;
+
+          padding: 18px;
         }
 
         .menu-panel {
           min-width: 0;
-          padding: 14px;
+
+          padding: 13px;
         }
 
+        /* ==================================================
+           ORDER TYPES
+           ================================================== */
+
         .order-type-panel h3 {
-          margin: 0 0 10px;
-          font-size: 15px;
+          margin:
+            0
+            0
+            9px;
+
+          font-size: 14px;
         }
 
         .order-type-grid {
           display: grid;
+
           grid-template-columns:
-            repeat(2, minmax(0, 1fr));
-          gap: 7px;
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+
+          gap: 6px;
         }
 
         .order-type-btn {
           min-width: 0;
-          padding: 9px 6px;
-          border-radius: 11px;
+
+          min-height:
+            44px;
+
+          padding:
+            10px
+            8px;
+
+          border-radius:
+            12px;
+
           border:
             1px solid
-            rgba(255, 255, 255, .12);
+            rgba(
+              255,
+              255,
+              255,
+              .11
+            );
 
           background:
-            rgba(255, 255, 255, .035);
+            rgba(
+              255,
+              255,
+              255,
+              .035
+            );
 
           color: #fff;
-          font-size: 11px;
+
+          font-size: 10px;
+
           font-weight: 800;
+
           cursor: pointer;
 
           transition:
-            .16s ease;
+            .15s ease;
         }
 
         .order-type-btn:hover {
           background:
-            rgba(255, 255, 255, .075);
+            rgba(
+              255,
+              255,
+              255,
+              .07
+            );
         }
 
         .order-type-btn.active-info {
-          border-color: #38bdf8;
-          color: #38bdf8;
+          border-color:
+            #38bdf8;
+
+          color:
+            #38bdf8;
+
           box-shadow:
-            0 0 12px
-            rgba(56, 189, 248, .18);
+            0 0 11px
+            rgba(
+              56,
+              189,
+              248,
+              .17
+            );
         }
 
         .order-type-btn.active-warning {
-          border-color: #f59e0b;
-          color: #f59e0b;
+          border-color:
+            #f59e0b;
+
+          color:
+            #f59e0b;
+
           box-shadow:
-            0 0 12px
-            rgba(245, 158, 11, .18);
+            0 0 11px
+            rgba(
+              245,
+              158,
+              11,
+              .17
+            );
         }
 
         .order-type-btn.active-success {
-          border-color: #22c55e;
-          color: #22c55e;
+          border-color:
+            #22c55e;
+
+          color:
+            #22c55e;
+
           box-shadow:
-            0 0 12px
-            rgba(34, 197, 94, .18);
+            0 0 11px
+            rgba(
+              34,
+              197,
+              94,
+              .17
+            );
         }
 
         .order-type-btn.active-purple {
-          border-color: #a855f7;
-          color: #a855f7;
+          border-color:
+            #a855f7;
+
+          color:
+            #a855f7;
+
           box-shadow:
-            0 0 12px
-            rgba(168, 85, 247, .18);
+            0 0 11px
+            rgba(
+              168,
+              85,
+              247,
+              .17
+            );
         }
+
+        /* ==================================================
+           TABLE SELECT
+           ================================================== */
 
         .select-table-btn {
           width: 100%;
-          margin-top: 12px;
-          padding: 10px;
-          border-radius: 11px;
+
+          margin-top: 13px;
+
+          min-height:
+            44px;
+
+          padding:
+            11px
+            10px;
+
+          border-radius:
+            12px;
 
           border:
             1px solid
-            rgba(255, 255, 255, .13);
+            rgba(
+              255,
+              255,
+              255,
+              .12
+            );
 
           background:
-            rgba(255, 255, 255, .045);
+            rgba(
+              255,
+              255,
+              255,
+              .04
+            );
 
           color: #fff;
-          font-size: 11px;
+
+          font-size: 10px;
+
           cursor: pointer;
         }
 
         .selection-dropdown {
-          max-height: 210px;
-          overflow-y: auto;
-          margin-top: 8px;
+          max-height:
+            200px;
+
+          overflow-y:
+            auto;
+
+          overflow-x:
+            hidden;
+
+          margin-top:
+            7px;
 
           border:
             1px solid
-            rgba(255, 255, 255, .10);
+            rgba(
+              255,
+              255,
+              255,
+              .09
+            );
 
-          border-radius: 11px;
-          overflow-x: hidden;
+          border-radius:
+            10px;
 
           background:
-            rgba(5, 15, 12, .96);
+            rgba(
+              5,
+              15,
+              12,
+              .97
+            );
         }
 
         .selection-dropdown-item {
-          display: block;
-          width: 100%;
-          padding: 10px;
-          border: 0;
+          display:
+            block;
+
+          width:
+            100%;
+
+          padding:
+            9px;
+
+          border:
+            0;
+
           border-bottom:
             1px solid
-            rgba(255, 255, 255, .06);
+            rgba(
+              255,
+              255,
+              255,
+              .055
+            );
 
-          background: transparent;
-          color: #fff;
-          text-align: left;
-          cursor: pointer;
-          font-size: 11px;
+          background:
+            transparent;
+
+          color:
+            #fff;
+
+          text-align:
+            left;
+
+          cursor:
+            pointer;
+
+          font-size:
+            12px;
+
+          font-weight:
+            700;
         }
 
         .selection-dropdown-item:hover {
@@ -1737,251 +2464,286 @@ export default function OrderPage() {
             );
         }
 
-        .mode-info-box {
-          margin-top: 10px;
-          padding: 10px;
+        /* ==================================================
+           TAKEAWAY
+           ================================================== */
 
-          border-radius: 11px;
+        .mode-info-box {
+          margin-top:
+            9px;
+
+          padding:
+            9px;
+
+          border-radius:
+            10px;
 
           background:
-            rgba(245, 158, 11, .07);
+            rgba(
+              245,
+              158,
+              11,
+              .07
+            );
 
           border:
             1px solid
-            rgba(245, 158, 11, .20);
+            rgba(
+              245,
+              158,
+              11,
+              .18
+            );
 
-          color: #f7c66a;
-          font-size: 10px;
-          line-height: 1.45;
+          color:
+            #f7c66a;
+
+          font-size:
+            11px;
+
+          line-height:
+            1.5;
         }
 
+        /* ==================================================
+           DELIVERY
+           ================================================== */
+
         .delivery-fields {
-          display: grid;
-          gap: 7px;
-          margin-top: 10px;
+          display:
+            grid;
+
+          gap:
+            6px;
+
+          margin-top:
+            9px;
         }
 
         .field-input {
-          width: 100%;
-          min-width: 0;
-          padding: 9px 10px;
+          width:
+            100%;
+
+          min-width:
+            0;
+
+          padding:
+            8px
+            9px;
 
           border:
             1px solid
-            rgba(255, 255, 255, .12);
+            rgba(
+              255,
+              255,
+              255,
+              .11
+            );
 
-          border-radius: 10px;
+          border-radius:
+            9px;
 
           background:
-            rgba(255, 255, 255, .04);
+            rgba(
+              255,
+              255,
+              255,
+              .035
+            );
 
-          color: #fff;
-          outline: none;
-          font-size: 11px;
+          color:
+            #fff;
+
+          outline:
+            none;
+
+          font-size:
+            12px;
         }
 
         .field-input::placeholder {
-          color: rgba(255, 255, 255, .46);
+          color:
+            rgba(
+              255,
+              255,
+              255,
+              .45
+            );
         }
 
         .field-input:focus {
           border-color:
             rgba(
               var(--primary-rgb),
-              .50
+              .48
             );
 
           box-shadow:
             0 0 0 2px
             rgba(
               var(--primary-rgb),
-              .07
+              .06
             );
         }
 
         .textarea-input {
-          resize: vertical;
+          resize:
+            vertical;
         }
 
         .delivery-charge-box {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+          display:
+            flex;
 
-          padding: 9px 10px;
+          justify-content:
+            space-between;
 
-          border-radius: 10px;
+          align-items:
+            center;
+
+          padding:
+            8px
+            9px;
+
+          border-radius:
+            9px;
 
           background:
-            rgba(34, 197, 94, .07);
+            rgba(
+              34,
+              197,
+              94,
+              .06
+            );
 
           border:
             1px solid
-            rgba(34, 197, 94, .18);
+            rgba(
+              34,
+              197,
+              94,
+              .17
+            );
 
-          color: #86efac;
-          font-size: 11px;
+          color:
+            #86efac;
+
+          font-size:
+            11px;
         }
 
+        /* ==================================================
+           MENU HEADER
+           ================================================== */
+
         .category-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 8px;
+          display:
+            flex;
+
+          align-items:
+            center;
+
+          justify-content:
+            space-between;
+
+          gap:
+            8px;
+
+          margin-bottom:
+            7px;
         }
 
         .category-eyebrow,
         .cart-eyebrow,
         .modal-eyebrow {
-          color: var(--primary);
-          font-size: 9px;
-          font-weight: 900;
-          letter-spacing: 1.4px;
+          color:
+            var(--primary);
+
+          font-size:
+            8px;
+
+          font-weight:
+            900;
+
+          letter-spacing:
+            1.3px;
         }
 
         .category-header h2 {
-          margin: 3px 0 0;
-          font-size: 20px;
-          line-height: 1.1;
+          margin:
+            3px
+            0
+            0;
+
+          font-size:
+            19px;
+
+          line-height:
+            1.1;
         }
 
         .category-count {
-          color: var(--muted);
-          font-size: 10px;
-          font-weight: 800;
-          white-space: nowrap;
-        }
+          color:
+            var(--muted);
 
-        .category-tabs {
-          display: flex;
-          align-items: center;
-          gap: 6px;
+          font-size:
+            9px;
 
-          width: 100%;
-          overflow-x: auto;
+          font-weight:
+            800;
 
-          padding: 2px 1px 8px;
-          margin-bottom: 2px;
-
-          scrollbar-width: thin;
-        }
-
-        .category-tab {
-          flex: 0 0 auto;
-
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-
-          padding: 6px 9px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .15
-            );
-
-          border-radius: 999px;
-
-          background:
-            rgba(255, 255, 255, .035);
-
-          color: #fff;
-          font-size: 10px;
-          font-weight: 800;
-
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .category-tab.active {
-          background:
-            rgba(
-              var(--primary-rgb),
-              .12
-            );
-
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .55
-            );
-
-          color: var(--primary);
-        }
-
-        .category-tab-count {
-          min-width: 16px;
-          height: 16px;
-
-          display: inline-grid;
-          place-items: center;
-
-          border-radius: 999px;
-
-          background:
-            rgba(255, 255, 255, .07);
-
-          color: var(--muted);
-          font-size: 8px;
-        }
-
-        .category-tab.active
-        .category-tab-count {
-          background: var(--primary);
-          color: #111;
-        }
-
-        .category-title {
-          display: flex;
-          align-items: baseline;
-          justify-content: space-between;
-
-          margin: 3px 0 8px;
-
-          color: #fff;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .category-title small {
-          color: var(--muted);
-          font-size: 9px;
-          font-weight: 600;
+          white-space:
+            nowrap;
         }
 
         /* ==================================================
-           PRODUCT GRID
-           8 desktop
-           7 medium desktop
-           6 smaller laptop
-           4 tablet
-           3 mobile
-           2 very small
+           CATEGORY TABS
            ================================================== */
 
-        .order-food-grid {
-          display: grid;
+        .category-tabs {
+          display:
+            flex;
 
-          grid-template-columns:
-            repeat(8, minmax(0, 1fr));
+          align-items:
+            center;
 
-          gap: 9px;
-          align-items: stretch;
+          gap:
+            5px;
+
+          width:
+            100%;
+
+          overflow-x:
+            auto;
+
+          padding:
+            2px
+            1px
+            7px;
+
+          margin-bottom:
+            1px;
+
+          scrollbar-width:
+            thin;
         }
 
-        .order-menu-card {
-          appearance: none;
-          -webkit-appearance: none;
+        .category-tab {
+          flex:
+            0 0 auto;
 
-          display: block;
+          display:
+            inline-flex;
 
-          width: 100%;
-          min-width: 0;
-          margin: 0;
-          padding: 5px;
+          align-items:
+            center;
+
+          gap:
+            4px;
+
+          padding:
+            5px
+            8px;
 
           border:
             1px solid
@@ -1990,606 +2752,34 @@ export default function OrderPage() {
               .14
             );
 
-          border-radius: 13px;
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(255, 255, 255, .055),
-              rgba(255, 255, 255, .022)
-            );
-
-          color: #fff;
-          text-align: left;
-
-          cursor: pointer;
-          overflow: hidden;
-
-          box-shadow:
-            0 8px 20px
-            rgba(0, 0, 0, .20);
-
-          transition:
-            transform .16s ease,
-            border-color .16s ease,
-            background .16s ease,
-            box-shadow .16s ease;
-        }
-
-        .order-menu-card:hover {
-          transform: translateY(-2px);
-
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .48
-            );
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(
-                var(--primary-rgb),
-                .09
-              ),
-              rgba(255, 255, 255, .035)
-            );
-
-          box-shadow:
-            0 13px 28px
-            rgba(0, 0, 0, .28);
-        }
-
-        .order-menu-card:active {
-          transform: scale(.985);
-        }
-
-        .order-menu-image-wrap {
-          width: 100%;
-
-          aspect-ratio: 1 / .76;
-
-          overflow: hidden;
-
-          border-radius: 9px;
-
-          background:
-            rgba(255, 255, 255, .04);
-        }
-
-        .order-menu-image {
-          display: block;
-
-          width: 100%;
-          height: 100%;
-
-          object-fit: cover;
-        }
-
-        .order-menu-image-fallback {
-          width: 100%;
-          height: 100%;
-
-          display: grid;
-          place-items: center;
-
-          background:
-            linear-gradient(
-              145deg,
-              #183127,
-              #10231c
-            );
-
-          font-size: 24px;
-        }
-
-        .order-menu-card-content {
-          min-width: 0;
-          padding: 6px 2px 2px;
-        }
-
-        .order-item-name {
-          display: -webkit-box;
-
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2;
-
-          overflow: hidden;
-
-          min-height: 27px;
-
-          color: #f7f2e8;
-
-          font-size: 10.5px;
-          line-height: 1.22;
-          font-weight: 800;
-
-          white-space: normal;
-        }
-
-        .order-item-price {
-          display: block;
-
-          margin-top: 4px;
-
-          color: var(--primary);
-
-          font-size: 10.5px;
-          line-height: 1;
-          font-weight: 900;
-
-          white-space: nowrap;
-        }
-
-        .empty-menu {
-          padding: 35px 10px;
-
-          color: var(--muted);
-          text-align: center;
-          font-size: 12px;
-        }
-
-        /* ==================================================
-           CART
-           ================================================== */
-
-        .cart-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-
-          margin-bottom: 10px;
-        }
-
-        .cart-header h2 {
-          margin: 3px 0 0;
-          font-size: 20px;
-        }
-
-        .cart-badge {
-          padding: 5px 8px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .18
-            );
-
-          border-radius: 999px;
+          border-radius:
+            999px;
 
           background:
             rgba(
-              var(--primary-rgb),
-              .08
+              255,
+              255,
+              255,
+              .03
             );
 
-          color: var(--primary);
+          color:
+            #fff;
 
-          font-size: 9px;
-          font-weight: 800;
+          font-size:
+            9px;
 
-          white-space: nowrap;
+          font-weight:
+            800;
+
+          cursor:
+            pointer;
+
+          white-space:
+            nowrap;
         }
 
-        .empty-cart {
-          min-height: 180px;
-
-          display: grid;
-          place-items: center;
-          align-content: center;
-
-          gap: 5px;
-
-          color: var(--muted);
-          text-align: center;
-          font-size: 11px;
-        }
-
-        .empty-cart-icon {
-          width: 48px;
-          height: 48px;
-
-          display: grid;
-          place-items: center;
-
-          margin-bottom: 4px;
-
-          border-radius: 16px;
-
-          background:
-            rgba(255, 255, 255, .04);
-
-          font-size: 22px;
-        }
-
-        .cart-list {
-          display: grid;
-          gap: 7px;
-
-          max-height: 350px;
-          overflow-y: auto;
-
-          padding-right: 2px;
-        }
-
-        .cart-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-
-          gap: 7px;
-
-          padding: 8px;
-
-          border:
-            1px solid
-            rgba(255, 255, 255, .065);
-
-          border-radius: 12px;
-
-          background:
-            rgba(255, 255, 255, .03);
-        }
-
-        .cart-item-main {
-          min-width: 0;
-          flex: 1;
-        }
-
-        .cart-item-name {
-          overflow: hidden;
-
-          text-overflow: ellipsis;
-          white-space: nowrap;
-
-          font-size: 11px;
-          font-weight: 850;
-        }
-
-        .cart-modifiers {
-          margin-top: 3px;
-
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-
-          color: var(--muted);
-
-          font-size: 9px;
-        }
-
-        .cart-item-price {
-          margin-top: 3px;
-
-          color: var(--primary);
-
-          font-size: 9px;
-          font-weight: 800;
-        }
-
-        .cart-item-actions {
-          flex: 0 0 auto;
-
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-
-        .qty-btn {
-          width: 25px;
-          height: 25px;
-
-          display: grid;
-          place-items: center;
-
-          padding: 0;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .22
-            );
-
-          border-radius: 8px;
-
-          background:
-            rgba(
-              var(--primary-rgb),
-              .07
-            );
-
-          color: #fff;
-
-          font-size: 15px;
-          font-weight: 800;
-
-          cursor: pointer;
-        }
-
-        .qty-value {
-          min-width: 16px;
-
-          color: #fff;
-
-          text-align: center;
-
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .remove-btn {
-          width: 24px;
-          height: 24px;
-
-          display: grid;
-          place-items: center;
-
-          margin-left: 1px;
-          padding: 0;
-
-          border:
-            1px solid
-            rgba(255, 80, 80, .20);
-
-          border-radius: 7px;
-
-          background:
-            rgba(255, 80, 80, .07);
-
-          color: #ff8c8c;
-
-          font-size: 16px;
-          line-height: 1;
-
-          cursor: pointer;
-        }
-
-        .cart-summary {
-          margin-top: 9px;
-          padding: 9px 10px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .13
-            );
-
-          border-radius: 12px;
-
-          background:
-            rgba(
-              var(--primary-rgb),
-              .055
-            );
-        }
-
-        .summary-row {
-          display: flex;
-          justify-content: space-between;
-
-          margin-bottom: 6px;
-
-          color: var(--muted);
-
-          font-size: 10px;
-        }
-
-        .summary-total {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-
-          color: #fff;
-
-          font-size: 13px;
-          font-weight: 900;
-        }
-
-        .place-order-btn {
-          width: 100%;
-
-          margin-top: 9px;
-          padding: 12px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .32
-            );
-
-          border-radius: 13px;
-
-          background:
-            linear-gradient(
-              135deg,
-              var(--surface),
-              var(--surface-2)
-            );
-
-          color: #fff;
-
-          font-size: 13px;
-          font-weight: 800;
-
-          cursor: pointer;
-
-          box-shadow:
-            0 15px 30px
-            rgba(0, 0, 0, .28);
-        }
-
-        .place-order-btn:hover {
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .58
-            );
-        }
-
-        /* ==================================================
-           MODIFIER MODAL
-           ================================================== */
-
-        .modal-backdrop {
-          position: fixed;
-          inset: 0;
-
-          z-index: 9999;
-
-          display: grid;
-          place-items: center;
-
-          padding: 16px;
-
-          background:
-            rgba(0, 0, 0, .68);
-
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-
-        .modifier-modal {
-          width: min(100%, 560px);
-
-          max-height: 90vh;
-
-          overflow-y: auto;
-
-          padding: 20px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .22
-            );
-
-          border-radius: 22px;
-
-          background:
-            linear-gradient(
-              145deg,
-              #0b2118,
-              #102b20
-            );
-
-          color: #fff;
-
-          box-shadow:
-            0 35px 100px
-            rgba(0, 0, 0, .55);
-        }
-
-        .modifier-modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-
-          gap: 12px;
-        }
-
-        .modifier-modal-header h2 {
-          margin: 4px 0;
-
-          font-size: 20px;
-        }
-
-        .modifier-modal-header p {
-          margin: 0;
-
-          color: var(--muted);
-
-          font-size: 11px;
-        }
-
-        .close-btn {
-          width: 34px;
-          height: 34px;
-
-          flex: 0 0 auto;
-
-          border:
-            1px solid
-            rgba(255, 255, 255, .10);
-
-          border-radius: 10px;
-
-          background:
-            rgba(255, 255, 255, .04);
-
-          color: #fff;
-
-          cursor: pointer;
-        }
-
-        .modifier-groups {
-          display: grid;
-          gap: 12px;
-          margin-top: 16px;
-        }
-
-        .modifier-group-box {
-          padding: 12px;
-
-          border:
-            1px solid
-            rgba(255, 255, 255, .07);
-
-          border-radius: 15px;
-
-          background:
-            rgba(255, 255, 255, .03);
-        }
-
-        .modifier-group-title {
-          display: flex;
-          justify-content: space-between;
-          gap: 8px;
-        }
-
-        .modifier-group-title small {
-          color: var(--muted);
-          font-size: 9px;
-        }
-
-        .modifier-options {
-          display: grid;
-          gap: 6px;
-          margin-top: 8px;
-        }
-
-        .modifier-choice {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-
-          width: 100%;
-
-          padding: 9px 10px;
-
-          border:
-            1px solid
-            rgba(255, 255, 255, .08);
-
-          border-radius: 10px;
-
-          background:
-            rgba(255, 255, 255, .025);
-
-          color: #fff;
-
-          font-size: 11px;
-
-          cursor: pointer;
-          text-align: left;
-        }
-
-        .modifier-choice.active {
+        .category-tab.active {
           background:
             rgba(
               var(--primary-rgb),
@@ -2599,210 +2789,1558 @@ export default function OrderPage() {
           border-color:
             rgba(
               var(--primary-rgb),
-              .38
+              .52
             );
 
-          color: var(--primary);
+          color:
+            var(--primary);
+        }
+
+        .category-tab-count {
+          min-width:
+            15px;
+
+          height:
+            15px;
+
+          display:
+            inline-grid;
+
+          place-items:
+            center;
+
+          border-radius:
+            999px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .07
+            );
+
+          color:
+            var(--muted);
+
+          font-size:
+            7px;
+        }
+
+        .category-tab.active
+        .category-tab-count {
+          background:
+            var(--primary);
+
+          color:
+            #111;
+        }
+
+        .category-title {
+          display:
+            flex;
+
+          align-items:
+            baseline;
+
+          justify-content:
+            space-between;
+
+          margin:
+            3px
+            0
+            7px;
+
+          color:
+            #fff;
+
+          font-size:
+            11px;
+
+          font-weight:
+            900;
+        }
+
+        .category-title small {
+          color:
+            var(--muted);
+
+          font-size:
+            8px;
+
+          font-weight:
+            600;
+        }
+
+        /* ==================================================
+           PRODUCT GRID
+           DESKTOP = 8
+           ================================================== */
+
+        .order-food-grid {
+          display:
+            grid;
+
+          width:
+            100%;
+
+          grid-template-columns:
+            repeat(
+              8,
+              minmax(
+                0,
+                1fr
+              )
+            );
+
+          gap:
+            7px;
+
+          align-items:
+            stretch;
+        }
+
+        /* ==================================================
+           PRODUCT CARD
+           ================================================== */
+
+        .order-menu-card {
+          appearance:
+            none;
+
+          -webkit-appearance:
+            none;
+
+          display:
+            flex;
+
+          flex-direction:
+            column;
+
+          width:
+            100%;
+
+          min-width:
+            0;
+
+          height:
+            100%;
+
+          margin:
+            0;
+
+          padding:
+            4px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .13
+            );
+
+          border-radius:
+            11px;
+
+          background:
+            linear-gradient(
+              145deg,
+              rgba(
+                255,
+                255,
+                255,
+                .055
+              ),
+              rgba(
+                255,
+                255,
+                255,
+                .018
+              )
+            );
+
+          color:
+            #fff;
+
+          text-align:
+            left;
+
+          cursor:
+            pointer;
+
+          overflow:
+            hidden;
+
+          box-shadow:
+            0 6px 15px
+            rgba(
+              0,
+              0,
+              0,
+              .17
+            );
+
+          transition:
+            transform .15s ease,
+            border-color .15s ease,
+            background .15s ease,
+            box-shadow .15s ease;
+        }
+
+        .order-menu-card:hover {
+          transform:
+            translateY(-2px);
+
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .44
+            );
+
+          background:
+            linear-gradient(
+              145deg,
+              rgba(
+                var(--primary-rgb),
+                .085
+              ),
+              rgba(
+                255,
+                255,
+                255,
+                .025
+              )
+            );
+
+          box-shadow:
+            0 10px 22px
+            rgba(
+              0,
+              0,
+              0,
+              .24
+            );
+        }
+
+        .order-menu-card:active {
+          transform:
+            scale(.985);
+        }
+
+        /* ==================================================
+           PRODUCT IMAGE
+           ================================================== */
+
+        .order-menu-image-wrap {
+          position:
+            relative;
+
+          width:
+            100%;
+
+          aspect-ratio:
+            1 / .70;
+
+          min-height:
+            0;
+
+          overflow:
+            hidden;
+
+          border-radius:
+            7px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .035
+            );
+        }
+
+        .order-menu-image {
+          display:
+            block;
+
+          width:
+            100%;
+
+          height:
+            100%;
+
+          object-fit:
+            cover;
+
+          transition:
+            transform .2s ease;
+        }
+
+        .order-menu-card:hover
+        .order-menu-image {
+          transform:
+            scale(1.035);
+        }
+
+        .order-menu-image-fallback {
+          width:
+            100%;
+
+          height:
+            100%;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          background:
+            linear-gradient(
+              145deg,
+              #183127,
+              #10231c
+            );
+
+          font-size:
+            19px;
+        }
+
+        /* ==================================================
+           PRODUCT CONTENT
+           ================================================== */
+
+        .order-menu-card-content {
+          min-width:
+            0;
+
+          display:
+            flex;
+
+          flex-direction:
+            column;
+
+          padding:
+            5px
+            2px
+            2px;
+        }
+
+        .order-item-name {
+          display:
+            -webkit-box;
+
+          -webkit-box-orient:
+            vertical;
+
+          -webkit-line-clamp:
+            2;
+
+          overflow:
+            hidden;
+
+          min-height:
+            24px;
+
+          color:
+            #f7f2e8;
+
+          font-size:
+            9.5px;
+
+          line-height:
+            1.18;
+
+          font-weight:
+            800;
+
+          white-space:
+            normal;
+        }
+
+        .order-item-price {
+          display:
+            block;
+
+          margin-top:
+            3px;
+
+          color:
+            var(--primary);
+
+          font-size:
+            9.5px;
+
+          line-height:
+            1;
+
+          font-weight:
+            900;
+
+          white-space:
+            nowrap;
+        }
+
+        .empty-menu {
+          padding:
+            35px
+            10px;
+
+          color:
+            var(--muted);
+
+          text-align:
+            center;
+
+          font-size:
+            12px;
+        }
+
+        /* ==================================================
+           CART
+           ================================================== */
+
+        .cart-header {
+          display:
+            flex;
+
+          align-items:
+            center;
+
+          justify-content:
+            space-between;
+
+          gap:
+            7px;
+
+          margin-bottom:
+            9px;
+        }
+
+        .cart-header h2 {
+          margin:
+            3px
+            0
+            0;
+
+          font-size:
+            19px;
+        }
+
+        .cart-badge {
+          padding:
+            4px
+            7px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .17
+            );
+
+          border-radius:
+            999px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .07
+            );
+
+          color:
+            var(--primary);
+
+          font-size:
+            8px;
+
+          font-weight:
+            800;
+
+          white-space:
+            nowrap;
+        }
+
+        .empty-cart {
+          min-height:
+            170px;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          align-content:
+            center;
+
+          gap:
+            5px;
+
+          color:
+            var(--muted);
+
+          text-align:
+            center;
+
+          font-size:
+            10px;
+        }
+
+        .empty-cart-icon {
+          width:
+            45px;
+
+          height:
+            45px;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          margin-bottom:
+            4px;
+
+          border-radius:
+            15px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .04
+            );
+
+          font-size:
+            21px;
+        }
+
+        .cart-list {
+          display:
+            grid;
+
+          gap:
+            6px;
+
+          max-height:
+            340px;
+
+          overflow-y:
+            auto;
+
+          padding-right:
+            2px;
+        }
+
+        .cart-item {
+          display:
+            flex;
+
+          align-items:
+            center;
+
+          justify-content:
+            space-between;
+
+          gap:
+            6px;
+
+          padding:
+            7px;
+
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              .06
+            );
+
+          border-radius:
+            11px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .028
+            );
+        }
+
+        .cart-item-main {
+          min-width:
+            0;
+
+          flex:
+            1;
+        }
+
+        .cart-item-name {
+          overflow:
+            hidden;
+
+          text-overflow:
+            ellipsis;
+
+          white-space:
+            nowrap;
+
+          font-size:
+            10px;
+
+          font-weight:
+            850;
+        }
+
+        .cart-modifiers {
+          margin-top:
+            2px;
+
+          overflow:
+            hidden;
+
+          text-overflow:
+            ellipsis;
+
+          white-space:
+            nowrap;
+
+          color:
+            var(--muted);
+
+          font-size:
+            8px;
+        }
+
+        .cart-item-price {
+          margin-top:
+            2px;
+
+          color:
+            var(--primary);
+
+          font-size:
+            8px;
+
+          font-weight:
+            800;
+        }
+
+        .cart-item-actions {
+          flex:
+            0 0 auto;
+
+          display:
+            flex;
+
+          align-items:
+            center;
+
+          gap:
+            3px;
+        }
+
+        .qty-btn {
+          width:
+            24px;
+
+          height:
+            24px;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          padding:
+            0;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .20
+            );
+
+          border-radius:
+            7px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .065
+            );
+
+          color:
+            #fff;
+
+          font-size:
+            14px;
+
+          font-weight:
+            800;
+
+          cursor:
+            pointer;
+        }
+
+        .qty-value {
+          min-width:
+            15px;
+
+          color:
+            #fff;
+
+          text-align:
+            center;
+
+          font-size:
+            9px;
+
+          font-weight:
+            900;
+        }
+
+        .remove-btn {
+          width:
+            23px;
+
+          height:
+            23px;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          margin-left:
+            1px;
+
+          padding:
+            0;
+
+          border:
+            1px solid
+            rgba(
+              255,
+              80,
+              80,
+              .18
+            );
+
+          border-radius:
+            7px;
+
+          background:
+            rgba(
+              255,
+              80,
+              80,
+              .065
+            );
+
+          color:
+            #ff8c8c;
+
+          font-size:
+            15px;
+
+          line-height:
+            1;
+
+          cursor:
+            pointer;
+        }
+
+        .cart-summary {
+          margin-top:
+            8px;
+
+          padding:
+            8px
+            9px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .12
+            );
+
+          border-radius:
+            11px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .05
+            );
+        }
+
+        .summary-row {
+          display:
+            flex;
+
+          justify-content:
+            space-between;
+
+          margin-bottom:
+            5px;
+
+          color:
+            var(--muted);
+
+          font-size:
+            9px;
+        }
+
+        .summary-total {
+          display:
+            flex;
+
+          justify-content:
+            space-between;
+
+          align-items:
+            center;
+
+          color:
+            #fff;
+
+          font-size:
+            12px;
+
+          font-weight:
+            900;
+        }
+
+        .place-order-btn {
+          width:
+            100%;
+
+          margin-top:
+            8px;
+
+          padding:
+            11px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .30
+            );
+
+          border-radius:
+            12px;
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--surface),
+              var(--surface-2)
+            );
+
+          color:
+            #fff;
+
+          font-size:
+            12px;
+
+          font-weight:
+            800;
+
+          cursor:
+            pointer;
+
+          box-shadow:
+            0 12px 26px
+            rgba(
+              0,
+              0,
+              0,
+              .25
+            );
+        }
+
+        .place-order-btn:hover {
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .56
+            );
+        }
+
+        .place-order-btn:disabled {
+          opacity:
+            .6;
+
+          cursor:
+            not-allowed;
+        }
+
+        /* ==================================================
+           MODIFIER MODAL
+           ================================================== */
+
+        .modal-backdrop {
+          position:
+            fixed;
+
+          inset:
+            0;
+
+          z-index:
+            9999;
+
+          display:
+            grid;
+
+          place-items:
+            center;
+
+          padding:
+            15px;
+
+          background:
+            rgba(
+              0,
+              0,
+              0,
+              .68
+            );
+
+          backdrop-filter:
+            blur(8px);
+
+          -webkit-backdrop-filter:
+            blur(8px);
+        }
+
+        .modifier-modal {
+          width:
+            min(
+              100%,
+              550px
+            );
+
+          max-height:
+            90vh;
+
+          overflow-y:
+            auto;
+
+          padding:
+            19px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .21
+            );
+
+          border-radius:
+            21px;
+
+          background:
+            linear-gradient(
+              145deg,
+              #0b2118,
+              #102b20
+            );
+
+          color:
+            #fff;
+
+          box-shadow:
+            0 35px 100px
+            rgba(
+              0,
+              0,
+              0,
+              .55
+            );
+        }
+
+        .modifier-modal-header {
+          display:
+            flex;
+
+          justify-content:
+            space-between;
+
+          align-items:
+            flex-start;
+
+          gap:
+            11px;
+        }
+
+        .modifier-modal-header h2 {
+          margin:
+            4px
+            0;
+
+          font-size:
+            19px;
+        }
+
+        .modifier-modal-header p {
+          margin:
+            0;
+
+          color:
+            var(--muted);
+
+          font-size:
+            10px;
+        }
+
+        .close-btn {
+          width:
+            33px;
+
+          height:
+            33px;
+
+          flex:
+            0 0 auto;
+
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              .09
+            );
+
+          border-radius:
+            9px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .035
+            );
+
+          color:
+            #fff;
+
+          cursor:
+            pointer;
+        }
+
+        .modifier-groups {
+          display:
+            grid;
+
+          gap:
+            11px;
+
+          margin-top:
+            15px;
+        }
+
+        .modifier-group-box {
+          padding:
+            11px;
+
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              .065
+            );
+
+          border-radius:
+            14px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .028
+            );
+        }
+
+        .modifier-group-title {
+          display:
+            flex;
+
+          justify-content:
+            space-between;
+
+          gap:
+            8px;
+        }
+
+        .modifier-group-title small {
+          color:
+            var(--muted);
+
+          font-size:
+            8px;
+        }
+
+        .modifier-options {
+          display:
+            grid;
+
+          gap:
+            5px;
+
+          margin-top:
+            7px;
+        }
+
+        .modifier-choice {
+          display:
+            flex;
+
+          justify-content:
+            space-between;
+
+          align-items:
+            center;
+
+          width:
+            100%;
+
+          padding:
+            8px
+            9px;
+
+          border:
+            1px solid
+            rgba(
+              255,
+              255,
+              255,
+              .07
+            );
+
+          border-radius:
+            9px;
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              .022
+            );
+
+          color:
+            #fff;
+
+          font-size:
+            10px;
+
+          cursor:
+            pointer;
+
+          text-align:
+            left;
+        }
+
+        .modifier-choice.active {
+          background:
+            rgba(
+              var(--primary-rgb),
+              .10
+            );
+
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .36
+            );
+
+          color:
+            var(--primary);
         }
 
         .modifier-choice strong {
-          white-space: nowrap;
+          white-space:
+            nowrap;
         }
 
         .modal-add-btn {
-          margin-top: 15px;
+          margin-top:
+            14px;
         }
 
         /* ==================================================
            RESPONSIVE
            ================================================== */
 
-        @media (max-width: 1499px) {
+        /*
+          1250px and above:
+          8 products per row.
+        */
+
+        @media (min-width: 1250px) {
           .order-food-grid {
             grid-template-columns:
-              repeat(7, minmax(0, 1fr));
+              repeat(
+                8,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
         }
 
-        @media (max-width: 1249px) {
+        /*
+          1000px - 1249px:
+          7 products per row.
+        */
+
+        @media
+          (min-width: 1000px)
+          and (max-width: 1249px) {
+
           .order-page {
             grid-template-columns:
-              220px minmax(0, 1fr) 270px;
+              220px
+              minmax(0, 1fr)
+              270px;
           }
 
           .order-food-grid {
             grid-template-columns:
-              repeat(6, minmax(0, 1fr));
+              repeat(
+                7,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
         }
 
-        @media (max-width: 999px) {
+        /*
+          Tablet.
+        */
+
+        @media
+          (min-width: 768px)
+          and (max-width: 999px) {
+
           .order-page {
             grid-template-columns:
-              190px minmax(0, 1fr);
+              185px
+              minmax(0, 1fr);
 
             grid-template-rows:
-              auto auto auto;
+              auto
+              auto
+              auto;
 
-            padding: 9px;
+            padding:
+              8px;
           }
 
           .order-page-header {
-            grid-column: 1 / -1;
+            grid-column:
+              1 / -1;
           }
 
           .order-type-panel {
-            position: static;
-            grid-column: 1;
+            position:
+              static;
+
+            grid-column:
+              1;
           }
 
           .menu-panel {
-            grid-column: 2;
-            grid-row: 2 / span 2;
+            grid-column:
+              2;
+
+            grid-row:
+              2 / span 2;
           }
 
           .cart-panel {
-            position: static;
-            grid-column: 1;
+            position:
+              static;
+
+            grid-column:
+              1;
           }
 
           .order-food-grid {
             grid-template-columns:
-              repeat(4, minmax(0, 1fr));
+              repeat(
+                4,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
         }
 
+        /*
+          Mobile.
+        */
+
         @media (max-width: 767px) {
+
           .order-page {
-            display: block;
-            padding: 8px;
+            display:
+              block;
+
+            padding:
+              7px;
           }
 
           .order-page-header {
-            margin-bottom: 8px;
+            margin-bottom:
+              7px;
           }
 
           .order-page-header h1 {
-            font-size: 23px;
+            font-size:
+              22px;
+          }
+
+          .order-page-subtitle {
+            font-size:
+              10px;
           }
 
           .order-type-panel,
           .menu-panel,
           .cart-panel {
-            position: static;
-            margin-bottom: 8px;
-            border-radius: 17px;
+            position:
+              static;
+
+            margin-bottom:
+              7px;
+
+            border-radius:
+              16px;
+          }
+
+          .order-type-panel,
+          .cart-panel {
+            padding:
+              11px;
+          }
+
+          .menu-panel {
+            padding:
+              11px;
           }
 
           .order-type-grid {
             grid-template-columns:
-              repeat(4, minmax(0, 1fr));
+              repeat(
+                4,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
 
           .order-type-btn {
-            padding: 8px 4px;
-            font-size: 9px;
+            min-height:
+              44px;
+
+            padding:
+              9px
+              5px;
+
+            font-size:
+              11px;
           }
 
           .delivery-fields {
             grid-template-columns:
-              repeat(2, minmax(0, 1fr));
+              repeat(
+                2,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
 
           .delivery-fields
           .field-input:first-child,
+
           .delivery-fields
           textarea,
+
           .delivery-charge-box {
-            grid-column: 1 / -1;
+            grid-column:
+              1 / -1;
           }
 
           .order-food-grid {
             grid-template-columns:
-              repeat(3, minmax(0, 1fr));
+              repeat(
+                3,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
 
-            gap: 7px;
+            gap:
+              6px;
           }
 
           .order-menu-card {
-            padding: 5px;
-            border-radius: 11px;
+            padding:
+              4px;
+
+            border-radius:
+              10px;
           }
 
           .order-menu-image-wrap {
-            border-radius: 8px;
+            aspect-ratio:
+              1 / .73;
+
+            border-radius:
+              7px;
           }
 
           .order-item-name {
-            font-size: 10px;
-            min-height: 25px;
+            font-size:
+              9px;
+
+            min-height:
+              23px;
           }
 
           .order-item-price {
-            font-size: 10px;
+            font-size:
+              9px;
           }
 
           .cart-list {
-            max-height: 300px;
+            max-height:
+              290px;
           }
         }
 
+        /*
+          Small phones.
+        */
+
         @media (max-width: 480px) {
+
           .order-type-grid {
             grid-template-columns:
-              repeat(2, minmax(0, 1fr));
+              repeat(
+                2,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
           }
 
           .delivery-fields {
-            grid-template-columns: 1fr;
+            grid-template-columns:
+              1fr;
           }
 
           .delivery-fields
           .field-input:first-child,
+
           .delivery-fields
           textarea,
+
           .delivery-charge-box {
-            grid-column: auto;
+            grid-column:
+              auto;
           }
 
           .order-food-grid {
             grid-template-columns:
-              repeat(2, minmax(0, 1fr));
+              repeat(
+                2,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
 
-            gap: 8px;
+            gap:
+              7px;
           }
 
           .order-menu-image-wrap {
-            aspect-ratio: 1 / .78;
+            aspect-ratio:
+              1 / .76;
           }
 
           .order-item-name {
-            font-size: 11px;
-            min-height: 27px;
+            font-size:
+              10px;
+
+            min-height:
+              25px;
           }
 
           .order-item-price {
-            font-size: 11px;
+            font-size:
+              10px;
           }
         }
 
         @media (max-width: 360px) {
+
           .order-food-grid {
-            gap: 6px;
+            gap:
+              5px;
           }
 
           .order-menu-card {
-            padding: 4px;
+            padding:
+              3px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio:
+              1 / .78;
           }
 
           .order-item-name {
-            font-size: 10px;
+            font-size:
+              9px;
+
+            min-height:
+              22px;
           }
 
           .order-item-price {
-            font-size: 10px;
+            font-size:
+              9px;
           }
         }
+
       `}</style>
     </div>
   )

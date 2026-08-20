@@ -48,6 +48,15 @@ export default function DeliveryManagement() {
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
 
+  const [zoneForm, setZoneForm] = useState({
+    id: "",
+    name: "",
+    charge: "",
+    min_order: "",
+    active: true,
+  })
+  const [zoneEditorOpen, setZoneEditorOpen] = useState(false)
+
   async function load() {
     setLoading(true)
     setError("")
@@ -376,6 +385,112 @@ export default function DeliveryManagement() {
     setCollectionNote("")
   }
 
+  function openZoneEditor(zone = null) {
+    if (zone) {
+      setZoneForm({
+        id: zone.id || "",
+        name: zone.name || "",
+        charge: zone.charge ?? "",
+        min_order: zone.min_order ?? "",
+        active: zone.active !== false,
+      })
+    } else {
+      setZoneForm({
+        id: "",
+        name: "",
+        charge: "",
+        min_order: "",
+        active: true,
+      })
+    }
+    setZoneEditorOpen(true)
+    setError("")
+  }
+
+  async function saveZone(e) {
+    e.preventDefault()
+
+    const name = String(zoneForm.name || "").trim()
+    if (!name) {
+      setError("Enter a delivery zone name.")
+      return
+    }
+
+    setBusy(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: zoneForm.id ? "zone_update" : "zone_create",
+          zone_id: zoneForm.id || undefined,
+          name,
+          charge: Number(zoneForm.charge || 0),
+          min_order: Number(zoneForm.min_order || 0),
+          active: zoneForm.active !== false,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not save delivery zone")
+      }
+
+      setZoneEditorOpen(false)
+      setNotice(zoneForm.id ? "Delivery zone updated." : "Delivery zone added.")
+      await load()
+    } catch (e) {
+      setError(e?.message || "Could not save delivery zone")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteZone(zone) {
+    if (!zone?.id) return
+
+    const ok = window.confirm(
+      `Delete "${zone.name}"? Existing orders will not be changed.`
+    )
+    if (!ok) return
+
+    setBusy(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "zone_delete",
+          zone_id: zone.id,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not delete delivery zone")
+      }
+
+      if (zoneEditorOpen && zoneForm.id === zone.id) {
+        setZoneEditorOpen(false)
+      }
+
+      setNotice("Delivery zone deleted.")
+      await load()
+    } catch (e) {
+      setError(e?.message || "Could not delete delivery zone")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <main className="deliveryPage">
       <section className="deliveryHero">
@@ -409,6 +524,174 @@ export default function DeliveryManagement() {
         <Stat label="Payment to settle" value={stats.settlement} />
         <Stat label="Settled" value={stats.settled} />
       </section>
+
+      <section className="zonesPanel panel">
+        <div className="zonesHeader">
+          <div>
+            <div className="eyebrow">DELIVERY SETTINGS</div>
+            <h2>Delivery Zones</h2>
+            <p>Set the delivery charge and minimum order for each area.</p>
+          </div>
+
+          <button
+            className="primaryBtn"
+            type="button"
+            onClick={() => openZoneEditor()}
+            disabled={busy}
+          >
+            ＋ Add Delivery Zone
+          </button>
+        </div>
+
+        <div className="zonesTableWrap">
+          {zones.length ? (
+            <table className="zonesTable">
+              <thead>
+                <tr>
+                  <th>Zone</th>
+                  <th>Minimum order</th>
+                  <th>Delivery charge</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {zones.map((zone) => (
+                  <tr key={zone.id}>
+                    <td>
+                      <strong>{zone.name}</strong>
+                    </td>
+                    <td>{money(zone.min_order)}</td>
+                    <td>{money(zone.charge)}</td>
+                    <td>
+                      <span className={`zoneStatus ${zone.active ? "on" : "off"}`}>
+                        {zone.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="zoneActions">
+                        <button
+                          type="button"
+                          className="zoneEditBtn"
+                          onClick={() => openZoneEditor(zone)}
+                          disabled={busy}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="zoneDeleteBtn"
+                          onClick={() => deleteZone(zone)}
+                          disabled={busy}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="zonesEmpty">
+              <div className="emptyIcon">📍</div>
+              <strong>No delivery zones yet</strong>
+              <span>Add your first zone to make it available in the Order page.</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {zoneEditorOpen ? (
+        <div className="zoneModalBackdrop" role="presentation">
+          <form className="zoneModal" onSubmit={saveZone}>
+            <div className="zoneModalHeader">
+              <div>
+                <div className="eyebrow">DELIVERY ZONE</div>
+                <h2>{zoneForm.id ? "Edit Delivery Zone" : "Add Delivery Zone"}</h2>
+              </div>
+
+              <button
+                type="button"
+                className="zoneCloseBtn"
+                onClick={() => setZoneEditorOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <label className="zoneField">
+              <span>Zone name *</span>
+              <input
+                value={zoneForm.name}
+                onChange={(e) =>
+                  setZoneForm((v) => ({ ...v, name: e.target.value }))
+                }
+                placeholder="e.g. 0-3 KM"
+                autoFocus
+              />
+            </label>
+
+            <div className="zoneFormGrid">
+              <label className="zoneField">
+                <span>Delivery charge</span>
+                <input
+                  value={zoneForm.charge}
+                  onChange={(e) =>
+                    setZoneForm((v) => ({ ...v, charge: e.target.value }))
+                  }
+                  inputMode="decimal"
+                  min="0"
+                  type="number"
+                  placeholder="30"
+                />
+              </label>
+
+              <label className="zoneField">
+                <span>Minimum order</span>
+                <input
+                  value={zoneForm.min_order}
+                  onChange={(e) =>
+                    setZoneForm((v) => ({ ...v, min_order: e.target.value }))
+                  }
+                  inputMode="decimal"
+                  min="0"
+                  type="number"
+                  placeholder="0"
+                />
+              </label>
+            </div>
+
+            <label className="zoneToggle">
+              <input
+                type="checkbox"
+                checked={zoneForm.active}
+                onChange={(e) =>
+                  setZoneForm((v) => ({ ...v, active: e.target.checked }))
+                }
+              />
+              <span>
+                <strong>Active</strong>
+                <small>Show this zone in the customer/order delivery list.</small>
+              </span>
+            </label>
+
+            <div className="zoneModalFooter">
+              <button
+                type="button"
+                className="ghostBtn"
+                onClick={() => setZoneEditorOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button className="primaryBtn" type="submit" disabled={busy}>
+                {busy ? "Saving..." : zoneForm.id ? "Save Changes" : "Save Zone"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       <section className="deliveryLayout">
         <div className="panel deliveryListPanel">
@@ -1382,6 +1665,250 @@ export default function DeliveryManagement() {
           color: #4ade80;
         }
 
+        .zonesPanel {
+          margin-bottom: 12px;
+        }
+
+        .zonesHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: center;
+        }
+
+        .zonesHeader h2 {
+          margin: 3px 0 2px;
+        }
+
+        .zonesHeader p {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .zonesTableWrap {
+          margin-top: 14px;
+          overflow-x: auto;
+        }
+
+        .zonesTable {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0 6px;
+          min-width: 650px;
+        }
+
+        .zonesTable th {
+          padding: 4px 10px 7px;
+          text-align: left;
+          color: var(--muted);
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: .04em;
+        }
+
+        .zonesTable td {
+          padding: 11px 10px;
+          background: rgba(255,255,255,.03);
+          border-top: 1px solid rgba(255,255,255,.05);
+          border-bottom: 1px solid rgba(255,255,255,.05);
+          font-size: 12px;
+        }
+
+        .zonesTable td:first-child {
+          border-left: 1px solid rgba(255,255,255,.05);
+          border-radius: 11px 0 0 11px;
+        }
+
+        .zonesTable td:last-child {
+          border-right: 1px solid rgba(255,255,255,.05);
+          border-radius: 0 11px 11px 0;
+        }
+
+        .zoneStatus {
+          display: inline-flex;
+          align-items: center;
+          padding: 5px 9px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .zoneStatus.on {
+          color: #4ade80;
+          background: rgba(74,222,128,.1);
+        }
+
+        .zoneStatus.off {
+          color: var(--muted);
+          background: rgba(255,255,255,.06);
+        }
+
+        .zoneActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+
+        .zoneEditBtn,
+        .zoneDeleteBtn {
+          border: 1px solid rgba(255,255,255,.1);
+          border-radius: 8px;
+          padding: 6px 9px;
+          background: rgba(255,255,255,.04);
+          color: #fff;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .zoneEditBtn:hover {
+          border-color: var(--primary);
+          color: var(--primary);
+        }
+
+        .zoneDeleteBtn {
+          color: #fca5a5;
+        }
+
+        .zoneDeleteBtn:hover {
+          border-color: #f87171;
+          color: #f87171;
+        }
+
+        .zonesEmpty {
+          margin-top: 14px;
+          padding: 28px 18px;
+          text-align: center;
+          border-radius: 14px;
+          background: rgba(255,255,255,.025);
+          color: var(--muted);
+          display: grid;
+          gap: 5px;
+        }
+
+        .zonesEmpty strong {
+          color: #fff;
+        }
+
+        .zonesEmpty .emptyIcon {
+          font-size: 28px;
+          margin: 0;
+        }
+
+        .zoneModalBackdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: grid;
+          place-items: center;
+          padding: 18px;
+          background: rgba(0,0,0,.62);
+          backdrop-filter: blur(8px);
+        }
+
+        .zoneModal {
+          width: min(520px, 100%);
+          padding: 20px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,.1);
+          background:
+            linear-gradient(180deg, rgba(20,42,60,.98), rgba(9,25,39,.98));
+          box-shadow: 0 30px 90px rgba(0,0,0,.55);
+        }
+
+        .zoneModalHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .zoneModalHeader h2 {
+          margin: 3px 0 0;
+          font-size: 20px;
+        }
+
+        .zoneCloseBtn {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid rgba(255,255,255,.1);
+          background: rgba(255,255,255,.04);
+          color: #fff;
+          font-size: 22px;
+          cursor: pointer;
+        }
+
+        .zoneField {
+          display: grid;
+          gap: 6px;
+          margin-top: 11px;
+        }
+
+        .zoneField span {
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .zoneField input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 11px 12px;
+          border-radius: 11px;
+          border: 1px solid rgba(255,255,255,.1);
+          background: rgba(255,255,255,.045);
+          color: #fff;
+          outline: none;
+          font-size: 13px;
+        }
+
+        .zoneField input:focus {
+          border-color: var(--primary);
+          box-shadow: 0 0 0 3px rgba(var(--primary-rgb),.1);
+        }
+
+        .zoneFormGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .zoneToggle {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 15px;
+          padding: 11px 12px;
+          border-radius: 12px;
+          background: rgba(255,255,255,.035);
+        }
+
+        .zoneToggle input {
+          width: 18px;
+          height: 18px;
+          accent-color: var(--primary);
+        }
+
+        .zoneToggle span {
+          display: grid;
+          gap: 2px;
+        }
+
+        .zoneToggle small {
+          color: var(--muted);
+          font-size: 10px;
+        }
+
+        .zoneModalFooter {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          margin-top: 18px;
+        }
+
         @media (max-width: 900px) {
           .deliveryPage {
             padding: 12px;
@@ -1409,6 +1936,13 @@ export default function DeliveryManagement() {
 
           .deliveryHero h1 {
             font-size: 27px;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .zonesHeader {
+            align-items: flex-start;
+            flex-direction: column;
           }
         }
 
@@ -1454,6 +1988,22 @@ export default function DeliveryManagement() {
 
           .collectionBanner {
             align-items: flex-start;
+          }
+
+          .zoneFormGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .zoneModal {
+            padding: 15px;
+          }
+
+          .zoneModalFooter {
+            flex-direction: column-reverse;
+          }
+
+          .zoneModalFooter button {
+            width: 100%;
           }
         }
       `}</style>
