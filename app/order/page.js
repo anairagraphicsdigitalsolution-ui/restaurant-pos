@@ -5,7 +5,6 @@ import { useSearchParams, useParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 export default function OrderPage() {
-
   const params = useSearchParams()
   const route = useParams()
 
@@ -17,6 +16,7 @@ export default function OrderPage() {
   const [tables, setTables] = useState([])
   const [rooms, setRooms] = useState([])
   const [cart, setCart] = useState([])
+
   const [modifierGroups, setModifierGroups] = useState([])
   const [modifiers, setModifiers] = useState([])
   const [modifierLinks, setModifierLinks] = useState([])
@@ -25,10 +25,11 @@ export default function OrderPage() {
 
   const [type, setType] = useState("table")
   const [selected, setSelected] = useState(null)
-  const [search, setSearch] = useState("")
+
   const [activeCategory, setActiveCategory] = useState("All")
   const [restaurantId, setRestaurantId] = useState(null)
   const [restaurantName, setRestaurantName] = useState("")
+
   const [deliveryZones, setDeliveryZones] = useState([])
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
@@ -37,105 +38,225 @@ export default function OrderPage() {
   const [deliveryCharge, setDeliveryCharge] = useState(0)
   const [customerNotes, setCustomerNotes] = useState("")
   const [paymentMethod, setPaymentMethod] = useState("cash")
-  
+
   const [openSelect, setOpenSelect] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
 
-  useEffect(() => { init() }, [])
+  /* =========================================================
+     RESPONSIVE
+     ========================================================= */
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
+    const check = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+
     check()
+
     window.addEventListener("resize", check)
-    return () => window.removeEventListener("resize", check)
+
+    return () => {
+      window.removeEventListener("resize", check)
+    }
   }, [])
 
+  /* =========================================================
+     INITIAL LOAD
+     ========================================================= */
+
   useEffect(() => {
-    if (tables.length || rooms.length) autoQR()
-  }, [tables, rooms])
+    init()
+  }, [slug])
 
-  // 🔥 INIT
+  useEffect(() => {
+    if (tables.length || rooms.length) {
+      autoQR()
+    }
+  }, [tables, rooms, typeParam, idParam])
+
   async function init() {
+    try {
+      if (slug) {
+        const { data: rest, error } = await supabase
+          .from("restaurants")
+          .select("*")
+          .eq("slug", slug)
+          .maybeSingle()
 
-    if (slug) {
-      const { data: rest } = await supabase
-        .from("restaurants")
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle()
+        if (error) {
+          console.error("RESTAURANT ERROR:", error)
+          alert("Restaurant could not be loaded.")
+          return
+        }
 
-      if (!rest) return alert("Restaurant not found")
+        if (!rest) {
+          alert("Restaurant not found")
+          return
+        }
 
-      setRestaurantId(rest.id)
-      setRestaurantName(rest.name)
-      fetchAll(rest.id)
-      return
+        setRestaurantId(rest.id)
+        setRestaurantName(rest.name || "")
+        await fetchAll(rest.id)
+        return
+      }
+
+      const rid = params.get("rid")
+
+      if (rid) {
+        setRestaurantId(rid)
+        await fetchAll(rid)
+        return
+      }
+
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser()
+
+      if (userError || !userData?.user) {
+        alert("Please sign in first.")
+        return
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("restaurant_id")
+        .eq("id", userData.user.id)
+        .single()
+
+      if (profileError || !profile?.restaurant_id) {
+        console.error("PROFILE ERROR:", profileError)
+        alert("Restaurant profile not found.")
+        return
+      }
+
+      setRestaurantId(profile.restaurant_id)
+      await fetchAll(profile.restaurant_id)
+    } catch (error) {
+      console.error("INIT ERROR:", error)
+      alert("Unable to load restaurant.")
     }
-
-    const rid = params.get("rid")
-
-    if (rid) {
-      setRestaurantId(rid)
-      fetchAll(rid)
-      return
-    }
-
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData?.user) return
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("restaurant_id")
-      .eq("id", userData.user.id)
-      .single()
-
-    setRestaurantId(profile.restaurant_id)
-    fetchAll(profile.restaurant_id)
   }
+
+  /* =========================================================
+     LOAD ALL POS DATA
+     ========================================================= */
 
   async function fetchAll(rid) {
+    if (!rid) return
+
     const [
-      { data: m },
-      { data: t },
-      { data: r },
-      { data: g },
-      { data: mods },
-      { data: links },
-      { data: zones }
+      menuResult,
+      tablesResult,
+      roomsResult,
+      groupsResult,
+      modifiersResult,
+      linksResult,
+      zonesResult,
     ] = await Promise.all([
-      supabase.from("menu_items").select("*").eq("restaurant_id", rid),
-      supabase.from("tables").select("*").eq("restaurant_id", rid),
-      supabase.from("rooms").select("*").eq("restaurant_id", rid),
-      supabase.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at"),
-      supabase.from("modifiers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at"),
-      supabase.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid),
-      supabase.from("delivery_zones").select("*").eq("restaurant_id", rid).eq("active", true).order("name")
+      supabase
+        .from("menu_items")
+        .select("*")
+        .eq("restaurant_id", rid),
+
+      supabase
+        .from("tables")
+        .select("*")
+        .eq("restaurant_id", rid),
+
+      supabase
+        .from("rooms")
+        .select("*")
+        .eq("restaurant_id", rid),
+
+      supabase
+        .from("modifier_groups")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .eq("active", true)
+        .order("created_at"),
+
+      supabase
+        .from("modifiers")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .eq("active", true)
+        .order("created_at"),
+
+      supabase
+        .from("menu_item_modifier_groups")
+        .select("menu_item_id,modifier_group_id")
+        .eq("restaurant_id", rid),
+
+      supabase
+        .from("delivery_zones")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .eq("active", true)
+        .order("name"),
     ])
 
-    setMenu(m || [])
-    setTables(t || [])
-    setRooms(r || [])
-    setModifierGroups(g || [])
-    setModifiers(mods || [])
-    setModifierLinks(links || [])
-    setDeliveryZones(zones || [])
+    if (menuResult.error) {
+      console.error("MENU ERROR:", menuResult.error)
+    }
+
+    if (tablesResult.error) {
+      console.error("TABLE ERROR:", tablesResult.error)
+    }
+
+    if (roomsResult.error) {
+      console.error("ROOM ERROR:", roomsResult.error)
+    }
+
+    if (groupsResult.error) {
+      console.error("MODIFIER GROUP ERROR:", groupsResult.error)
+    }
+
+    if (modifiersResult.error) {
+      console.error("MODIFIER ERROR:", modifiersResult.error)
+    }
+
+    if (linksResult.error) {
+      console.error("MODIFIER LINK ERROR:", linksResult.error)
+    }
+
+    if (zonesResult.error) {
+      console.error("DELIVERY ZONE ERROR:", zonesResult.error)
+    }
+
+    setMenu(menuResult.data || [])
+    setTables(tablesResult.data || [])
+    setRooms(roomsResult.data || [])
+    setModifierGroups(groupsResult.data || [])
+    setModifiers(modifiersResult.data || [])
+    setModifierLinks(linksResult.data || [])
+    setDeliveryZones(zonesResult.data || [])
   }
 
+  /* =========================================================
+     QR AUTO SELECT
+     ========================================================= */
+
   function autoQR() {
-
-    if (typeParam && idParam && (typeParam === "table" || typeParam === "room")) {
-
+    if (
+      typeParam &&
+      idParam &&
+      (typeParam === "table" || typeParam === "room")
+    ) {
       setType(typeParam)
 
       const list = typeParam === "table" ? tables : rooms
 
-      const found = list.find(i =>
+      const found = list.find((item) =>
         typeParam === "table"
-          ? String(i.table_number) === String(idParam) || String(i.id) === String(idParam)
-          : String(i.room_number) === String(idParam) || String(i.id) === String(idParam)
+          ? String(item.table_number) === String(idParam) ||
+            String(item.id) === String(idParam)
+          : String(item.room_number) === String(idParam) ||
+            String(item.id) === String(idParam)
       )
 
-      if (found) setSelected(found)
+      if (found) {
+        setSelected(found)
+      }
+
       return
     }
 
@@ -145,101 +266,218 @@ export default function OrderPage() {
     if (!qrType || !qrId) return
 
     if (qrType !== "table" && qrType !== "room") return
+
     setType(qrType)
 
     const list = qrType === "table" ? tables : rooms
 
-    const found = list.find(i =>
+    const found = list.find((item) =>
       qrType === "table"
-        ? String(i.table_number) === qrId || String(i.id) === qrId
-        : String(i.room_number) === qrId || String(i.id) === qrId
+        ? String(item.table_number) === String(qrId) ||
+          String(item.id) === String(qrId)
+        : String(item.room_number) === String(qrId) ||
+          String(item.id) === String(qrId)
     )
 
-    if (found) setSelected(found)
+    if (found) {
+      setSelected(found)
+    }
   }
 
+  /* =========================================================
+     MODIFIERS
+     ========================================================= */
+
   function itemGroups(item) {
-    const ids = modifierLinks.filter(l => l.menu_item_id === item.id).map(l => l.modifier_group_id)
-    return modifierGroups.filter(g => ids.includes(g.id))
+    const ids = modifierLinks
+      .filter((link) => link.menu_item_id === item.id)
+      .map((link) => link.modifier_group_id)
+
+    return modifierGroups.filter((group) => ids.includes(group.id))
   }
 
   function addToCart(item) {
     const groups = itemGroups(item)
+
     if (groups.length) {
       setModifierItem(item)
+
       const initial = {}
-      groups.forEach(g => { initial[g.id] = [] })
+
+      groups.forEach((group) => {
+        initial[group.id] = []
+      })
+
       setModifierSelection(initial)
       return
     }
+
     addConfiguredItem(item, [])
   }
 
   function addConfiguredItem(item, selectedModifiers) {
-    const modifierTotal = selectedModifiers.reduce((sum, m) => sum + Number(m.price || 0) * Number(m.quantity || 1), 0)
-    const key = `${item.id}:${selectedModifiers.map(m => m.id).sort().join(",") || "base"}`
-    setCart(prev => {
-      const exist = prev.find(i => i.cartKey === key)
-      if (exist) return prev.map(i => i.cartKey === key ? { ...i, qty: i.qty + 1 } : i)
-      return [...prev, { ...item, qty: 1, cartKey: key, selectedModifiers, modifierTotal }]
+    const modifierTotal = selectedModifiers.reduce(
+      (sum, modifier) =>
+        sum +
+        Number(modifier.price || 0) *
+          Number(modifier.quantity || 1),
+      0
+    )
+
+    const key = `${item.id}:${
+      selectedModifiers.map((modifier) => modifier.id).sort().join(",") ||
+      "base"
+    }`
+
+    setCart((previous) => {
+      const existing = previous.find(
+        (item) => item.cartKey === key
+      )
+
+      if (existing) {
+        return previous.map((item) =>
+          item.cartKey === key
+            ? {
+                ...item,
+                qty: Number(item.qty || 0) + 1,
+              }
+            : item
+        )
+      }
+
+      return [
+        ...previous,
+        {
+          ...item,
+          qty: 1,
+          cartKey: key,
+          selectedModifiers,
+          modifierTotal,
+        },
+      ]
     })
   }
 
   function confirmModifiers() {
     if (!modifierItem) return
+
     const groups = itemGroups(modifierItem)
-    for (const g of groups) {
-      const chosen = modifierSelection[g.id] || []
-      if (g.required && !chosen.length) {
-        alert(`Please choose an option from ${g.name}`)
+
+    for (const group of groups) {
+      const chosen = modifierSelection[group.id] || []
+
+      if (group.required && !chosen.length) {
+        alert(`Please choose an option from ${group.name}`)
         return
       }
     }
+
     const chosen = Object.values(modifierSelection).flat()
+
     addConfiguredItem(modifierItem, chosen)
+
     setModifierItem(null)
     setModifierSelection({})
   }
 
   function toggleModifier(group, modifier) {
-    setModifierSelection(prev => {
-      const current = prev[group.id] || []
+    setModifierSelection((previous) => {
+      const current = previous[group.id] || []
+
       if (group.selection_type === "single") {
-        return { ...prev, [group.id]: [modifier] }
+        return {
+          ...previous,
+          [group.id]: [modifier],
+        }
       }
-      const exists = current.some(m => m.id === modifier.id)
-      return { ...prev, [group.id]: exists ? current.filter(m => m.id !== modifier.id) : [...current, modifier] }
+
+      const exists = current.some(
+        (item) => item.id === modifier.id
+      )
+
+      return {
+        ...previous,
+        [group.id]: exists
+          ? current.filter((item) => item.id !== modifier.id)
+          : [...current, modifier],
+      }
     })
   }
 
+  /* =========================================================
+     CART
+     ========================================================= */
+
   function updateQty(cartKey, change) {
-    setCart(prev => prev.flatMap(item => {
-      if (item.cartKey !== cartKey) return item
-      const qty = item.qty + change
-      return qty <= 0 ? [] : { ...item, qty }
-    }))
+    setCart((previous) =>
+      previous.flatMap((item) => {
+        if (item.cartKey !== cartKey) {
+          return [item]
+        }
+
+        const qty = Number(item.qty || 0) + change
+
+        if (qty <= 0) {
+          return []
+        }
+
+        return [
+          {
+            ...item,
+            qty,
+          },
+        ]
+      })
+    )
   }
 
   function removeItem(cartKey) {
-    setCart(prev => prev.filter(item => item.cartKey !== cartKey))
+    setCart((previous) =>
+      previous.filter((item) => item.cartKey !== cartKey)
+    )
   }
-  
+
+  /* =========================================================
+     COMBO
+     ========================================================= */
 
   function comboDisplayName(item) {
-    if (item?.item_type !== "combo") return item?.name || "Item"
-    const cfg = item?.combo_config || {}
-    const ids = cfg.mode === "fixed" ? (cfg.items || []).map(x => x.item_id) : []
-    const names = ids.map(id => menu.find(m => m.id === id)?.name).filter(Boolean)
-    return names.length ? `${item.name} [${names.join(", ")}]` : item.name
+    if (item?.item_type !== "combo") {
+      return item?.name || "Item"
+    }
+
+    const config = item?.combo_config || {}
+
+    const ids =
+      config.mode === "fixed"
+        ? (config.items || []).map((item) => item.item_id)
+        : []
+
+    const names = ids
+      .map((id) => menu.find((menuItem) => menuItem.id === id)?.name)
+      .filter(Boolean)
+
+    return names.length
+      ? `${item.name} [${names.join(", ")}]`
+      : item.name
   }
+
+  /* =========================================================
+     ORDER TYPE
+     ========================================================= */
 
   function changeOrderType(nextType) {
     setType(nextType)
     setSelected(null)
     setOpenSelect(false)
+
     if (nextType !== "delivery") {
       setDeliveryCharge(0)
-      if (nextType === "takeaway") setCustomerNotes("")
+      setDeliveryZone("")
+    }
+
+    if (nextType === "takeaway") {
+      setCustomerNotes("")
     }
   }
 
@@ -248,148 +486,295 @@ export default function OrderPage() {
     setDeliveryCharge(Number(zone?.charge || 0))
   }
 
-  // Anaira POS order flow: dine-in, takeaway and delivery share one cart.
-  async function placeOrder() {
+  /* =========================================================
+     PLACE ORDER
+     ========================================================= */
 
-    if (!restaurantId) return alert("Restaurant missing")
-    if (cart.length === 0) return alert("Cart empty")
-    if ((type === "table" || type === "room") && !selected) return alert("Select table/room")
+  async function placeOrder() {
+    if (!restaurantId) {
+      alert("Restaurant missing")
+      return
+    }
+
+    if (cart.length === 0) {
+      alert("Cart empty")
+      return
+    }
+
+    if (
+      (type === "table" || type === "room") &&
+      !selected
+    ) {
+      alert("Select table/room")
+      return
+    }
+
     if (type === "delivery") {
-      if (!customerName.trim()) return alert("Customer name is required")
-      if (!customerPhone.trim()) return alert("Customer phone is required")
-      if (!deliveryAddress.trim()) return alert("Delivery address is required")
+      if (!customerName.trim()) {
+        alert("Customer name is required")
+        return
+      }
+
+      if (!customerPhone.trim()) {
+        alert("Customer phone is required")
+        return
+      }
+
+      if (!deliveryAddress.trim()) {
+        alert("Delivery address is required")
+        return
+      }
     }
 
     const foodTotal = cart.reduce(
       (sum, item) =>
         sum +
-        (Number(item.price || 0) + Number(item.modifierTotal || 0)) *
+        (Number(item.price || 0) +
+          Number(item.modifierTotal || 0)) *
           Number(item.qty || 0),
       0
     )
-    const orderTotal = foodTotal + (type === "delivery" ? Number(deliveryCharge || 0) : 0)
-    const sourceLabel = type === "table"
-      ? `Table ${selected.table_number}`
-      : type === "room"
+
+    const orderTotal =
+      foodTotal +
+      (type === "delivery"
+        ? Number(deliveryCharge || 0)
+        : 0)
+
+    const sourceLabel =
+      type === "table"
+        ? `Table ${selected.table_number}`
+        : type === "room"
         ? `Room ${selected.room_number}`
         : type === "takeaway"
-          ? "Takeaway"
-          : `Delivery - ${customerName.trim()}`
+        ? "Takeaway"
+        : `Delivery - ${customerName.trim()}`
 
     const { data: order, error } = await supabase
       .from("orders")
-      .insert([{
-        source_type: type,
-        source_id: selected?.id || null,
-        source_label: sourceLabel,
-        order_mode: type === "table" || type === "room" ? "dine_in" : type,
-        restaurant_id: restaurantId,
-        status: "pending",
-        subtotal: foodTotal,
-        total_amount: orderTotal,
-        payment_status: "unpaid",
-        payment_method: type === "delivery" ? paymentMethod : null,
-        paid_amount: 0
-      }])
+      .insert([
+        {
+          source_type: type,
+          source_id: selected?.id || null,
+          source_label: sourceLabel,
+          order_mode:
+            type === "table" || type === "room"
+              ? "dine_in"
+              : type,
+          restaurant_id: restaurantId,
+          status: "pending",
+          subtotal: foodTotal,
+          total_amount: orderTotal,
+          payment_status: "unpaid",
+          payment_method:
+            type === "delivery"
+              ? paymentMethod
+              : null,
+          paid_amount: 0,
+        },
+      ])
       .select()
       .single()
 
-    // 🔥 MAIN FIX
     if (error || !order) {
-      console.log("ORDER ERROR:", error)
-      alert("❌ Order failed (RLS issue)")
+      console.error("ORDER ERROR:", error)
+
+      alert(
+        error?.message ||
+          "Order could not be created."
+      )
+
       return
     }
 
+    /* =======================================================
+       ORDER ITEMS
+       ======================================================= */
+
     for (const cartItem of cart) {
-      const { data: orderItem, error: itemError } = await supabase
-        .from("order_items")
-        .insert([{
-          order_id: order.id,
-          item_id: cartItem.id,
-          quantity: cartItem.qty,
-          item_name: comboDisplayName(cartItem),
-          unit_price: Number(cartItem.price || 0),
-          line_total:
-            (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) *
-            Number(cartItem.qty || 0)
-        }])
-        .select("id")
-        .single()
+      const { data: orderItem, error: itemError } =
+        await supabase
+          .from("order_items")
+          .insert([
+            {
+              order_id: order.id,
+              item_id: cartItem.id,
+              quantity: cartItem.qty,
+              item_name: comboDisplayName(cartItem),
+              unit_price: Number(cartItem.price || 0),
+              line_total:
+                (Number(cartItem.price || 0) +
+                  Number(cartItem.modifierTotal || 0)) *
+                Number(cartItem.qty || 0),
+            },
+          ])
+          .select("id")
+          .single()
 
       if (itemError || !orderItem) {
-        console.log("ITEM ERROR:", itemError)
-        alert("❌ Items failed")
+        console.error("ITEM ERROR:", itemError)
+
+        alert(
+          itemError?.message ||
+            "Order item could not be saved."
+        )
+
         return
       }
 
+      /* =====================================================
+         ORDER MODIFIERS
+         ===================================================== */
+
       if (cartItem.selectedModifiers?.length) {
-        const modifierRows = cartItem.selectedModifiers.map(m => ({
-          order_item_id: orderItem.id,
-          modifier_id: m.id,
-          modifier_name: m.name,
-          price: Number(m.price || 0),
-          quantity: Number(m.quantity || 1)
-        }))
-        const { error: modError } = await supabase.from("order_item_modifiers").insert(modifierRows)
-        if (modError) {
-          console.log("MODIFIER ERROR:", modError)
-          alert("❌ Modifier save failed")
+        const modifierRows =
+          cartItem.selectedModifiers.map((modifier) => ({
+            order_item_id: orderItem.id,
+            modifier_id: modifier.id,
+            modifier_name: modifier.name,
+            price: Number(modifier.price || 0),
+            quantity: Number(
+              modifier.quantity || 1
+            ),
+          }))
+
+        const { error: modifierError } =
+          await supabase
+            .from("order_item_modifiers")
+            .insert(modifierRows)
+
+        if (modifierError) {
+          console.error(
+            "MODIFIER ERROR:",
+            modifierError
+          )
+
+          alert(
+            modifierError.message ||
+              "Modifier save failed."
+          )
+
           return
         }
       }
     }
 
+    /* =======================================================
+       DELIVERY SLIP
+       ======================================================= */
+
     if (type === "delivery") {
-      const { data: slipNo, error: slipError } = await supabase.rpc("next_delivery_slip_no", {
-        p_restaurant_id: restaurantId
-      })
+      const {
+        data: slipNo,
+        error: slipError,
+      } = await supabase.rpc(
+        "next_delivery_slip_no",
+        {
+          p_restaurant_id: restaurantId,
+        }
+      )
+
       if (slipError) {
-        console.error("DELIVERY SLIP ERROR:", slipError)
-        alert("Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there.")
+        console.error(
+          "DELIVERY SLIP ERROR:",
+          slipError
+        )
+
+        alert(
+          "Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there."
+        )
       } else {
-        const { data: delivery, error: deliveryError } = await supabase
+        const {
+          data: delivery,
+          error: deliveryError,
+        } = await supabase
           .from("restaurant_deliveries")
-          .insert([{
-            restaurant_id: restaurantId,
-            order_id: order.id,
-            slip_no: slipNo,
-            order_mode: "delivery",
-            customer_name: customerName.trim(),
-            phone: customerPhone.trim(),
-            address: deliveryAddress.trim(),
-            zone: deliveryZone || null,
-            delivery_charge: Number(deliveryCharge || 0),
-            payment_method: paymentMethod,
-            expected_amount: orderTotal,
-            payment_status: "pending",
-            settlement_status: "pending",
-            status: "pending",
-            customer_notes: customerNotes.trim() || null
-          }])
+          .insert([
+            {
+              restaurant_id: restaurantId,
+              order_id: order.id,
+              slip_no: slipNo,
+              order_mode: "delivery",
+              customer_name:
+                customerName.trim(),
+              phone: customerPhone.trim(),
+              address:
+                deliveryAddress.trim(),
+              zone:
+                deliveryZone || null,
+              delivery_charge:
+                Number(deliveryCharge || 0),
+              payment_method:
+                paymentMethod,
+              expected_amount: orderTotal,
+
+              /*
+               * COD / delivery money stays pending
+               * until rider/owner returns and settlement
+               * is confirmed.
+               */
+              payment_status: "pending",
+              settlement_status: "pending",
+
+              status: "pending",
+
+              customer_notes:
+                customerNotes.trim() || null,
+            },
+          ])
           .select("*")
           .single()
+
         if (deliveryError) {
-          console.error("DELIVERY CREATE ERROR:", deliveryError)
-          alert("Order created, but delivery slip could not be saved: " + deliveryError.message)
+          console.error(
+            "DELIVERY CREATE ERROR:",
+            deliveryError
+          )
+
+          alert(
+            "Order created, but delivery slip could not be saved: " +
+              deliveryError.message
+          )
         } else {
-          await supabase.from("delivery_events").insert([{
-            restaurant_id: restaurantId,
-            delivery_id: delivery.id,
-            status: "pending",
-            note: "Delivery slip created from POS"
-          }])
-          alert(`✅ Delivery order created. Slip ${delivery.slip_no}`)
-          window.location.href = `/dashboard/delivery?slip=${encodeURIComponent(delivery.slip_no)}`
+          await supabase
+            .from("delivery_events")
+            .insert([
+              {
+                restaurant_id: restaurantId,
+                delivery_id: delivery.id,
+                status: "pending",
+                note:
+                  "Delivery slip created from POS",
+              },
+            ])
+
+          alert(
+            `Delivery order created. Slip ${delivery.slip_no}`
+          )
+
+          window.location.href =
+            `/dashboard/delivery?slip=${encodeURIComponent(
+              delivery.slip_no
+            )}`
+
           return
         }
       }
     } else {
-      alert(`✅ ${type === "takeaway" ? "Takeaway" : "Dine-in"} order placed`)
+      alert(
+        type === "takeaway"
+          ? "Takeaway order placed"
+          : "Dine-in order placed"
+      )
     }
+
+    /* =======================================================
+       RESET
+       ======================================================= */
 
     setCart([])
     setSelected(null)
+
     setCustomerName("")
     setCustomerPhone("")
     setDeliveryAddress("")
@@ -398,234 +783,571 @@ export default function OrderPage() {
     setCustomerNotes("")
   }
 
-  const groupedMenu = menu.reduce((acc, item) => {
-    const cat = String(item.category || "Other").trim() || "Other"
-    if (!acc[cat]) acc[cat] = []
-    acc[cat].push(item)
-    return acc
-  }, {})
+  /* =========================================================
+     MENU GROUPING
+     ========================================================= */
+
+  const groupedMenu = menu.reduce(
+    (accumulator, item) => {
+      const category =
+        String(item.category || "Other").trim() ||
+        "Other"
+
+      if (!accumulator[category]) {
+        accumulator[category] = []
+      }
+
+      accumulator[category].push(item)
+
+      return accumulator
+    },
+    {}
+  )
 
   const categories = Object.keys(groupedMenu)
 
   useEffect(() => {
-    if (categories.length && activeCategory !== "All" && !categories.includes(activeCategory)) {
+    if (
+      categories.length &&
+      activeCategory !== "All" &&
+      !categories.includes(activeCategory)
+    ) {
       setActiveCategory(categories[0])
     }
   }, [menu.length, activeCategory])
 
-  const visibleItems = activeCategory === "All"
-    ? menu
-    : (groupedMenu[activeCategory] || [])
+  const visibleItems =
+    activeCategory === "All"
+      ? menu
+      : groupedMenu[activeCategory] || []
+
+  const cartCount = cart.reduce(
+    (total, item) =>
+      total + Number(item.qty || 0),
+    0
+  )
+
+  const cartTotal = cart.reduce(
+    (total, item) =>
+      total +
+      (Number(item.price || 0) +
+        Number(item.modifierTotal || 0)) *
+        Number(item.qty || 0),
+    0
+  )
+
+  /* =========================================================
+     UI
+     ========================================================= */
 
   return (
-  <div style={getLayout(isMobile)} className="order-page">
+    <div className="order-page">
+      {/* =====================================================
+          HEADER
+          ===================================================== */}
 
-    <div
-      style={{
-        gridColumn:"1 / -1",
-        marginBottom:10
-      }}
-    >
-      <h1
-  style={{
-    margin:0,
-    fontSize:34,
-    fontWeight:"800",
-    color:"var(--primary)"
-  }}
->
-  {restaurantName}
-</h1>
+      <div className="order-page-header">
+        <div>
+          <h1>{restaurantName}</h1>
 
-      <div
-        style={{
-          color:"var(--muted)",
-          marginTop:4
-        }}
-      >
-        Premium Dining Experience
+          <div className="order-page-subtitle">
+            Premium Dining Experience
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div style={{...glass, ...panel}}>
-      <h3>🔘 Select</h3>
-        <div style={orderTypeGrid}>
-          <button style={tabBtn(type==="table","var(--info)")} onClick={()=>changeOrderType("table")}>🍽️ Dine-in</button>
-          <button style={tabBtn(type==="takeaway","#f59e0b")} onClick={()=>changeOrderType("takeaway")}>🥡 Takeaway</button>
-          <button style={tabBtn(type==="delivery","#22c55e")} onClick={()=>changeOrderType("delivery")}>🛵 Delivery</button>
-          <button style={tabBtn(type==="room","#a855f7")} onClick={()=>changeOrderType("room")}>🛏️ Room</button>
+      {/* =====================================================
+          LEFT - ORDER TYPE
+          ===================================================== */}
+
+      <div className="order-type-panel">
+        <h3>🔘 Select</h3>
+
+        <div className="order-type-grid">
+          <button
+            type="button"
+            className={
+              type === "table"
+                ? "order-type-btn active-info"
+                : "order-type-btn"
+            }
+            onClick={() =>
+              changeOrderType("table")
+            }
+          >
+            🍽️ Dine-in
+          </button>
+
+          <button
+            type="button"
+            className={
+              type === "takeaway"
+                ? "order-type-btn active-warning"
+                : "order-type-btn"
+            }
+            onClick={() =>
+              changeOrderType("takeaway")
+            }
+          >
+            🥡 Takeaway
+          </button>
+
+          <button
+            type="button"
+            className={
+              type === "delivery"
+                ? "order-type-btn active-success"
+                : "order-type-btn"
+            }
+            onClick={() =>
+              changeOrderType("delivery")
+            }
+          >
+            🛵 Delivery
+          </button>
+
+          <button
+            type="button"
+            className={
+              type === "room"
+                ? "order-type-btn active-purple"
+                : "order-type-btn"
+            }
+            onClick={() =>
+              changeOrderType("room")
+            }
+          >
+            🛏️ Room
+          </button>
         </div>
 
-        {(type === "table" || type === "room") && (
+        {/* ===================================================
+            TABLE / ROOM
+            =================================================== */}
+
+        {(type === "table" ||
+          type === "room") && (
           <>
-            <button style={selectBtn} onClick={()=>setOpenSelect(!openSelect)}>
+            <button
+              type="button"
+              className="select-table-btn"
+              onClick={() =>
+                setOpenSelect(!openSelect)
+              }
+            >
               {selected
-                ? (type==="table"
-                    ? `🍽️ Table ${selected.table_number}`
-                    : `🛏️ Room ${selected.room_number}`)
+                ? type === "table"
+                  ? `🍽️ Table ${selected.table_number}`
+                  : `🛏️ Room ${selected.room_number}`
                 : "Select Table / Room"}
             </button>
 
             {openSelect && (
-              <div style={dropdown}>
-                {(type==="table"?tables:rooms).map(item=>(
-                  <div key={item.id}
-                    onClick={()=>{setSelected(item); setOpenSelect(false)}}
-                    style={dropdownItem}>
-                    {type==="table"
+              <div className="selection-dropdown">
+                {(type === "table"
+                  ? tables
+                  : rooms
+                ).map((item) => (
+                  <button
+                    type="button"
+                    className="selection-dropdown-item"
+                    key={item.id}
+                    onClick={() => {
+                      setSelected(item)
+                      setOpenSelect(false)
+                    }}
+                  >
+                    {type === "table"
                       ? `🍽️ Table ${item.table_number}`
                       : `🛏️ Room ${item.room_number}`}
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </>
         )}
 
+        {/* ===================================================
+            TAKEAWAY
+            =================================================== */}
+
         {type === "takeaway" && (
-          <div style={modeInfoBox}>🥡 Quick takeaway — no table required. Print the bill/KOT after placing the order.</div>
+          <div className="mode-info-box">
+            🥡 Quick takeaway — no table
+            required. Print the bill/KOT after
+            placing the order.
+          </div>
         )}
 
+        {/* ===================================================
+            DELIVERY
+            =================================================== */}
+
         {type === "delivery" && (
-          <div style={{display:"grid",gap:8,marginTop:12}}>
-            <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name *" style={fieldInput}/>
-            <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone number *" inputMode="tel" style={fieldInput}/>
-            <textarea value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} placeholder="Delivery address *" rows={3} style={{...fieldInput,resize:"vertical"}}/>
-            <select value={deliveryZone} onChange={e=>applyZone(deliveryZones.find(z=>z.name===e.target.value))} style={fieldInput}>
-              <option value="">Select delivery zone</option>
-              {deliveryZones.map(z=><option key={z.id} value={z.name}>{z.name} — ₹{Number(z.charge||0).toLocaleString("en-IN")}</option>)}
+          <div className="delivery-fields">
+            <input
+              value={customerName}
+              onChange={(event) =>
+                setCustomerName(
+                  event.target.value
+                )
+              }
+              placeholder="Customer name *"
+              className="field-input"
+            />
+
+            <input
+              value={customerPhone}
+              onChange={(event) =>
+                setCustomerPhone(
+                  event.target.value
+                )
+              }
+              placeholder="Phone number *"
+              inputMode="tel"
+              className="field-input"
+            />
+
+            <textarea
+              value={deliveryAddress}
+              onChange={(event) =>
+                setDeliveryAddress(
+                  event.target.value
+                )
+              }
+              placeholder="Delivery address *"
+              rows={3}
+              className="field-input textarea-input"
+            />
+
+            <select
+              value={deliveryZone}
+              onChange={(event) =>
+                applyZone(
+                  deliveryZones.find(
+                    (zone) =>
+                      zone.name ===
+                      event.target.value
+                  )
+                )
+              }
+              className="field-input"
+            >
+              <option value="">
+                Select delivery zone
+              </option>
+
+              {deliveryZones.map((zone) => (
+                <option
+                  key={zone.id}
+                  value={zone.name}
+                >
+                  {zone.name} — ₹
+                  {Number(
+                    zone.charge || 0
+                  ).toLocaleString("en-IN")}
+                </option>
+              ))}
             </select>
-            <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)} style={fieldInput}>
-              <option value="cash">COD — Cash</option>
-              <option value="upi">UPI</option>
-              <option value="card">Card</option>
-              <option value="online">Online</option>
+
+            <select
+              value={paymentMethod}
+              onChange={(event) =>
+                setPaymentMethod(
+                  event.target.value
+                )
+              }
+              className="field-input"
+            >
+              <option value="cash">
+                COD — Cash
+              </option>
+
+              <option value="upi">
+                UPI
+              </option>
+
+              <option value="card">
+                Card
+              </option>
+
+              <option value="online">
+                Online
+              </option>
             </select>
-            <textarea value={customerNotes} onChange={e=>setCustomerNotes(e.target.value)} placeholder="Delivery note (optional)" rows={2} style={{...fieldInput,resize:"vertical"}}/>
-            <div style={deliveryChargeBox}><span>Delivery charge</span><strong>₹{Number(deliveryCharge||0).toLocaleString("en-IN")}</strong></div>
+
+            <textarea
+              value={customerNotes}
+              onChange={(event) =>
+                setCustomerNotes(
+                  event.target.value
+                )
+              }
+              placeholder="Delivery note (optional)"
+              rows={2}
+              className="field-input textarea-input"
+            />
+
+            <div className="delivery-charge-box">
+              <span>Delivery charge</span>
+
+              <strong>
+                ₹
+                {Number(
+                  deliveryCharge || 0
+                ).toLocaleString("en-IN")}
+              </strong>
+            </div>
           </div>
         )}
       </div>
 
-      <div style={{...glass, ...menuBox}}>
-        <div style={categoryHeader}>
+      {/* =====================================================
+          CENTER - MENU
+          ===================================================== */}
+
+      <div className="menu-panel">
+        <div className="category-header">
           <div>
-            <div style={categoryEyebrow}>MENU</div>
-            <h2 style={{margin:"3px 0 0",fontSize:isMobile ? 20 : 24}}>
-              Choose your food
-            </h2>
+            <div className="category-eyebrow">
+              MENU
+            </div>
+
+            <h2>Choose your food</h2>
           </div>
-          <span style={categoryCount}>{visibleItems.length} items</span>
+
+          <span className="category-count">
+            {visibleItems.length} items
+          </span>
         </div>
 
-        <div className="order-category-tabs" style={categoryTabs}>
-          {categories.map(cat => (
+        {/* ===================================================
+            CATEGORIES
+            =================================================== */}
+
+        <div className="category-tabs">
+          <button
+            type="button"
+            className={
+              activeCategory === "All"
+                ? "category-tab active"
+                : "category-tab"
+            }
+            onClick={() =>
+              setActiveCategory("All")
+            }
+          >
+            All
+            <span className="category-tab-count">
+              {menu.length}
+            </span>
+          </button>
+
+          {categories.map((category) => (
             <button
               type="button"
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              style={{
-                ...categoryTab,
-                ...(activeCategory === cat ? categoryTabActive : {})
-              }}
+              key={category}
+              className={
+                activeCategory === category
+                  ? "category-tab active"
+                  : "category-tab"
+              }
+              onClick={() =>
+                setActiveCategory(category)
+              }
             >
-              {cat}
-              <span style={{
-                ...categoryTabCount,
-                ...(activeCategory === cat ? categoryTabCountActive : {})
-              }}>
-                {groupedMenu[cat].length}
+              {category}
+
+              <span className="category-tab-count">
+                {groupedMenu[category].length}
               </span>
             </button>
           ))}
         </div>
 
-        <div style={categoryTitle}>
-          <span>{activeCategory === "All" ? "All Items" : activeCategory}</span>
-          <small>Tap to add</small>
+        <div className="category-title">
+          <span>
+            {activeCategory === "All"
+              ? "All Items"
+              : activeCategory}
+          </span>
+
+          <small>
+            Tap to add
+          </small>
         </div>
 
-        <div className="order-food-grid" style={{...getGrid(isMobile), gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:isMobile ? 7 : 14}}>
-          {visibleItems.map(item => (
+        {/* ===================================================
+            COMPACT 8-COLUMN MENU
+            =================================================== */}
+
+        <div className="order-food-grid">
+          {visibleItems.map((item) => (
             <button
               type="button"
               className="order-menu-card"
               key={item.id}
-              style={menuCard}
-              onClick={() => addToCart(item)}
+              onClick={() =>
+                addToCart(item)
+              }
             >
-              <img src={item.image} alt={item.name} style={imageStyle}/>
-              <span className="order-item-name" style={itemName}>{item.name}</span>
-              <span className="order-item-price" style={itemPrice}>
-                ₹{Number(item.price || 0).toLocaleString("en-IN")}
-              </span>
+              <div className="order-menu-image-wrap">
+                {item.image ? (
+                  <img
+                    src={item.image}
+                    alt={item.name}
+                    className="order-menu-image"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div
+                    className="order-menu-image-fallback"
+                    aria-hidden="true"
+                  >
+                    🍽️
+                  </div>
+                )}
+              </div>
+
+              <div className="order-menu-card-content">
+                <span className="order-item-name">
+                  {item.name}
+                </span>
+
+                <span className="order-item-price">
+                  ₹
+                  {Number(
+                    item.price || 0
+                  ).toLocaleString("en-IN")}
+                </span>
+              </div>
             </button>
           ))}
         </div>
 
-        {!visibleItems.length && <div style={emptyMenu}>No items in this category.</div>}
+        {!visibleItems.length && (
+          <div className="empty-menu">
+            No items in this category.
+          </div>
+        )}
       </div>
 
-      <div className="order-cart-panel" style={{...glass, ...panel}}>
-        <div style={cartHeader}>
+      {/* =====================================================
+          RIGHT - CART
+          ===================================================== */}
+
+      <div className="cart-panel">
+        <div className="cart-header">
           <div>
-            <div style={cartEyebrow}>YOUR ORDER</div>
-            <h2 style={cartTitle}>Cart</h2>
+            <div className="cart-eyebrow">
+              YOUR ORDER
+            </div>
+
+            <h2>Cart</h2>
           </div>
-          <span style={cartBadge}>
-            {cart.reduce((sum, item) => sum + Number(item.qty || 0), 0)} items
+
+          <span className="cart-badge">
+            {cartCount} items
           </span>
         </div>
 
         {cart.length === 0 ? (
-          <div style={emptyCart}>
-            <div style={emptyCartIcon}>🛒</div>
-            <strong>Your cart is empty</strong>
-            <span>Add food items from the menu.</span>
+          <div className="empty-cart">
+            <div className="empty-cart-icon">
+              🛒
+            </div>
+
+            <strong>
+              Your cart is empty
+            </strong>
+
+            <span>
+              Add food items from the menu.
+            </span>
           </div>
         ) : (
           <>
-            <div className="order-cart-list" style={cartList}>
-              {cart.map(item => {
-                const unitTotal = Number(item.price || 0) + Number(item.modifierTotal || 0)
-                return (
-                  <div className="order-cart-item" key={item.cartKey} style={cartItem}>
-                    <div style={cartItemMain}>
-                      <div style={cartItemName}>{item.name}</div>
+            <div className="cart-list">
+              {cart.map((item) => {
+                const unitTotal =
+                  Number(item.price || 0) +
+                  Number(
+                    item.modifierTotal || 0
+                  )
 
-                      {item.selectedModifiers?.length > 0 && (
-                        <div style={cartModifiers}>
-                          + {item.selectedModifiers.map(m => m.name).join(", ")}
+                return (
+                  <div
+                    className="cart-item"
+                    key={item.cartKey}
+                  >
+                    <div className="cart-item-main">
+                      <div className="cart-item-name">
+                        {item.name}
+                      </div>
+
+                      {item.selectedModifiers
+                        ?.length > 0 && (
+                        <div className="cart-modifiers">
+                          +{" "}
+                          {item.selectedModifiers
+                            .map(
+                              (modifier) =>
+                                modifier.name
+                            )
+                            .join(", ")}
                         </div>
                       )}
 
-                      <div style={cartItemPrice}>
-                        ₹{unitTotal.toLocaleString("en-IN")} each
+                      <div className="cart-item-price">
+                        ₹
+                        {unitTotal.toLocaleString(
+                          "en-IN"
+                        )}{" "}
+                        each
                       </div>
                     </div>
 
-                    <div style={cartItemActions}>
+                    <div className="cart-item-actions">
                       <button
                         type="button"
-                        onClick={() => updateQty(item.cartKey, -1)}
-                        style={qtyBtn}
+                        onClick={() =>
+                          updateQty(
+                            item.cartKey,
+                            -1
+                          )
+                        }
+                        className="qty-btn"
                         aria-label={`Decrease ${item.name}`}
                       >
                         −
                       </button>
-                      <span style={qtyValue}>{item.qty}</span>
+
+                      <span className="qty-value">
+                        {item.qty}
+                      </span>
+
                       <button
                         type="button"
-                        onClick={() => updateQty(item.cartKey, 1)}
-                        style={qtyBtn}
+                        onClick={() =>
+                          updateQty(
+                            item.cartKey,
+                            1
+                          )
+                        }
+                        className="qty-btn"
                         aria-label={`Increase ${item.name}`}
                       >
                         +
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => removeItem(item.cartKey)}
-                        style={removeBtn}
+                        onClick={() =>
+                          removeItem(
+                            item.cartKey
+                          )
+                        }
+                        className="remove-btn"
                         aria-label={`Remove ${item.name}`}
                       >
                         ×
@@ -636,477 +1358,1452 @@ export default function OrderPage() {
               })}
             </div>
 
-            <div style={cartSummary}>
-              <div style={summaryRow}>
+            <div className="cart-summary">
+              <div className="summary-row">
                 <span>Items</span>
-                <strong>{cart.reduce((t,i)=>t+Number(i.qty||0),0)}</strong>
-              </div>
-              <div style={summaryRowTotal}>
-                <span>Total</span>
                 <strong>
-                  ₹{cart.reduce((t,i)=>t+(Number(i.price||0)+Number(i.modifierTotal||0))*i.qty,0).toLocaleString("en-IN")}
+                  {cartCount}
+                </strong>
+              </div>
+
+              <div className="summary-total">
+                <span>Total</span>
+
+                <strong>
+                  ₹
+                  {cartTotal.toLocaleString(
+                    "en-IN"
+                  )}
                 </strong>
               </div>
             </div>
 
-            <button type="button" style={placeBtn} onClick={placeOrder}>
+            <button
+              type="button"
+              className="place-order-btn"
+              onClick={placeOrder}
+            >
               🚀 Place Order
             </button>
           </>
         )}
       </div>
 
+      {/* =====================================================
+          MODIFIER MODAL
+          ===================================================== */}
+
       {modifierItem && (
-        <div style={modalBackdrop} onClick={() => setModifierItem(null)}>
-          <div style={modifierModal} onClick={e => e.stopPropagation()}>
-            <div style={{display:"flex",justifyContent:"space-between",gap:15,alignItems:"center"}}>
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setModifierItem(null)
+          }
+        >
+          <div
+            className="modifier-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div className="modifier-modal-header">
               <div>
-                <div style={{color:"var(--primary)",fontSize:11,fontWeight:900,letterSpacing:1.5}}>CUSTOMIZE ITEM</div>
-                <h2 style={{margin:"5px 0"}}>{modifierItem.name}</h2>
-                <p style={{margin:0,color:"var(--muted)",fontSize:13}}>Choose your options before adding to the order.</p>
+                <div className="modal-eyebrow">
+                  CUSTOMIZE ITEM
+                </div>
+
+                <h2>
+                  {modifierItem.name}
+                </h2>
+
+                <p>
+                  Choose your options before
+                  adding to the order.
+                </p>
               </div>
-              <button style={closeBtn} onClick={() => setModifierItem(null)}>✕</button>
+
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() =>
+                  setModifierItem(null)
+                }
+              >
+                ✕
+              </button>
             </div>
-            <div style={{display:"grid",gap:14,marginTop:18}}>
-              {itemGroups(modifierItem).map(group => (
-                <div key={group.id} style={modifierGroupBox}>
-                  <div style={{display:"flex",justifyContent:"space-between",gap:10}}>
-                    <b>{group.name}</b><small>{group.required ? "Required" : "Optional"}</small>
+
+            <div className="modifier-groups">
+              {itemGroups(
+                modifierItem
+              ).map((group) => (
+                <div
+                  key={group.id}
+                  className="modifier-group-box"
+                >
+                  <div className="modifier-group-title">
+                    <b>
+                      {group.name}
+                    </b>
+
+                    <small>
+                      {group.required
+                        ? "Required"
+                        : "Optional"}
+                    </small>
                   </div>
-                  <div style={{display:"grid",gap:7,marginTop:9}}>
-                    {modifiers.filter(m => m.group_id === group.id).map(m => {
-                      const chosen = (modifierSelection[group.id] || []).some(x => x.id === m.id)
-                      return (
-                        <button type="button" key={m.id} onClick={() => toggleModifier(group,m)} style={{...modifierChoice, ...(chosen ? modifierChoiceActive : {})}}>
-                          <span>{chosen ? "✓" : "○"} {m.name}</span><strong>+₹{Number(m.price||0).toLocaleString("en-IN")}</strong>
-                        </button>
+
+                  <div className="modifier-options">
+                    {modifiers
+                      .filter(
+                        (modifier) =>
+                          modifier.group_id ===
+                          group.id
                       )
-                    })}
+                      .map((modifier) => {
+                        const chosen = (
+                          modifierSelection[
+                            group.id
+                          ] || []
+                        ).some(
+                          (selectedModifier) =>
+                            selectedModifier.id ===
+                            modifier.id
+                        )
+
+                        return (
+                          <button
+                            type="button"
+                            key={modifier.id}
+                            onClick={() =>
+                              toggleModifier(
+                                group,
+                                modifier
+                              )
+                            }
+                            className={
+                              chosen
+                                ? "modifier-choice active"
+                                : "modifier-choice"
+                            }
+                          >
+                            <span>
+                              {chosen
+                                ? "✓"
+                                : "○"}{" "}
+                              {modifier.name}
+                            </span>
+
+                            <strong>
+                              +₹
+                              {Number(
+                                modifier.price ||
+                                  0
+                              ).toLocaleString(
+                                "en-IN"
+                              )}
+                            </strong>
+                          </button>
+                        )
+                      })}
                   </div>
                 </div>
               ))}
             </div>
-            <button style={{...placeBtn,width:"100%",marginTop:18}} onClick={confirmModifiers}>Add to Order</button>
+
+            <button
+              type="button"
+              className="place-order-btn modal-add-btn"
+              onClick={confirmModifiers}
+            >
+              Add to Order
+            </button>
           </div>
         </div>
       )}
 
+      {/* =====================================================
+          PAGE CSS
+          ===================================================== */}
+
+      <style jsx global>{`
+        * {
+          box-sizing: border-box;
+        }
+
+        .order-page {
+          min-height: 100vh;
+          display: grid;
+          grid-template-columns: 260px minmax(0, 1fr) 300px;
+          grid-template-rows: auto 1fr;
+          align-items: start;
+          gap: 12px;
+          padding: 12px;
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--background),
+              var(--surface-2),
+              var(--background)
+            );
+
+          color: #fff;
+        }
+
+        .order-page-header {
+          grid-column: 1 / -1;
+          margin-bottom: 2px;
+          padding: 2px 2px 0;
+        }
+
+        .order-page-header h1 {
+          margin: 0;
+          font-size: 30px;
+          line-height: 1.1;
+          font-weight: 800;
+          color: var(--primary);
+        }
+
+        .order-page-subtitle {
+          margin-top: 5px;
+          color: var(--muted);
+          font-size: 13px;
+        }
+
+        .order-type-panel,
+        .menu-panel,
+        .cart-panel {
+          background:
+            rgba(
+              var(--surface-2-rgb),
+              .86
+            );
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .15
+            );
+
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+
+          border-radius: 20px;
+
+          box-shadow:
+            0 22px 55px
+            rgba(0, 0, 0, .38);
+        }
+
+        .order-type-panel,
+        .cart-panel {
+          position: sticky;
+          top: 12px;
+          height: fit-content;
+          padding: 14px;
+        }
+
+        .menu-panel {
+          min-width: 0;
+          padding: 14px;
+        }
+
+        .order-type-panel h3 {
+          margin: 0 0 10px;
+          font-size: 15px;
+        }
+
+        .order-type-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+          gap: 7px;
+        }
+
+        .order-type-btn {
+          min-width: 0;
+          padding: 9px 6px;
+          border-radius: 11px;
+          border:
+            1px solid
+            rgba(255, 255, 255, .12);
+
+          background:
+            rgba(255, 255, 255, .035);
+
+          color: #fff;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+
+          transition:
+            .16s ease;
+        }
+
+        .order-type-btn:hover {
+          background:
+            rgba(255, 255, 255, .075);
+        }
+
+        .order-type-btn.active-info {
+          border-color: #38bdf8;
+          color: #38bdf8;
+          box-shadow:
+            0 0 12px
+            rgba(56, 189, 248, .18);
+        }
+
+        .order-type-btn.active-warning {
+          border-color: #f59e0b;
+          color: #f59e0b;
+          box-shadow:
+            0 0 12px
+            rgba(245, 158, 11, .18);
+        }
+
+        .order-type-btn.active-success {
+          border-color: #22c55e;
+          color: #22c55e;
+          box-shadow:
+            0 0 12px
+            rgba(34, 197, 94, .18);
+        }
+
+        .order-type-btn.active-purple {
+          border-color: #a855f7;
+          color: #a855f7;
+          box-shadow:
+            0 0 12px
+            rgba(168, 85, 247, .18);
+        }
+
+        .select-table-btn {
+          width: 100%;
+          margin-top: 12px;
+          padding: 10px;
+          border-radius: 11px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .13);
+
+          background:
+            rgba(255, 255, 255, .045);
+
+          color: #fff;
+          font-size: 11px;
+          cursor: pointer;
+        }
+
+        .selection-dropdown {
+          max-height: 210px;
+          overflow-y: auto;
+          margin-top: 8px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .10);
+
+          border-radius: 11px;
+          overflow-x: hidden;
+
+          background:
+            rgba(5, 15, 12, .96);
+        }
+
+        .selection-dropdown-item {
+          display: block;
+          width: 100%;
+          padding: 10px;
+          border: 0;
+          border-bottom:
+            1px solid
+            rgba(255, 255, 255, .06);
+
+          background: transparent;
+          color: #fff;
+          text-align: left;
+          cursor: pointer;
+          font-size: 11px;
+        }
+
+        .selection-dropdown-item:hover {
+          background:
+            rgba(
+              var(--primary-rgb),
+              .08
+            );
+        }
+
+        .mode-info-box {
+          margin-top: 10px;
+          padding: 10px;
+
+          border-radius: 11px;
+
+          background:
+            rgba(245, 158, 11, .07);
+
+          border:
+            1px solid
+            rgba(245, 158, 11, .20);
+
+          color: #f7c66a;
+          font-size: 10px;
+          line-height: 1.45;
+        }
+
+        .delivery-fields {
+          display: grid;
+          gap: 7px;
+          margin-top: 10px;
+        }
+
+        .field-input {
+          width: 100%;
+          min-width: 0;
+          padding: 9px 10px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .12);
+
+          border-radius: 10px;
+
+          background:
+            rgba(255, 255, 255, .04);
+
+          color: #fff;
+          outline: none;
+          font-size: 11px;
+        }
+
+        .field-input::placeholder {
+          color: rgba(255, 255, 255, .46);
+        }
+
+        .field-input:focus {
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .50
+            );
+
+          box-shadow:
+            0 0 0 2px
+            rgba(
+              var(--primary-rgb),
+              .07
+            );
+        }
+
+        .textarea-input {
+          resize: vertical;
+        }
+
+        .delivery-charge-box {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+
+          padding: 9px 10px;
+
+          border-radius: 10px;
+
+          background:
+            rgba(34, 197, 94, .07);
+
+          border:
+            1px solid
+            rgba(34, 197, 94, .18);
+
+          color: #86efac;
+          font-size: 11px;
+        }
+
+        .category-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+
+        .category-eyebrow,
+        .cart-eyebrow,
+        .modal-eyebrow {
+          color: var(--primary);
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 1.4px;
+        }
+
+        .category-header h2 {
+          margin: 3px 0 0;
+          font-size: 20px;
+          line-height: 1.1;
+        }
+
+        .category-count {
+          color: var(--muted);
+          font-size: 10px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .category-tabs {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+
+          width: 100%;
+          overflow-x: auto;
+
+          padding: 2px 1px 8px;
+          margin-bottom: 2px;
+
+          scrollbar-width: thin;
+        }
+
+        .category-tab {
+          flex: 0 0 auto;
+
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+
+          padding: 6px 9px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .15
+            );
+
+          border-radius: 999px;
+
+          background:
+            rgba(255, 255, 255, .035);
+
+          color: #fff;
+          font-size: 10px;
+          font-weight: 800;
+
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .category-tab.active {
+          background:
+            rgba(
+              var(--primary-rgb),
+              .12
+            );
+
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .55
+            );
+
+          color: var(--primary);
+        }
+
+        .category-tab-count {
+          min-width: 16px;
+          height: 16px;
+
+          display: inline-grid;
+          place-items: center;
+
+          border-radius: 999px;
+
+          background:
+            rgba(255, 255, 255, .07);
+
+          color: var(--muted);
+          font-size: 8px;
+        }
+
+        .category-tab.active
+        .category-tab-count {
+          background: var(--primary);
+          color: #111;
+        }
+
+        .category-title {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+
+          margin: 3px 0 8px;
+
+          color: #fff;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .category-title small {
+          color: var(--muted);
+          font-size: 9px;
+          font-weight: 600;
+        }
+
+        /* ==================================================
+           PRODUCT GRID
+           8 desktop
+           7 medium desktop
+           6 smaller laptop
+           4 tablet
+           3 mobile
+           2 very small
+           ================================================== */
+
+        .order-food-grid {
+          display: grid;
+
+          grid-template-columns:
+            repeat(8, minmax(0, 1fr));
+
+          gap: 9px;
+          align-items: stretch;
+        }
+
+        .order-menu-card {
+          appearance: none;
+          -webkit-appearance: none;
+
+          display: block;
+
+          width: 100%;
+          min-width: 0;
+          margin: 0;
+          padding: 5px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .14
+            );
+
+          border-radius: 13px;
+
+          background:
+            linear-gradient(
+              145deg,
+              rgba(255, 255, 255, .055),
+              rgba(255, 255, 255, .022)
+            );
+
+          color: #fff;
+          text-align: left;
+
+          cursor: pointer;
+          overflow: hidden;
+
+          box-shadow:
+            0 8px 20px
+            rgba(0, 0, 0, .20);
+
+          transition:
+            transform .16s ease,
+            border-color .16s ease,
+            background .16s ease,
+            box-shadow .16s ease;
+        }
+
+        .order-menu-card:hover {
+          transform: translateY(-2px);
+
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .48
+            );
+
+          background:
+            linear-gradient(
+              145deg,
+              rgba(
+                var(--primary-rgb),
+                .09
+              ),
+              rgba(255, 255, 255, .035)
+            );
+
+          box-shadow:
+            0 13px 28px
+            rgba(0, 0, 0, .28);
+        }
+
+        .order-menu-card:active {
+          transform: scale(.985);
+        }
+
+        .order-menu-image-wrap {
+          width: 100%;
+
+          aspect-ratio: 1 / .76;
+
+          overflow: hidden;
+
+          border-radius: 9px;
+
+          background:
+            rgba(255, 255, 255, .04);
+        }
+
+        .order-menu-image {
+          display: block;
+
+          width: 100%;
+          height: 100%;
+
+          object-fit: cover;
+        }
+
+        .order-menu-image-fallback {
+          width: 100%;
+          height: 100%;
+
+          display: grid;
+          place-items: center;
+
+          background:
+            linear-gradient(
+              145deg,
+              #183127,
+              #10231c
+            );
+
+          font-size: 24px;
+        }
+
+        .order-menu-card-content {
+          min-width: 0;
+          padding: 6px 2px 2px;
+        }
+
+        .order-item-name {
+          display: -webkit-box;
+
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+
+          overflow: hidden;
+
+          min-height: 27px;
+
+          color: #f7f2e8;
+
+          font-size: 10.5px;
+          line-height: 1.22;
+          font-weight: 800;
+
+          white-space: normal;
+        }
+
+        .order-item-price {
+          display: block;
+
+          margin-top: 4px;
+
+          color: var(--primary);
+
+          font-size: 10.5px;
+          line-height: 1;
+          font-weight: 900;
+
+          white-space: nowrap;
+        }
+
+        .empty-menu {
+          padding: 35px 10px;
+
+          color: var(--muted);
+          text-align: center;
+          font-size: 12px;
+        }
+
+        /* ==================================================
+           CART
+           ================================================== */
+
+        .cart-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+
+          margin-bottom: 10px;
+        }
+
+        .cart-header h2 {
+          margin: 3px 0 0;
+          font-size: 20px;
+        }
+
+        .cart-badge {
+          padding: 5px 8px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .18
+            );
+
+          border-radius: 999px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .08
+            );
+
+          color: var(--primary);
+
+          font-size: 9px;
+          font-weight: 800;
+
+          white-space: nowrap;
+        }
+
+        .empty-cart {
+          min-height: 180px;
+
+          display: grid;
+          place-items: center;
+          align-content: center;
+
+          gap: 5px;
+
+          color: var(--muted);
+          text-align: center;
+          font-size: 11px;
+        }
+
+        .empty-cart-icon {
+          width: 48px;
+          height: 48px;
+
+          display: grid;
+          place-items: center;
+
+          margin-bottom: 4px;
+
+          border-radius: 16px;
+
+          background:
+            rgba(255, 255, 255, .04);
+
+          font-size: 22px;
+        }
+
+        .cart-list {
+          display: grid;
+          gap: 7px;
+
+          max-height: 350px;
+          overflow-y: auto;
+
+          padding-right: 2px;
+        }
+
+        .cart-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+
+          gap: 7px;
+
+          padding: 8px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .065);
+
+          border-radius: 12px;
+
+          background:
+            rgba(255, 255, 255, .03);
+        }
+
+        .cart-item-main {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .cart-item-name {
+          overflow: hidden;
+
+          text-overflow: ellipsis;
+          white-space: nowrap;
+
+          font-size: 11px;
+          font-weight: 850;
+        }
+
+        .cart-modifiers {
+          margin-top: 3px;
+
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+
+          color: var(--muted);
+
+          font-size: 9px;
+        }
+
+        .cart-item-price {
+          margin-top: 3px;
+
+          color: var(--primary);
+
+          font-size: 9px;
+          font-weight: 800;
+        }
+
+        .cart-item-actions {
+          flex: 0 0 auto;
+
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .qty-btn {
+          width: 25px;
+          height: 25px;
+
+          display: grid;
+          place-items: center;
+
+          padding: 0;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .22
+            );
+
+          border-radius: 8px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .07
+            );
+
+          color: #fff;
+
+          font-size: 15px;
+          font-weight: 800;
+
+          cursor: pointer;
+        }
+
+        .qty-value {
+          min-width: 16px;
+
+          color: #fff;
+
+          text-align: center;
+
+          font-size: 10px;
+          font-weight: 900;
+        }
+
+        .remove-btn {
+          width: 24px;
+          height: 24px;
+
+          display: grid;
+          place-items: center;
+
+          margin-left: 1px;
+          padding: 0;
+
+          border:
+            1px solid
+            rgba(255, 80, 80, .20);
+
+          border-radius: 7px;
+
+          background:
+            rgba(255, 80, 80, .07);
+
+          color: #ff8c8c;
+
+          font-size: 16px;
+          line-height: 1;
+
+          cursor: pointer;
+        }
+
+        .cart-summary {
+          margin-top: 9px;
+          padding: 9px 10px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .13
+            );
+
+          border-radius: 12px;
+
+          background:
+            rgba(
+              var(--primary-rgb),
+              .055
+            );
+        }
+
+        .summary-row {
+          display: flex;
+          justify-content: space-between;
+
+          margin-bottom: 6px;
+
+          color: var(--muted);
+
+          font-size: 10px;
+        }
+
+        .summary-total {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+
+          color: #fff;
+
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .place-order-btn {
+          width: 100%;
+
+          margin-top: 9px;
+          padding: 12px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .32
+            );
+
+          border-radius: 13px;
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--surface),
+              var(--surface-2)
+            );
+
+          color: #fff;
+
+          font-size: 13px;
+          font-weight: 800;
+
+          cursor: pointer;
+
+          box-shadow:
+            0 15px 30px
+            rgba(0, 0, 0, .28);
+        }
+
+        .place-order-btn:hover {
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .58
+            );
+        }
+
+        /* ==================================================
+           MODIFIER MODAL
+           ================================================== */
+
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+
+          z-index: 9999;
+
+          display: grid;
+          place-items: center;
+
+          padding: 16px;
+
+          background:
+            rgba(0, 0, 0, .68);
+
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+
+        .modifier-modal {
+          width: min(100%, 560px);
+
+          max-height: 90vh;
+
+          overflow-y: auto;
+
+          padding: 20px;
+
+          border:
+            1px solid
+            rgba(
+              var(--primary-rgb),
+              .22
+            );
+
+          border-radius: 22px;
+
+          background:
+            linear-gradient(
+              145deg,
+              #0b2118,
+              #102b20
+            );
+
+          color: #fff;
+
+          box-shadow:
+            0 35px 100px
+            rgba(0, 0, 0, .55);
+        }
+
+        .modifier-modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+
+          gap: 12px;
+        }
+
+        .modifier-modal-header h2 {
+          margin: 4px 0;
+
+          font-size: 20px;
+        }
+
+        .modifier-modal-header p {
+          margin: 0;
+
+          color: var(--muted);
+
+          font-size: 11px;
+        }
+
+        .close-btn {
+          width: 34px;
+          height: 34px;
+
+          flex: 0 0 auto;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .10);
+
+          border-radius: 10px;
+
+          background:
+            rgba(255, 255, 255, .04);
+
+          color: #fff;
+
+          cursor: pointer;
+        }
+
+        .modifier-groups {
+          display: grid;
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .modifier-group-box {
+          padding: 12px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .07);
+
+          border-radius: 15px;
+
+          background:
+            rgba(255, 255, 255, .03);
+        }
+
+        .modifier-group-title {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .modifier-group-title small {
+          color: var(--muted);
+          font-size: 9px;
+        }
+
+        .modifier-options {
+          display: grid;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .modifier-choice {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+
+          width: 100%;
+
+          padding: 9px 10px;
+
+          border:
+            1px solid
+            rgba(255, 255, 255, .08);
+
+          border-radius: 10px;
+
+          background:
+            rgba(255, 255, 255, .025);
+
+          color: #fff;
+
+          font-size: 11px;
+
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .modifier-choice.active {
+          background:
+            rgba(
+              var(--primary-rgb),
+              .11
+            );
+
+          border-color:
+            rgba(
+              var(--primary-rgb),
+              .38
+            );
+
+          color: var(--primary);
+        }
+
+        .modifier-choice strong {
+          white-space: nowrap;
+        }
+
+        .modal-add-btn {
+          margin-top: 15px;
+        }
+
+        /* ==================================================
+           RESPONSIVE
+           ================================================== */
+
+        @media (max-width: 1499px) {
+          .order-food-grid {
+            grid-template-columns:
+              repeat(7, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 1249px) {
+          .order-page {
+            grid-template-columns:
+              220px minmax(0, 1fr) 270px;
+          }
+
+          .order-food-grid {
+            grid-template-columns:
+              repeat(6, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 999px) {
+          .order-page {
+            grid-template-columns:
+              190px minmax(0, 1fr);
+
+            grid-template-rows:
+              auto auto auto;
+
+            padding: 9px;
+          }
+
+          .order-page-header {
+            grid-column: 1 / -1;
+          }
+
+          .order-type-panel {
+            position: static;
+            grid-column: 1;
+          }
+
+          .menu-panel {
+            grid-column: 2;
+            grid-row: 2 / span 2;
+          }
+
+          .cart-panel {
+            position: static;
+            grid-column: 1;
+          }
+
+          .order-food-grid {
+            grid-template-columns:
+              repeat(4, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 767px) {
+          .order-page {
+            display: block;
+            padding: 8px;
+          }
+
+          .order-page-header {
+            margin-bottom: 8px;
+          }
+
+          .order-page-header h1 {
+            font-size: 23px;
+          }
+
+          .order-type-panel,
+          .menu-panel,
+          .cart-panel {
+            position: static;
+            margin-bottom: 8px;
+            border-radius: 17px;
+          }
+
+          .order-type-grid {
+            grid-template-columns:
+              repeat(4, minmax(0, 1fr));
+          }
+
+          .order-type-btn {
+            padding: 8px 4px;
+            font-size: 9px;
+          }
+
+          .delivery-fields {
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
+          }
+
+          .delivery-fields
+          .field-input:first-child,
+          .delivery-fields
+          textarea,
+          .delivery-charge-box {
+            grid-column: 1 / -1;
+          }
+
+          .order-food-grid {
+            grid-template-columns:
+              repeat(3, minmax(0, 1fr));
+
+            gap: 7px;
+          }
+
+          .order-menu-card {
+            padding: 5px;
+            border-radius: 11px;
+          }
+
+          .order-menu-image-wrap {
+            border-radius: 8px;
+          }
+
+          .order-item-name {
+            font-size: 10px;
+            min-height: 25px;
+          }
+
+          .order-item-price {
+            font-size: 10px;
+          }
+
+          .cart-list {
+            max-height: 300px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .order-type-grid {
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
+          }
+
+          .delivery-fields {
+            grid-template-columns: 1fr;
+          }
+
+          .delivery-fields
+          .field-input:first-child,
+          .delivery-fields
+          textarea,
+          .delivery-charge-box {
+            grid-column: auto;
+          }
+
+          .order-food-grid {
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
+
+            gap: 8px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio: 1 / .78;
+          }
+
+          .order-item-name {
+            font-size: 11px;
+            min-height: 27px;
+          }
+
+          .order-item-price {
+            font-size: 11px;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .order-food-grid {
+            gap: 6px;
+          }
+
+          .order-menu-card {
+            padding: 4px;
+          }
+
+          .order-item-name {
+            font-size: 10px;
+          }
+
+          .order-item-price {
+            font-size: 10px;
+          }
+        }
+      `}</style>
     </div>
   )
-}
-
-/* styles same */
-/* STYLES */
-
-const modalBackdrop = { position:"fixed", inset:0, zIndex:9999, display:"grid", placeItems:"center", padding:18, background:"rgba(0,0,0,.68)", backdropFilter:"blur(8px)" }
-const modifierModal = { width:"min(100%,560px)", maxHeight:"90vh", overflowY:"auto", padding:22, borderRadius:26, background:"linear-gradient(145deg,#0b2118,#102b20)", border:"1px solid rgba(var(--primary-rgb),.24)", boxShadow:"0 35px 100px rgba(0,0,0,.55)", color:"#fff" }
-const closeBtn = { width:38,height:38,borderRadius:12,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.04)",color:"#fff",cursor:"pointer" }
-const modifierGroupBox = { padding:14,borderRadius:18,background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.07)" }
-const modifierChoice = { display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,width:"100%",padding:"11px 12px",borderRadius:12,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.025)",color:"#fff",cursor:"pointer",textAlign:"left" }
-const modifierChoiceActive = { background:"rgba(var(--primary-rgb),.12)",borderColor:"rgba(var(--primary-rgb),.35)",color:"var(--primary)" }
-
-const glass = {
-  background:"rgba(var(--surface-2-rgb),.85)",
-  border:"1px solid rgba(var(--primary-rgb),.15)",
-  backdropFilter:"blur(20px)",
-  borderRadius:24,
-  boxShadow:"0 25px 60px rgba(0,0,0,.45)"
-}
-
-const getLayout = (isMobile) => ({
-  display:"grid",
-  gridTemplateColumns: isMobile ? "1fr" : "260px 1fr 300px",
-
-  minHeight:"100vh",
-  alignItems:"start",
-
-  gap:12,
-  padding:12,
-
-  background:"linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
-  color:"#fff"
-})
-
-const panel = {
-  padding:16,
-  position:"sticky",
-  top:12,
-  height:"fit-content"
-}
-const menuBox = { padding:16 }
-
-const getGrid = (isMobile) => ({
-  display:"grid",
-  gridTemplateColumns: isMobile ? "repeat(3,minmax(0,1fr))" : "repeat(auto-fill,minmax(150px,1fr))",
-  gap:8
-})
-
-const categoryHeader = {
-  display:"flex",
-  alignItems:"center",
-  justifyContent:"space-between",
-  gap:12,
-  marginBottom:10
-}
-
-const categoryEyebrow = {
-  color:"var(--primary)",
-  fontSize:10,
-  fontWeight:900,
-  letterSpacing:1.5
-}
-
-const categoryCount = {
-  color:"var(--muted)",
-  fontSize:12,
-  fontWeight:700
-}
-
-const categoryTabs = {
-  display:"flex",
-  gap:8,
-  overflowX:"auto",
-  padding:"3px 2px 10px",
-  marginBottom:4,
-  scrollbarWidth:"thin",
-  WebkitOverflowScrolling:"touch"
-}
-
-const categoryTab = {
-  flex:"0 0 auto",
-  display:"inline-flex",
-  alignItems:"center",
-  gap:7,
-  border:"1px solid rgba(var(--primary-rgb),.18)",
-  background:"rgba(255,255,255,.04)",
-  color:"#fff",
-  borderRadius:999,
-  padding:"8px 11px",
-  fontSize:12,
-  fontWeight:800,
-  cursor:"pointer",
-  whiteSpace:"nowrap"
-}
-
-const categoryTabActive = {
-  background:"rgba(var(--primary-rgb),.14)",
-  borderColor:"var(--primary)",
-  color:"var(--primary)"
-}
-
-const categoryTabCount = {
-  minWidth:18,
-  height:18,
-  display:"inline-grid",
-  placeItems:"center",
-  borderRadius:999,
-  background:"rgba(255,255,255,.08)",
-  color:"var(--muted)",
-  fontSize:10
-}
-
-const categoryTabCountActive = {
-  background:"var(--primary)",
-  color:"#111"
-}
-
-const categoryTitle = {
-  display:"flex",
-  alignItems:"baseline",
-  justifyContent:"space-between",
-  gap:8,
-  margin:"4px 0 10px",
-  color:"#fff",
-  fontWeight:900
-}
-
-const itemName = {
-  display:"block",
-  marginTop:7,
-  fontSize:13,
-  fontWeight:800,
-  lineHeight:1.2,
-  overflow:"hidden",
-  textOverflow:"ellipsis",
-  whiteSpace:"nowrap"
-}
-
-const itemPrice = {
-  display:"block",
-  marginTop:4,
-  color:"var(--primary)",
-  fontSize:13,
-  fontWeight:900
-}
-
-const emptyMenu = {
-  padding:"35px 12px",
-  textAlign:"center",
-  color:"var(--muted)"
-}
-
-const menuCard = {
-  appearance:"none",
-  width:"100%",
-  minWidth:0,
-  padding:7,
-  borderRadius:16,
-  background:"rgba(255,255,255,.05)",
-  border:"1px solid rgba(var(--primary-rgb),.15)",
-  backdropFilter:"blur(16px)",
-  boxShadow:"0 15px 35px rgba(0,0,0,.35)",
-  color:"#fff",
-  textAlign:"left",
-  cursor:"pointer",
-  transition:"transform .18s ease, border-color .18s ease, background .18s ease"
-}
-
-
-const imageStyle = {
-  display:"block",
-  width:"100%",
-  aspectRatio:"1 / 1",
-  height:"auto",
-  objectFit:"cover",
-  borderRadius:12
-}
-
-const searchBox = {
-  padding:10,
-  borderRadius:10,
-  background:"rgba(255,255,255,0.05)",
-  border:"1px solid rgba(255,255,255,0.2)",
-  color:"#fff"
-}
-
-const orderTypeGrid = { display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:7 }
-const modeInfoBox = { marginTop:10, padding:10, borderRadius:12, background:"rgba(245,158,11,.08)", border:"1px solid rgba(245,158,11,.22)", color:"#f7c66a", fontSize:11, lineHeight:1.4 }
-const fieldInput = { width:"100%", boxSizing:"border-box", padding:"10px 11px", borderRadius:11, border:"1px solid rgba(255,255,255,.14)", background:"rgba(255,255,255,.045)", color:"#fff", outline:"none" }
-const deliveryChargeBox = { display:"flex", justifyContent:"space-between", padding:"10px 11px", borderRadius:11, background:"rgba(34,197,94,.08)", border:"1px solid rgba(34,197,94,.2)", color:"#86efac", fontSize:12 }
-
-const selectBtn = {
-  marginTop:15,
-  padding:"12px",
-  width:"100%",
-  borderRadius:12,
-  background:"rgba(255,255,255,0.05)",
-  border:"1px solid rgba(255,255,255,0.2)",
-  color:"#fff"
-}
-
-const dropdown = {
-  marginTop:10,
-  maxHeight:200,
-  overflowY:"auto",
-  borderRadius:12,
-  background:"rgba(0,0,0,0.4)"
-}
-
-const dropdownItem = {
-  padding:"10px",
-  cursor:"pointer"
-}
-
-const cartHeader = {
-  display:"flex",
-  alignItems:"center",
-  justifyContent:"space-between",
-  gap:10,
-  marginBottom:12
-}
-
-const cartEyebrow = {
-  color:"var(--primary)",
-  fontSize:10,
-  fontWeight:900,
-  letterSpacing:1.5
-}
-
-const cartTitle = {
-  margin:"3px 0 0",
-  fontSize:22,
-  fontWeight:900
-}
-
-const cartBadge = {
-  padding:"6px 9px",
-  borderRadius:999,
-  background:"rgba(var(--primary-rgb),.10)",
-  border:"1px solid rgba(var(--primary-rgb),.20)",
-  color:"var(--primary)",
-  fontSize:11,
-  fontWeight:800,
-  whiteSpace:"nowrap"
-}
-
-const emptyCart = {
-  minHeight:180,
-  display:"grid",
-  placeItems:"center",
-  alignContent:"center",
-  gap:6,
-  textAlign:"center",
-  color:"var(--muted)"
-}
-
-const emptyCartIcon = {
-  width:52,
-  height:52,
-  display:"grid",
-  placeItems:"center",
-  borderRadius:18,
-  background:"rgba(255,255,255,.05)",
-  fontSize:24,
-  marginBottom:4
-}
-
-const cartList = {
-  display:"grid",
-  gap:8,
-  maxHeight:360,
-  overflowY:"auto",
-  paddingRight:2
-}
-
-const cartItem = {
-  display:"flex",
-  alignItems:"center",
-  justifyContent:"space-between",
-  gap:10,
-  padding:"10px 9px",
-  borderRadius:14,
-  background:"rgba(255,255,255,.035)",
-  border:"1px solid rgba(255,255,255,.07)"
-}
-
-const cartItemMain = {
-  minWidth:0,
-  flex:1
-}
-
-const cartItemName = {
-  fontSize:13,
-  fontWeight:850,
-  lineHeight:1.25,
-  overflow:"hidden",
-  textOverflow:"ellipsis",
-  whiteSpace:"nowrap"
-}
-
-const cartModifiers = {
-  marginTop:3,
-  color:"var(--muted)",
-  fontSize:10,
-  lineHeight:1.3,
-  overflow:"hidden",
-  textOverflow:"ellipsis",
-  whiteSpace:"nowrap"
-}
-
-const cartItemPrice = {
-  marginTop:4,
-  color:"var(--primary)",
-  fontSize:10,
-  fontWeight:800
-}
-
-const cartItemActions = {
-  flex:"0 0 auto",
-  display:"flex",
-  alignItems:"center",
-  gap:5
-}
-
-const qtyBtn = {
-  width:28,
-  height:28,
-  padding:0,
-  display:"grid",
-  placeItems:"center",
-  borderRadius:9,
-  border:"1px solid rgba(var(--primary-rgb),.25)",
-  background:"rgba(var(--primary-rgb),.08)",
-  color:"#fff",
-  fontSize:17,
-  fontWeight:800,
-  cursor:"pointer"
-}
-
-const qtyValue = {
-  minWidth:18,
-  textAlign:"center",
-  fontSize:12,
-  fontWeight:900
-}
-
-const removeBtn = {
-  width:27,
-  height:27,
-  marginLeft:2,
-  display:"grid",
-  placeItems:"center",
-  borderRadius:8,
-  border:"1px solid rgba(255,80,80,.22)",
-  background:"rgba(255,80,80,.08)",
-  color:"#ff8c8c",
-  fontSize:18,
-  lineHeight:1,
-  cursor:"pointer"
-}
-
-const cartSummary = {
-  marginTop:10,
-  padding:"10px 11px",
-  borderRadius:14,
-  background:"rgba(var(--primary-rgb),.06)",
-  border:"1px solid rgba(var(--primary-rgb),.14)"
-}
-
-const summaryRow = {
-  display:"flex",
-  justifyContent:"space-between",
-  color:"var(--muted)",
-  fontSize:11,
-  marginBottom:7
-}
-
-const summaryRowTotal = {
-  display:"flex",
-  justifyContent:"space-between",
-  alignItems:"center",
-  color:"#fff",
-  fontSize:14,
-  fontWeight:800
-}
-
-
-
-const tabBtn = (active,color)=>({
-  flex:1,
-  padding:"10px",
-  borderRadius:12,
-  background:"rgba(255,255,255,0.03)",
-  border:`1px solid ${active?color:"rgba(255,255,255,0.2)"}`,
-  color: active ? color : "#fff",
-  boxShadow: active ? `0 0 8px ${color}` : "none"
-})
-
-const placeBtn = {
-  width:"100%",
-  padding:"16px",
-  borderRadius:16,
-
-  background:
-    "linear-gradient(135deg,var(--surface),var(--surface-2))",
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.35)",
-
-  color:"#fff",
-
-  fontWeight:"700",
-  fontSize:16,
-
-  boxShadow:
-    "0 20px 40px rgba(0,0,0,.4)"
 }
