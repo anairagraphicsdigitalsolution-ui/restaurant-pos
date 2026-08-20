@@ -100,8 +100,9 @@ export async function GET(req) {
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
-        .eq("plugin_code", "qr-menu")
-        .maybeSingle()
+        .in("plugin_code", ["qr-menu", "qr-ordering-pro"])
+        .eq("enabled", true)
+        .limit(1)
 
     if (pluginError) {
       console.error("QR MENU PLUGIN ERROR:", pluginError)
@@ -115,7 +116,7 @@ export async function GET(req) {
       )
     }
 
-    if (!plugin?.enabled) {
+    if (!plugin?.length) {
       return NextResponse.json({
         success: true,
         enabled: false,

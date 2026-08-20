@@ -134,8 +134,9 @@ export async function POST(req) {
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
-        .eq("plugin_code", "pos")
-        .maybeSingle()
+        .in("plugin_code", ["pos", "pos-core"])
+        .eq("enabled", true)
+        .limit(1)
 
     if (pluginError) {
       console.error("POS PLUGIN CHECK ERROR:", pluginError)
@@ -149,7 +150,7 @@ export async function POST(req) {
       )
     }
 
-    if (!plugin?.enabled) {
+    if (!plugin?.length) {
       return Response.json(
         {
           success: false,

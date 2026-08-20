@@ -101,8 +101,9 @@ export async function GET(req) {
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", restaurantId)
-      .eq("plugin_code", "qr-menu")
-      .maybeSingle()
+      .in("plugin_code", ["qr-menu", "qr-ordering-pro"])
+      .eq("enabled", true)
+      .limit(1)
 
     if (qrPluginError) {
       console.error("QR MENU PLUGIN ERROR:", qrPluginError)
@@ -112,7 +113,7 @@ export async function GET(req) {
       )
     }
 
-    if (qrPlugin?.enabled !== true) {
+    if (!qrPlugin?.length) {
       return Response.json(
         { success:false, error:"QR Menu plugin is disabled. Ask Super Admin to activate it." },
         { status:403, headers:{"Cache-Control":"no-store"} }

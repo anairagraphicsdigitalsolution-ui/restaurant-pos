@@ -18,7 +18,7 @@ export default function QRPage(){
 
   async function load(){
     const {data:plugin,error}=await supabase.from("restaurant_plugins")
-      .select("enabled").eq("restaurant_id",rid).eq("plugin_code","qr-menu").maybeSingle()
+      .select("enabled").eq("restaurant_id",rid).in("plugin_code",["qr-menu","qr-ordering-pro"]).eq("enabled",true).limit(1)
     if(error||!plugin?.enabled){ setQrEnabled(false); return }
     setQrEnabled(true)
     const [{data:t},{data:r}]=await Promise.all([

@@ -7,6 +7,21 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+const PLUGIN_ALIASES = {
+  "qr-ordering-pro": ["qr-ordering-pro", "qr-menu"],
+  "qr-menu": ["qr-ordering-pro", "qr-menu"],
+  "pos-core": ["pos-core", "pos"],
+  pos: ["pos-core", "pos"],
+  "whatsapp-invoice": ["whatsapp-invoice", "whatsapp"],
+  whatsapp: ["whatsapp-invoice", "whatsapp"],
+  "reservations-pro": ["reservations-pro", "reservations"],
+  reservations: ["reservations-pro", "reservations"]
+}
+
+function aliasCodes(pluginCode) {
+  return PLUGIN_ALIASES[pluginCode] || [pluginCode]
+}
+
 function db() {
   return createClient(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false }
@@ -187,26 +202,62 @@ export async function POST(request) {
       )
     }
 
-    const { data, error } = await admin
-      .from("restaurant_plugins")
-      .insert({
-        restaurant_id: restaurantId,
-        plugin_code: pluginCode,
-        plugin_slug: pluginCode,
-        enabled: true,
-        display_name: catalog.name,
-        category: catalog.category,
-        description: catalog.description,
-        feature_kind: catalog.kind
-      })
-      .select("*")
-      .single()
+    const codes = aliasCodes(pluginCode)
+    const results = []
 
-    if (error) throw new Error(error.message)
+    for (const code of codes) {
+      const { data: aliasCatalog, error: aliasCatalogError } = await admin
+        .from("plugin_catalog")
+        .select("*")
+        .eq("code", code)
+        .eq("active", true)
+        .maybeSingle()
+
+      if (aliasCatalogError) throw new Error(aliasCatalogError.message)
+
+      const { data: existingRow, error: existingRowError } = await admin
+        .from("restaurant_plugins")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .eq("plugin_code", code)
+        .limit(1)
+        .maybeSingle()
+
+      if (existingRowError) throw new Error(existingRowError.message)
+
+      if (existingRow) {
+        const { data: updatedRows, error: updateError } = await admin
+          .from("restaurant_plugins")
+          .update({ enabled: true })
+          .eq("id", existingRow.id)
+          .select("*")
+
+        if (updateError) throw new Error(updateError.message)
+        if (updatedRows?.[0]) results.push(updatedRows[0])
+      } else {
+        const { data: insertedRows, error: insertError } = await admin
+          .from("restaurant_plugins")
+          .insert({
+            restaurant_id: restaurantId,
+            plugin_code: code,
+            plugin_slug: code,
+            enabled: true,
+            display_name: aliasCatalog?.name || catalog.name,
+            category: aliasCatalog?.category || catalog.category,
+            description: aliasCatalog?.description || catalog.description,
+            feature_kind: aliasCatalog?.kind || catalog.kind
+          })
+          .select("*")
+
+        if (insertError) throw new Error(insertError.message)
+        if (insertedRows?.[0]) results.push(insertedRows[0])
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      plugin: data
+      plugin: data?.find(row => row.plugin_code === pluginCode) || data?.[0] || null,
+      plugins: data || []
     })
   } catch (error) {
     console.error("PLUGIN INSTALL ERROR:", error)
@@ -247,19 +298,31 @@ export async function PATCH(request) {
 
     await ensureRestaurant(admin, restaurantId)
 
+    const { data: current, error: currentError } = await admin
+      .from("restaurant_plugins")
+      .select("id,plugin_code")
+      .eq("id", id)
+      .eq("restaurant_id", restaurantId)
+      .maybeSingle()
+
+    if (currentError) throw new Error(currentError.message)
+    if (!current) throw new Error("Plugin not found")
+
+    const codes = aliasCodes(current.plugin_code)
+
     const { data, error } = await admin
       .from("restaurant_plugins")
       .update({ enabled: body.enabled })
-      .eq("id", id)
       .eq("restaurant_id", restaurantId)
+      .in("plugin_code", codes)
       .select("*")
-      .single()
 
     if (error) throw new Error(error.message)
 
     return NextResponse.json({
       success: true,
-      plugin: data
+      plugin: data?.find(row => row.id === id) || data?.[0] || null,
+      plugins: data || []
     })
   } catch (error) {
     console.error("PLUGIN UPDATE ERROR:", error)

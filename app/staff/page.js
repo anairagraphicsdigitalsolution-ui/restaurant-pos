@@ -83,8 +83,9 @@ export default function StaffPage() {
           .from("restaurant_plugins")
           .select("enabled")
           .eq("restaurant_id", rid)
-          .eq("plugin_code", "pos")
-          .maybeSingle()
+          .in("plugin_code", ["pos", "pos-core"])
+          .eq("enabled", true)
+          .limit(1)
 
       if (error) {
         console.error("POS PLUGIN ERROR:", error)
@@ -92,7 +93,7 @@ export default function StaffPage() {
         return
       }
 
-      setPosEnabled(plugin?.enabled === true)
+      setPosEnabled(Array.isArray(plugin) && plugin.length > 0)
     } catch (error) {
       console.error("POS CHECK ERROR:", error)
       setPosEnabled(false)

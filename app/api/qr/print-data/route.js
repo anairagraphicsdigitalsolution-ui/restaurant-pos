@@ -51,10 +51,11 @@ export async function GET(req) {
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
-        .eq("plugin_code", "qr-menu")
-        .maybeSingle()
+        .in("plugin_code", ["qr-menu", "qr-ordering-pro"])
+        .eq("enabled", true)
+        .limit(1)
 
-      if (!plugin?.enabled) {
+      if (!plugin?.length) {
         return Response.json({ success: false, error: "QR Menu plugin is disabled" }, { status: 403 })
       }
     }

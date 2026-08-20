@@ -16,11 +16,11 @@ export default function WhatsAppConfig(){
 
   async function load(){
     const {data:plugin}=await supabase.from("restaurant_plugins")
-      .select("enabled").eq("restaurant_id",rid).eq("plugin_code","whatsapp").maybeSingle()
+      .select("enabled").eq("restaurant_id",rid).in("plugin_code",["whatsapp","whatsapp-invoice"]).eq("enabled",true).limit(1)
     if(!plugin?.enabled){setEnabled(false);return}
     setEnabled(true)
     const {data}=await supabase.from("plugin_settings").select("*")
-      .eq("restaurant_id",rid).eq("plugin_code","whatsapp").maybeSingle()
+      .eq("restaurant_id",rid).in("plugin_code",["whatsapp","whatsapp-invoice"]).eq("enabled",true).limit(1)
     setNumber(data?.config?.number||"")
   }
 
