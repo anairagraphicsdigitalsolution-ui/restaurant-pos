@@ -567,7 +567,13 @@ export default function Reports() {
             </div>
 
             <div className="status-content">
-              <div className="status-ring">
+              <div
+                className="status-ring"
+                style={{
+                  "--completed-angle": `${(completedOrders / statusTotal) * 360}deg`,
+                  "--pending-angle": `${((completedOrders + pendingOrders) / statusTotal) * 360}deg`,
+                }}
+              >
                 <div className="ring-inner">
                   <strong>
                     {validOrders.length}
@@ -1461,12 +1467,12 @@ const css = `
     conic-gradient(
       #55d68a
         0deg
-        ${(completedOrders / statusTotal) * 360}deg,
+        var(--completed-angle),
       #d7a93f
-        ${(completedOrders / statusTotal) * 360}deg
-        ${((completedOrders + pendingOrders) / statusTotal) * 360}deg,
+        var(--completed-angle)
+        var(--pending-angle),
       #e56868
-        ${((completedOrders + pendingOrders) / statusTotal) * 360}deg
+        var(--pending-angle)
         360deg
     );
   position: relative;
