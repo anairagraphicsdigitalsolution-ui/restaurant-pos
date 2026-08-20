@@ -270,6 +270,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         { name: "Captain / Staff", path: "/dashboard/restaurant-suite?tab=captain", feature: "captain-app" },
         { name: "Kiosk / Display", path: "/dashboard/restaurant-suite?tab=devices", feature: "digital-display" },
         { name: "Advanced Operations", path: "/dashboard/restaurant-suite/advanced", feature: "pos-core" },
+        { name: "Petpooja Operations Hub", path: "/dashboard/restaurant-suite/parity", feature: "pos-core" },
       ]
     },
     {
