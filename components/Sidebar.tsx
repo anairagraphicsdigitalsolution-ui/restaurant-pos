@@ -237,6 +237,20 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       ]
     },
     {
+      name: "Restaurant Suite",
+      icon: "🏆",
+      path: "/dashboard/restaurant-suite",
+      children: [
+        { name: "Operations Center", path: "/dashboard/restaurant-suite" },
+        { name: "Token / Pickup", path: "/dashboard/restaurant-suite?tab=tokens" },
+        { name: "Online Reconciliation", path: "/dashboard/restaurant-suite?tab=online" },
+        { name: "Food Cost", path: "/dashboard/restaurant-suite?tab=costing" },
+        { name: "CRM Campaigns", path: "/dashboard/restaurant-suite?tab=marketing" },
+        { name: "Captain / Staff", path: "/dashboard/restaurant-suite?tab=captain" },
+        { name: "Kiosk / Display", path: "/dashboard/restaurant-suite?tab=devices" },
+      ]
+    },
+    {
       name: "Offers",
       icon: "🎁",
       path: "/dashboard/offers",
