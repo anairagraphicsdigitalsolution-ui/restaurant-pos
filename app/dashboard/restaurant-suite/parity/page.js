@@ -1,1579 +1,242 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
-
-const TABS = [
-  { id: "overview", label: "Overview", icon: "📊" },
-  { id: "tables", label: "Tables", icon: "🪑" },
-  { id: "billing", label: "Billing", icon: "🧾" },
-  { id: "kitchen", label: "KOT / KDS", icon: "👨‍🍳" },
-  { id: "delivery", label: "Delivery", icon: "🛵" },
-  { id: "reservations", label: "Reservations", icon: "📅" },
-  { id: "captain", label: "Captain", icon: "📱" },
-  { id: "qr", label: "QR / Scan", icon: "📲" },
-  { id: "kiosk", label: "Kiosk", icon: "🖥️" },
-  { id: "display", label: "Display", icon: "📺" },
-  { id: "customers", label: "CRM", icon: "👥" },
-  { id: "reports", label: "Reports", icon: "📈" },
-  { id: "settings", label: "Settings", icon: "⚙️" },
+import { useEffect, useMemo, useState } from "react"
+import { supabasePublic as supabase } from "@/lib/supabasePublic"
+const tabs = [
+  ["pos", "🧾 POS Control"],
+  ["floor", "🪑 Tables"],
+  ["billing", "🧾 Billing"],
+  ["kitchen", "👨‍🍳 KDS"],
+  ["delivery", "🛵 Delivery"],
+  ["digital", "📲 QR / Kiosk"],
+  ["reservations", "📅 Reservations"],
+  ["captain", "📱 Captain"],
+  ["online", "🔗 Aggregators"],
+  ["crm", "👥 CRM"],
+  ["cash", "💵 Cash"],
+  ["reports", "📊 Reports"],
+  ["hardware", "🖨️ Hardware"],
+  ["marketing", "📣 Marketing"],
+  ["enterprise", "🏢 Enterprise"],
 ]
 
-const emptyStats = {
-  tables: 0,
-  occupied: 0,
-  orders: 0,
-  pendingOrders: 0,
-  deliveries: 0,
-  reservations: 0,
-  customers: 0,
-  revenue: 0,
+const pluginFor = {
+  pos: "pos-core",
+  floor: "table-management",
+  billing: "pos-core",
+  kitchen: "kds-runtime",
+  delivery: "delivery",
+  digital: "scan-order-runtime",
+  reservations: "reservations-pro",
+  captain: "captain-runtime",
+  online: "aggregator-runtime",
+  crm: "customer-segments",
+  cash: "cash-shift",
+  reports: "scheduled-reports",
+  hardware: "hardware-print-queue",
+  marketing: "campaigns",
+  enterprise: "multi-branch",
 }
 
-function money(value) {
-  return `₹${Number(value || 0).toLocaleString("en-IN")}`
+const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
+
+function Card({ title, children, action }) {
+  return <section className="pp-card"><div className="pp-card-head"><h2>{title}</h2>{action}</div>{children}</section>
 }
 
-function safeRows(value) {
-  return Array.isArray(value) ? value : []
+function Field({ label, children }) {
+  return <label className="pp-field"><span>{label}</span>{children}</label>
 }
 
-function Card({ title, value, subtitle, icon }) {
-  return (
-    <div className="suite-card">
-      <div className="suite-icon">{icon}</div>
-      <div className="suite-card-title">{title}</div>
-      <div className="suite-card-value">{value}</div>
-      {subtitle ? <div className="suite-card-subtitle">{subtitle}</div> : null}
-    </div>
-  )
-}
+function Empty({ children }) { return <div className="pp-empty">{children}</div> }
 
-function Section({ title, subtitle, children, action }) {
-  return (
-    <section className="suite-section">
-      <div className="suite-section-head">
-        <div>
-          <h2>{title}</h2>
-          {subtitle ? <p>{subtitle}</p> : null}
-        </div>
-        {action || null}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function EmptyState({ icon = "📭", title, text }) {
-  return (
-    <div className="suite-empty">
-      <div className="suite-empty-icon">{icon}</div>
-      <strong>{title}</strong>
-      <span>{text}</span>
-    </div>
-  )
-}
-
-export default function RestaurantParityPage() {
-  const [activeTab, setActiveTab] = useState("overview")
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState("")
-  const [restaurantId, setRestaurantId] = useState(null)
-
-  const [stats, setStats] = useState(emptyStats)
-  const [tables, setTables] = useState([])
+export default function PetpoojaParity() {
+  const [rid, setRid] = useState("")
+  const [role, setRole] = useState("")
+  const [tab, setTab] = useState("floor")
+  const [plugins, setPlugins] = useState({})
+  const [data, setData] = useState({})
   const [orders, setOrders] = useState([])
-  const [deliveries, setDeliveries] = useState([])
-  const [reservations, setReservations] = useState([])
-  const [customers, setCustomers] = useState([])
-  const [stations, setStations] = useState([])
-  const [riders, setRiders] = useState([])
-  const [reports, setReports] = useState([])
-  const [plugins, setPlugins] = useState([])
+  const [menu, setMenu] = useState([])
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
 
-  const [search, setSearch] = useState("")
+  const [area, setArea] = useState({ name: "" })
+  const [table, setTable] = useState({ table_no: "", capacity: 2, area_id: "", shape: "square" })
+  const [discount, setDiscount] = useState({ name: "", code: "", discount_type: "percent", value: "", min_order: "", max_discount: "" })
+  const [payment, setPayment] = useState({ order_id: "", amount: "", payment_method: "cash", reference: "" })
+  const [kds, setKds] = useState({ order_id: "", status: "new", priority: "normal" })
+  const [rider, setRider] = useState({ order_id: "", rider_id: "", address: "", delivery_charge: "" })
+  const [token, setToken] = useState({ order_id: "", token_type: "pickup", display_name: "" })
+  const [waitlist, setWaitlist] = useState({ customer_name: "", phone: "", guests: 2, preferred_date: "", preferred_time: "", notes: "" })
+  const [segment, setSegment] = useState({ name: "", code: "", rules: '{"min_orders":2}' })
+  const [messageForm, setMessageForm] = useState({ channel: "whatsapp", recipient: "", purpose: "invoice", template: "", payload: "{}" })
+  const [cash, setCash] = useState({ opening_cash: "", notes: "" })
+  const [print, setPrint] = useState({ job_type: "bill", reference_id: "", payload: "{}" })
+  const [aggregator, setAggregator] = useState({ provider: "zomato", outlet_code: "", active: false })
+  const [posControl, setPosControl] = useState({ order_id: "", to_table_id: "", reason: "", hold_note: "" })
+  const [deposit, setDeposit] = useState({ reservation_id: "", amount: "", payment_method: "upi", reference: "" })
+  const [feedbackRequest, setFeedbackRequest] = useState({ order_id: "", customer_id: "", channel: "qr" })
+  const [cashMovement, setCashMovement] = useState({ shift_id: "", movement_type: "cash_in", amount: "", reference: "", note: "" })
 
-  const getRestaurantId = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+  const selectedPlugin = plugins[pluginFor[tab]] !== false
+  const tableStats = useMemo(() => ({
+    available: (data.tables || []).filter(x => x.status === "available").length,
+    occupied: (data.tables || []).filter(x => x.status === "occupied").length,
+    reserved: (data.tables || []).filter(x => x.status === "reserved").length,
+  }), [data.tables])
 
-    if (!user) {
-      throw new Error("Please sign in again.")
+  useEffect(() => { init() }, [])
+
+  async function init() {
+    const { data: userData } = await supabase.auth.getUser()
+    const user = userData?.user
+    if (!user) return
+    const { data: profile } = await supabase.from("profiles").select("restaurant_id,role").eq("id", user.id).maybeSingle()
+    if (!profile?.restaurant_id) return
+    setRid(profile.restaurant_id)
+    setRole(profile.role || "")
+    await load(profile.restaurant_id)
+  }
+
+  async function load(id = rid) {
+    if (!id) return
+    const q = {
+      areas: supabase.from("restaurant_areas").select("*").eq("restaurant_id", id).order("sort_order").order("name"),
+      tables: supabase.from("dining_tables").select("*").eq("restaurant_id", id).order("table_no"),
+      orders: supabase.from("orders").select("id,source_label,order_mode,status,total_amount,payment_status,table_id,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(40),
+      discounts: supabase.from("discount_rules").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }),
+      variants: supabase.from("menu_variants").select("*,menu_items(name)").eq("restaurant_id", id).order("name"),
+      stations: supabase.from("kitchen_stations").select("*").eq("restaurant_id", id).order("sort_order").order("name"),
+      kot: supabase.from("kds_events").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      riders: supabase.from("delivery_riders").select("*").eq("restaurant_id", id).order("name"),
+      assignments: supabase.from("delivery_assignments").select("*").eq("restaurant_id", id).order("assigned_at", { ascending: false }).limit(30),
+      tokens: supabase.from("order_tokens").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      waitlist: supabase.from("reservation_waitlist").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      reservations: supabase.from("reservations").select("id,name,phone,date,time,guests,status,table_id").eq("restaurant_id", id).order("date", { ascending: true }).limit(30),
+      aggregators: supabase.from("aggregator_integrations").select("id,provider,outlet_code,active,last_sync_at").eq("restaurant_id", id),
+      aggregatorOrders: supabase.from("aggregator_orders").select("*").eq("restaurant_id", id).order("received_at", { ascending: false }).limit(30),
+      segments: supabase.from("customer_segments").select("*").eq("restaurant_id", id).order("name"),
+      messages: supabase.from("message_queue").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      shifts: supabase.from("cash_shifts").select("*").eq("restaurant_id", id).order("opened_at", { ascending: false }).limit(10),
+      reports: supabase.from("report_schedules").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }),
+      prints: supabase.from("print_jobs").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      menu: supabase.from("menu_items").select("id,name,price").eq("restaurant_id", id).order("name").limit(200),
+      plugins: supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", id),
+      feedback: supabase.from("customer_feedback").select("id,rating,feedback,created_at,customer_id,order_id").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      feedbackRequests: supabase.from("feedback_requests").select("id,order_id,customer_id,channel,status,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      deposits: supabase.from("reservation_deposits").select("id,reservation_id,amount,payment_method,status,paid_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      branches: supabase.from("restaurant_branches").select("id,name,code,active,phone,address").eq("parent_restaurant_id", id).order("name"),
+      cashMovements: supabase.from("cash_movements").select("id,session_id,movement_type,amount,reference,note,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      holds: supabase.from("order_holds").select("id,order_id,hold_type,note,released_at,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
     }
-
-    const { data, error: restaurantError } = await supabase
-      .from("restaurant_users")
-      .select("restaurant_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle()
-
-    if (restaurantError) {
-      throw restaurantError
-    }
-
-    if (!data?.restaurant_id) {
-      throw new Error("No restaurant is linked with this account.")
-    }
-
-    return data.restaurant_id
-  }, [])
-
-  const loadData = useCallback(
-    async (silent = false) => {
-      try {
-        if (silent) {
-          setRefreshing(true)
-        } else {
-          setLoading(true)
-        }
-
-        setError("")
-
-        const rid = restaurantId || (await getRestaurantId())
-
-        if (!restaurantId) {
-          setRestaurantId(rid)
-        }
-
-        const today = new Date()
-        const start = new Date(today)
-        start.setHours(0, 0, 0, 0)
-
-        const startIso = start.toISOString()
-
-        const [
-          tablesResult,
-          ordersResult,
-          deliveriesResult,
-          reservationsResult,
-          customersResult,
-          stationsResult,
-          ridersResult,
-          reportsResult,
-          pluginsResult,
-        ] = await Promise.all([
-          supabase
-            .from("restaurant_tables")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("name", { ascending: true })
-            .limit(200),
-
-          supabase
-            .from("orders")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .gte("created_at", startIso)
-            .order("created_at", { ascending: false })
-            .limit(100),
-
-          supabase
-            .from("restaurant_delivery_orders")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("created_at", { ascending: false })
-            .limit(100),
-
-          supabase
-            .from("reservations")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("created_at", { ascending: false })
-            .limit(100),
-
-          supabase
-            .from("customers")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("created_at", { ascending: false })
-            .limit(100),
-
-          supabase
-            .from("restaurant_kitchen_stations")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("name", { ascending: true }),
-
-          supabase
-            .from("restaurant_delivery_riders")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("name", { ascending: true }),
-
-          supabase
-            .from("report_definitions")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("created_at", { ascending: false })
-            .limit(100),
-
-          supabase
-            .from("restaurant_plugins")
-            .select("*")
-            .eq("restaurant_id", rid)
-            .order("plugin_code", { ascending: true }),
-        ])
-
-        const resultErrors = [
-          tablesResult.error,
-          ordersResult.error,
-          deliveriesResult.error,
-          reservationsResult.error,
-          customersResult.error,
-          stationsResult.error,
-          ridersResult.error,
-          reportsResult.error,
-          pluginsResult.error,
-        ].filter(Boolean)
-
-        /*
-         * Some projects may not have every optional parity table yet.
-         * We do not crash the whole dashboard when an optional module
-         * is missing. Core data is still displayed.
-         */
-        const optionalTableErrors = resultErrors.filter(
-          (item) =>
-            !String(item?.message || "")
-              .toLowerCase()
-              .includes("does not exist")
-        )
-
-        if (optionalTableErrors.length > 0) {
-          console.warn("Restaurant Suite data warnings:", optionalTableErrors)
-        }
-
-        const nextTables = safeRows(tablesResult.data)
-        const nextOrders = safeRows(ordersResult.data)
-        const nextDeliveries = safeRows(deliveriesResult.data)
-        const nextReservations = safeRows(reservationsResult.data)
-        const nextCustomers = safeRows(customersResult.data)
-        const nextStations = safeRows(stationsResult.data)
-        const nextRiders = safeRows(ridersResult.data)
-        const nextReports = safeRows(reportsResult.data)
-        const nextPlugins = safeRows(pluginsResult.data)
-
-        setTables(nextTables)
-        setOrders(nextOrders)
-        setDeliveries(nextDeliveries)
-        setReservations(nextReservations)
-        setCustomers(nextCustomers)
-        setStations(nextStations)
-        setRiders(nextRiders)
-        setReports(nextReports)
-        setPlugins(nextPlugins)
-
-        const revenue = nextOrders.reduce((sum, order) => {
-          const status = String(order.status || "").toLowerCase()
-
-          if (
-            status === "cancelled" ||
-            status === "canceled" ||
-            status === "void"
-          ) {
-            return sum
-          }
-
-          return (
-            sum +
-            Number(
-              order.total_amount ??
-                order.grand_total ??
-                order.total ??
-                order.amount ??
-                0
-            )
-          )
-        }, 0)
-
-        const occupied = nextTables.filter((table) => {
-          const status = String(table.status || "").toLowerCase()
-          return ["occupied", "running", "active"].includes(status)
-        }).length
-
-        const pendingOrders = nextOrders.filter((order) => {
-          const status = String(order.status || "").toLowerCase()
-          return !["completed", "delivered", "cancelled", "canceled", "void"].includes(
-            status
-          )
-        }).length
-
-        setStats({
-          tables: nextTables.length,
-          occupied,
-          orders: nextOrders.length,
-          pendingOrders,
-          deliveries: nextDeliveries.length,
-          reservations: nextReservations.length,
-          customers: nextCustomers.length,
-          revenue,
-        })
-      } catch (loadError) {
-        console.error(loadError)
-        setError(loadError?.message || "Unable to load Restaurant Suite.")
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    },
-    [getRestaurantId, restaurantId]
-  )
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  const filteredOrders = useMemo(() => {
-    const query = search.trim().toLowerCase()
-
-    if (!query) {
-      return orders.slice(0, 20)
-    }
-
-    return orders
-      .filter((order) =>
-        JSON.stringify(order).toLowerCase().includes(query)
-      )
-      .slice(0, 20)
-  }, [orders, search])
-
-  const enabledPlugins = useMemo(
-    () =>
-      plugins.filter(
-        (plugin) =>
-          plugin.enabled === true ||
-          plugin.active === true ||
-          plugin.is_enabled === true
-      ),
-    [plugins]
-  )
-
-  async function updateTableStatus(table, status) {
-    try {
-      setError("")
-
-      const { error: updateError } = await supabase
-        .from("restaurant_tables")
-        .update({
-          status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", table.id)
-        .eq("restaurant_id", restaurantId)
-
-      if (updateError) {
-        throw updateError
-      }
-
-      await loadData(true)
-    } catch (updateError) {
-      console.error(updateError)
-      setError(updateError?.message || "Unable to update table.")
-    }
+    const entries = await Promise.all(Object.entries(q).map(async ([k, query]) => [k, (await query).data || []]))
+    const result = Object.fromEntries(entries)
+    setPlugins(Object.fromEntries((result.plugins || []).map(x => [x.plugin_code, x.enabled === true])))
+    delete result.plugins
+    setOrders(result.orders || [])
+    setMenu(result.menu || [])
+    setData(result)
   }
 
-  async function updateDeliveryStatus(delivery, status) {
-    try {
-      setError("")
-
-      const { error: updateError } = await supabase
-        .from("restaurant_delivery_orders")
-        .update({
-          status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", delivery.id)
-        .eq("restaurant_id", restaurantId)
-
-      if (updateError) {
-        throw updateError
-      }
-
-      await loadData(true)
-    } catch (updateError) {
-      console.error(updateError)
-      setError(updateError?.message || "Unable to update delivery.")
-    }
+  async function insert(tableName, payload, reset) {
+    if (!rid) return
+    setBusy(true)
+    const { error } = await supabase.from(tableName).insert({ ...payload, restaurant_id: rid })
+    setBusy(false)
+    setMessage(error?.message || "Saved successfully")
+    if (!error) { reset?.(); await load() }
   }
 
-  function renderOverview() {
-    return (
-      <>
-        <div className="suite-grid">
-          <Card
-            title="Today's Sales"
-            value={money(stats.revenue)}
-            subtitle={`${stats.orders} orders today`}
-            icon="₹"
-          />
+  async function api(action, payload = {}) {
+    setBusy(true)
+    const { data: session } = await supabase.auth.getSession()
+    const response = await fetch("/api/petpooja-parity", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.session?.access_token || ""}` }, body: JSON.stringify({ action, ...payload }) })
+    const json = await response.json().catch(() => ({}))
+    setBusy(false)
+    setMessage(json.error || (response.ok ? "Completed successfully" : "Operation failed"))
+    if (response.ok) await load()
+    return json
+  }
 
-          <Card
-            title="Today's Orders"
-            value={stats.orders}
-            subtitle={`${stats.pendingOrders} pending`}
-            icon="🧾"
-          />
+  function orderSelect(value, setter) { setter(v => ({ ...v, order_id: value })) }
 
-          <Card
-            title="Tables"
-            value={stats.tables}
-            subtitle={`${stats.occupied} occupied`}
-            icon="🪑"
-          />
+  if (!rid) return <main className="pp-wrap"><div className="pp-empty">Loading restaurant workspace…</div></main>
 
-          <Card
-            title="Delivery"
-            value={stats.deliveries}
-            subtitle="delivery orders"
-            icon="🛵"
-          />
+  return <main className="pp-wrap">
+    <header className="pp-hero">
+      <div><small>RESTAURANT OPERATIONS</small><h1>Petpooja-style Operations Hub</h1><p>Tables → Order → KOT → KDS → Token → Delivery → Payment → CRM → Reports</p></div>
+      <div className="pp-badge">{role || "staff"} • {busy ? "Working…" : "Live"}</div>
+    </header>
 
-          <Card
-            title="Reservations"
-            value={stats.reservations}
-            subtitle="active records"
-            icon="📅"
-          />
+    <nav className="pp-tabs">{tabs.map(([key,label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
 
-          <Card
-            title="Customers"
-            value={stats.customers}
-            subtitle="customer records"
-            icon="👥"
-          />
+    {!selectedPlugin && <div className="pp-lock">🔒 This module is plugin-controlled. Enable <b>{pluginFor[tab]}</b> from Super Admin → Plugins.</div>}
+
+    {tab === "pos" && <section className="pp-grid">
+      <Card title="Hold / Park / Reopen" subtitle="POS control without deleting the order">
+        <div className="pp-form-grid">
+          <Field label="Order"><select value={posControl.order_id} onChange={e=>setPosControl({...posControl,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {money(o.total_amount)} • {o.status}</option>)}</select></Field>
+          <Field label="Reason / note"><input value={posControl.reason} onChange={e=>setPosControl({...posControl,reason:e.target.value})} placeholder="Customer requested hold"/></Field>
         </div>
-
-        <Section
-          title="Live Operations"
-          subtitle="Current restaurant activity"
-          action={
-            <button className="suite-button" onClick={() => loadData(true)}>
-              {refreshing ? "Refreshing..." : "↻ Refresh"}
-            </button>
-          }
-        >
-          {filteredOrders.length === 0 ? (
-            <EmptyState
-              icon="🧾"
-              title="No orders found"
-              text="New orders will appear here automatically."
-            />
-          ) : (
-            <div className="suite-list">
-              {filteredOrders.map((order) => (
-                <div className="suite-row" key={order.id}>
-                  <div>
-                    <strong>
-                      Order #{String(order.id).slice(0, 8)}
-                    </strong>
-                    <span>
-                      {order.order_type ||
-                        order.channel ||
-                        order.source ||
-                        "POS"}
-                    </span>
-                  </div>
-
-                  <div className="suite-row-right">
-                    <strong>
-                      {money(
-                        order.total_amount ??
-                          order.grand_total ??
-                          order.total ??
-                          order.amount
-                      )}
-                    </strong>
-                    <span className="suite-badge">
-                      {order.status || "pending"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-      </>
-    )
-  }
-
-  function renderTables() {
-    return (
-      <Section
-        title="Dine-in Tables"
-        subtitle="Live table occupancy and service status"
-      >
-        {tables.length === 0 ? (
-          <EmptyState
-            icon="🪑"
-            title="No tables configured"
-            text="Create tables from your restaurant table management module."
-          />
-        ) : (
-          <div className="table-grid">
-            {tables.map((table) => {
-              const status = String(table.status || "available").toLowerCase()
-
-              return (
-                <div className="table-card" key={table.id}>
-                  <div className="table-number">
-                    {table.name || table.table_number || `Table`}
-                  </div>
-
-                  <div className={`status-dot status-${status}`} />
-
-                  <div className="table-status">
-                    {table.status || "available"}
-                  </div>
-
-                  <div className="table-actions">
-                    <button
-                      className="mini-button"
-                      onClick={() => updateTableStatus(table, "available")}
-                    >
-                      Free
-                    </button>
-
-                    <button
-                      className="mini-button primary"
-                      onClick={() => updateTableStatus(table, "occupied")}
-                    >
-                      Occupy
-                    </button>
-
-                    <button
-                      className="mini-button"
-                      onClick={() => updateTableStatus(table, "reserved")}
-                    >
-                      Reserve
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </Section>
-    )
-  }
-
-  function renderBilling() {
-    return (
-      <>
-        <Section
-          title="Billing Control"
-          subtitle="Payments, split bills, discounts and audit workflow"
-        >
-          <div className="feature-grid">
-            <div className="feature-card">
-              <span>🧾</span>
-              <strong>Split Bill</strong>
-              <p>Split an order between multiple customers or payment methods.</p>
-            </div>
-
-            <div className="feature-card">
-              <span>💳</span>
-              <strong>Multiple Payments</strong>
-              <p>Cash, UPI, card and other payment records can be tracked.</p>
-            </div>
-
-            <div className="feature-card">
-              <span>🏷️</span>
-              <strong>Discounts</strong>
-              <p>Bill/item discount rules and approval workflow.</p>
-            </div>
-
-            <div className="feature-card">
-              <span>↩️</span>
-              <strong>Refund / Void</strong>
-              <p>Keep refund and void activity auditable.</p>
-            </div>
-          </div>
-        </Section>
-
-        <Section title="Recent Orders" subtitle="Orders available for billing operations">
-          {filteredOrders.length === 0 ? (
-            <EmptyState
-              icon="🧾"
-              title="No orders"
-              text="Orders will appear when billing activity is recorded."
-            />
-          ) : (
-            <div className="suite-list">
-              {filteredOrders.map((order) => (
-                <div className="suite-row" key={order.id}>
-                  <div>
-                    <strong>#{String(order.id).slice(0, 8)}</strong>
-                    <span>{order.status || "pending"}</span>
-                  </div>
-
-                  <strong>
-                    {money(
-                      order.total_amount ??
-                        order.grand_total ??
-                        order.total ??
-                        order.amount
-                    )}
-                  </strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-      </>
-    )
-  }
-
-  function renderKitchen() {
-    return (
-      <>
-        <Section title="Kitchen Stations" subtitle="KOT routing configuration">
-          {stations.length === 0 ? (
-            <EmptyState
-              icon="👨‍🍳"
-              title="No kitchen stations"
-              text="Create kitchen stations from Operations."
-            />
-          ) : (
-            <div className="feature-grid">
-              {stations.map((station) => (
-                <div className="feature-card" key={station.id}>
-                  <span>🔥</span>
-                  <strong>{station.name || "Kitchen Station"}</strong>
-                  <p>
-                    Status:{" "}
-                    {station.active === false ? "Disabled" : "Active"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="KOT / KDS Workflow" subtitle="Production status pipeline">
-          <div className="pipeline">
-            {["New", "Accepted", "Preparing", "Ready", "Served"].map(
-              (step) => (
-                <div className="pipeline-step" key={step}>
-                  <span>{step}</span>
-                </div>
-              )
-            )}
-          </div>
-        </Section>
-      </>
-    )
-  }
-
-  function renderDelivery() {
-    return (
-      <>
-        <Section title="Delivery Orders" subtitle="Rider and delivery workflow">
-          {deliveries.length === 0 ? (
-            <EmptyState
-              icon="🛵"
-              title="No delivery orders"
-              text="Delivery orders will appear here."
-            />
-          ) : (
-            <div className="suite-list">
-              {deliveries.map((delivery) => (
-                <div className="suite-row" key={delivery.id}>
-                  <div>
-                    <strong>
-                      Delivery #{String(delivery.id).slice(0, 8)}
-                    </strong>
-                    <span>
-                      {delivery.rider_id
-                        ? "Rider assigned"
-                        : "Rider pending"}
-                    </span>
-                  </div>
-
-                  <div className="suite-row-right">
-                    <span className="suite-badge">
-                      {delivery.status || "pending"}
-                    </span>
-
-                    <button
-                      className="mini-button primary"
-                      onClick={() =>
-                        updateDeliveryStatus(delivery, "out_for_delivery")
-                      }
-                    >
-                      Out for delivery
-                    </button>
-
-                    <button
-                      className="mini-button"
-                      onClick={() =>
-                        updateDeliveryStatus(delivery, "delivered")
-                      }
-                    >
-                      Delivered
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="Riders" subtitle="Delivery staff">
-          {riders.length === 0 ? (
-            <EmptyState
-              icon="🛵"
-              title="No riders"
-              text="Add delivery riders from Operations."
-            />
-          ) : (
-            <div className="feature-grid">
-              {riders.map((rider) => (
-                <div className="feature-card" key={rider.id}>
-                  <span>🛵</span>
-                  <strong>{rider.name || "Rider"}</strong>
-                  <p>{rider.phone || rider.mobile || "No phone"}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-      </>
-    )
-  }
-
-  function renderReservations() {
-    return (
-      <Section
-        title="Reservations"
-        subtitle="Bookings, waitlist and table assignment"
-      >
-        {reservations.length === 0 ? (
-          <EmptyState
-            icon="📅"
-            title="No reservations"
-            text="Reservations will appear here."
-          />
-        ) : (
-          <div className="suite-list">
-            {reservations.map((reservation) => (
-              <div className="suite-row" key={reservation.id}>
-                <div>
-                  <strong>
-                    {reservation.customer_name ||
-                      reservation.name ||
-                      "Reservation"}
-                  </strong>
-                  <span>
-                    {reservation.reservation_time ||
-                      reservation.booking_time ||
-                      reservation.created_at}
-                  </span>
-                </div>
-
-                <span className="suite-badge">
-                  {reservation.status || "pending"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-    )
-  }
-
-  function renderCaptain() {
-    return (
-      <Section
-        title="Captain / Waiter"
-        subtitle="Table-side ordering workflow"
-      >
-        <div className="feature-grid">
-          <div className="feature-card">
-            <span>📱</span>
-            <strong>Select Table</strong>
-            <p>Captain selects a table and starts a running order.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>🍽️</span>
-            <strong>Add Items</strong>
-            <p>Variants, modifiers and special instructions.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>👨‍🍳</span>
-            <strong>Send KOT</strong>
-            <p>Items are routed to the appropriate kitchen station.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>💳</span>
-            <strong>Close Table</strong>
-            <p>Send the bill for payment and settlement.</p>
-          </div>
+        <div className="pp-actions">
+          <button onClick={()=>api("hold_order",{order_id:posControl.order_id,note:posControl.reason})}>Hold / Park</button>
+          <button onClick={()=>api("resume_order",{order_id:posControl.order_id})}>Resume</button>
+          <button onClick={()=>api("reopen_order",{order_id:posControl.order_id,reason:posControl.reason})}>Reopen</button>
         </div>
-      </Section>
-    )
-  }
-
-  function renderQr() {
-    return (
-      <Section title="QR / Scan & Order" subtitle="Customer self-order workflow">
-        <div className="feature-grid">
-          <div className="feature-card">
-            <span>🔳</span>
-            <strong>Table QR</strong>
-            <p>QR identifies the restaurant table.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>🛒</span>
-            <strong>Customer Cart</strong>
-            <p>Customer selects items, variants and add-ons.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>📲</span>
-            <strong>Order Confirmation</strong>
-            <p>Customer order reaches POS and KOT workflow.</p>
-          </div>
-
-          <div className="feature-card">
-            <span>💰</span>
-            <strong>Scan & Pay</strong>
-            <p>Payment request can be associated with the table.</p>
-          </div>
+        <div className="pp-list">{(data.holds||[]).map(h=><div className="pp-row" key={h.id}><b>#{String(h.order_id).slice(0,6)}</b><span>{h.hold_type} • {h.released_at ? "resumed" : "on hold"}</span></div>)}</div>
+      </Card>
+      <Card title="Table Transfer">
+        <div className="pp-form-grid">
+          <Field label="Order"><select value={posControl.order_id} onChange={e=>setPosControl({...posControl,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {o.status}</option>)}</select></Field>
+          <Field label="Destination table"><select value={posControl.to_table_id} onChange={e=>setPosControl({...posControl,to_table_id:e.target.value})}><option value="">Select table</option>{(data.tables||[]).map(t=><option key={t.id} value={t.id}>{t.table_no} • {t.capacity} seats</option>)}</select></Field>
+          <button onClick={()=>api("table_transfer",{order_id:posControl.order_id,to_table_id:posControl.to_table_id})}>Transfer Table</button>
         </div>
-      </Section>
-    )
-  }
+        <p className="pp-muted">The original table is preserved in the transfer audit record.</p>
+      </Card>
+    </section>}
 
-  function renderKiosk() {
-    return (
-      <Section title="Self-Service Kiosk" subtitle="Kiosk ordering workflow">
-        <div className="feature-grid">
-          {[
-            ["🖥️", "Menu", "Customer browses the restaurant menu."],
-            ["🛒", "Cart", "Variants and add-ons are supported."],
-            ["💳", "Payment", "Payment can be completed at kiosk."],
-            ["🎟️", "Token", "Successful orders receive a token."],
-            ["👨‍🍳", "KOT", "Order goes into kitchen workflow."],
-            ["↻", "Auto Reset", "Kiosk resets after completed session."],
-          ].map(([icon, title, text]) => (
-            <div className="feature-card" key={title}>
-              <span>{icon}</span>
-              <strong>{title}</strong>
-              <p>{text}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-    )
-  }
+    {tab === "floor" && <section className="pp-grid">
+      <Card title="Floor / Area"><form onSubmit={e => {e.preventDefault(); insert("restaurant_areas", { name: area.name }, () => setArea({name:""}))}}><Field label="Area name"><input required value={area.name} onChange={e=>setArea({name:e.target.value})} placeholder="Main Hall"/></Field><button>Save area</button></form><div className="pp-list">{(data.areas||[]).map(x=><div className="pp-row" key={x.id}><b>{x.name}</b><span>{x.active ? "Active" : "Off"}</span></div>)}</div></Card>
+      <Card title="Tables" action={<span className="pp-stats">{tableStats.available} free • {tableStats.occupied} occupied • {tableStats.reserved} reserved</span>}><form onSubmit={e=>{e.preventDefault();insert("dining_tables",{...table,capacity:Number(table.capacity),area_id:table.area_id||null},()=>setTable({table_no:"",capacity:2,area_id:"",shape:"square"}))}} className="pp-form-grid"><Field label="Table"><input required value={table.table_no} onChange={e=>setTable({...table,table_no:e.target.value})} placeholder="T-01"/></Field><Field label="Capacity"><input type="number" min="1" value={table.capacity} onChange={e=>setTable({...table,capacity:e.target.value})}/></Field><Field label="Area"><select value={table.area_id} onChange={e=>setTable({...table,area_id:e.target.value})}><option value="">No area</option>{(data.areas||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><button>Add table</button></form><div className="pp-table-grid">{(data.tables||[]).map(t=><button key={t.id} className={`pp-table ${t.status}`} onClick={()=>api("table_status",{table_id:t.id,status:t.status==="available"?"occupied":"available"})}><b>{t.table_no}</b><small>{t.capacity} seats</small><em>{t.status}</em></button>)}</div></Card>
+    </section>}
 
-  function renderDisplay() {
-    return (
-      <Section title="Digital Display" subtitle="Customer-facing display and token calling">
-        <div className="feature-grid">
-          <div className="feature-card">
-            <span>📺</span>
-            <strong>Menu Display</strong>
-            <p>Promotional and menu playlists.</p>
-          </div>
+    {tab === "billing" && <section className="pp-grid"><Card title="Payments / Split / Merge"><Field label="Order"><select value={payment.order_id} onChange={e=>setPayment({...payment,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {money(o.total_amount)} • {o.status}</option>)}</select></Field><div className="pp-form-grid"><Field label="Amount"><input type="number" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})}/></Field><Field label="Method"><select value={payment.payment_method} onChange={e=>setPayment({...payment,payment_method:e.target.value})}><option>cash</option><option>upi</option><option>card</option><option>online</option><option>credit</option></select></Field><Field label="Reference"><input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})}/></Field><button onClick={()=>api("payment",payment)}>Record payment</button></div><div className="pp-actions"><button onClick={()=>api("split",{order_id:payment.order_id,parts:2})}>Split 2</button><button onClick={()=>api("split",{order_id:payment.order_id,parts:3})}>Split 3</button><button onClick={()=>api("refund",{order_id:payment.order_id,amount:payment.amount,reason:"POS refund"})}>Refund</button><button onClick={()=>api("void",{order_id:payment.order_id,reason:"POS void"})}>Void</button></div></Card>
+      <Card title="Discount / Coupon"><form onSubmit={e=>{e.preventDefault();insert("discount_rules",{...discount,value:Number(discount.value||0),min_order:Number(discount.min_order||0),max_discount:discount.max_discount?Number(discount.max_discount):null},()=>setDiscount({name:"",code:"",discount_type:"percent",value:"",min_order:"",max_discount:""}))}} className="pp-form-grid"><Field label="Name"><input required value={discount.name} onChange={e=>setDiscount({...discount,name:e.target.value})}/></Field><Field label="Code"><input value={discount.code} onChange={e=>setDiscount({...discount,code:e.target.value.toUpperCase()})}/></Field><Field label="Type"><select value={discount.discount_type} onChange={e=>setDiscount({...discount,discount_type:e.target.value})}><option value="percent">Percent</option><option value="flat">Flat</option></select></Field><Field label="Value"><input type="number" value={discount.value} onChange={e=>setDiscount({...discount,value:e.target.value})}/></Field><Field label="Min order"><input type="number" value={discount.min_order} onChange={e=>setDiscount({...discount,min_order:e.target.value})}/></Field><Field label="Max discount"><input type="number" value={discount.max_discount} onChange={e=>setDiscount({...discount,max_discount:e.target.value})}/></Field><button>Save rule</button></form><div className="pp-list">{(data.discounts||[]).map(d=><div className="pp-row" key={d.id}><b>{d.name}</b><span>{d.code||"No code"} • {d.discount_type} {d.value}</span></div>)}</div></Card></section>}
 
-          <div className="feature-card">
-            <span>🎟️</span>
-            <strong>Token Display</strong>
-            <p>Ready and called order tokens.</p>
-          </div>
+    {tab === "kitchen" && <section className="pp-grid"><Card title="Live KDS"><div className="pp-form-grid"><Field label="Order"><select value={kds.order_id} onChange={e=>setKds({...kds,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {o.status}</option>)}</select></Field><Field label="Status"><select value={kds.status} onChange={e=>setKds({...kds,status:e.target.value})}><option>new</option><option>accepted</option><option>preparing</option><option>ready</option><option>served</option></select></Field><Field label="Priority"><select value={kds.priority} onChange={e=>setKds({...kds,priority:e.target.value})}><option>normal</option><option>high</option><option>rush</option></select></Field><button onClick={()=>api("kds",kds)}>Update KDS</button></div><div className="pp-list">{(data.kot||[]).map(x=><div className="pp-row" key={x.id}><b>#{String(x.order_id).slice(0,6)}</b><span>{x.status} • {x.priority}</span></div>)}</div></Card><Card title="Kitchen stations"><div className="pp-table-grid">{(data.stations||[]).map(s=><div className="pp-table available" key={s.id}><b>{s.name}</b><small>{s.code||"station"}</small><em>{s.active===false?"Off":"Live"}</em></div>)}</div><a className="pp-link" href="/kitchen">Open full Kitchen Display →</a></Card></section>}
 
-          <div className="feature-card">
-            <span>🔊</span>
-            <strong>Audio Calling</strong>
-            <p>Customer token announcements.</p>
-          </div>
+    {tab === "delivery" && <section className="pp-grid"><Card title="Assign rider"><div className="pp-form-grid"><Field label="Order"><select value={rider.order_id} onChange={e=>setRider({...rider,order_id:e.target.value})}><option value="">Select delivery order</option>{orders.filter(o=>o.order_mode==="delivery").map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {money(o.total_amount)}</option>)}</select></Field><Field label="Rider"><select value={rider.rider_id} onChange={e=>setRider({...rider,rider_id:e.target.value})}><option value="">Select rider</option>{(data.riders||[]).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></Field><Field label="Address"><input value={rider.address} onChange={e=>setRider({...rider,address:e.target.value})}/></Field><Field label="Delivery charge"><input type="number" value={rider.delivery_charge} onChange={e=>setRider({...rider,delivery_charge:e.target.value})}/></Field><button onClick={()=>api("delivery_assign",rider)}>Assign</button></div></Card><Card title="Delivery board"><div className="pp-list">{(data.assignments||[]).map(a=><div className="pp-row" key={a.id}><b>#{String(a.order_id).slice(0,6)}</b><span>{a.status} • {money(a.delivery_charge)}</span><div className="pp-actions"><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"out_for_delivery"})}>Out</button><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"delivered"})}>Delivered</button><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"failed",failure_reason:"Customer unavailable"})}>Failed</button></div></div>)}</div></Card></section>}
 
-          <div className="feature-card">
-            <span>📢</span>
-            <strong>Service Requests</strong>
-            <p>Calling device requests for staff.</p>
-          </div>
-        </div>
-      </Section>
-    )
-  }
+    {tab === "digital" && <section className="pp-grid"><Card title="Pickup / Delivery Tokens"><div className="pp-form-grid"><Field label="Order"><select value={token.order_id} onChange={e=>setToken({...token,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)}</option>)}</select></Field><Field label="Type"><select value={token.token_type} onChange={e=>setToken({...token,token_type:e.target.value})}><option>pickup</option><option>delivery</option><option>dinein</option></select></Field><Field label="Display name"><input value={token.display_name} onChange={e=>setToken({...token,display_name:e.target.value})}/></Field><button onClick={()=>api("issue_token",token)}>Issue token</button></div><div className="pp-list">{(data.tokens||[]).map(t=><div className="pp-row" key={t.id}><b>{t.token_no}</b><span>{t.display_name||"Customer"} • {t.status}</span><div className="pp-actions"><button onClick={()=>api("token_status",{id:t.id,status:"called"})}>Call</button><button onClick={()=>api("token_status",{id:t.id,status:"ready"})}>Ready</button><button onClick={()=>api("token_status",{id:t.id,status:"completed"})}>Complete</button></div></div>)}</div></Card><Card title="QR / Kiosk / Display"><div className="pp-actions"><a href="/dashboard/qr" className="pp-button">QR Menu</a><a href="/dashboard/restaurant-suite?tab=devices" className="pp-button">Kiosk / Display</a><a href="/dashboard/notifications" className="pp-button">Customer alerts</a></div><p className="pp-muted">QR ordering, kiosk and digital display settings remain plugin-gated and use the same restaurant scope/theme.</p></Card></section>}
 
-  function renderCustomers() {
-    const segments = {
-      vip: 0,
-      repeat: 0,
-      new: 0,
-    }
+    {tab === "reservations" && <section className="pp-grid"><Card title="Reservation waitlist"><form onSubmit={e=>{e.preventDefault();insert("reservation_waitlist",{...waitlist,guests:Number(waitlist.guests)},()=>setWaitlist({customer_name:"",phone:"",guests:2,preferred_date:"",preferred_time:"",notes:""}))}} className="pp-form-grid"><Field label="Customer"><input required value={waitlist.customer_name} onChange={e=>setWaitlist({...waitlist,customer_name:e.target.value})}/></Field><Field label="Phone"><input value={waitlist.phone} onChange={e=>setWaitlist({...waitlist,phone:e.target.value})}/></Field><Field label="Guests"><input type="number" value={waitlist.guests} onChange={e=>setWaitlist({...waitlist,guests:e.target.value})}/></Field><Field label="Date"><input type="date" value={waitlist.preferred_date} onChange={e=>setWaitlist({...waitlist,preferred_date:e.target.value})}/></Field><Field label="Time"><input type="time" value={waitlist.preferred_time} onChange={e=>setWaitlist({...waitlist,preferred_time:e.target.value})}/></Field><Field label="Notes"><input value={waitlist.notes} onChange={e=>setWaitlist({...waitlist,notes:e.target.value})}/></Field><button>Add to waitlist</button></form><div className="pp-list">{(data.waitlist||[]).map(w=><div className="pp-row" key={w.id}><b>{w.customer_name}</b><span>{w.guests} guests • {w.status}</span><button onClick={()=>api("waitlist_status",{id:w.id,status:"called"})}>Call</button></div>)}</div></Card><Card title="Reservation manager"><a className="pp-button" href="/dashboard/reservations">Open full reservation calendar →</a><div className="pp-form-grid" style={{marginTop:14}}><Field label="Reservation"><select value={deposit.reservation_id} onChange={e=>setDeposit({...deposit,reservation_id:e.target.value})}><option value="">Select reservation</option>{(data.reservations||[]).map(r=><option key={r.id} value={r.id}>{r.name} • {r.date} {r.time}</option>)}</select></Field><Field label="Deposit"><input type="number" value={deposit.amount} onChange={e=>setDeposit({...deposit,amount:e.target.value})}/></Field><Field label="Method"><select value={deposit.payment_method} onChange={e=>setDeposit({...deposit,payment_method:e.target.value})}><option>upi</option><option>cash</option><option>card</option><option>online</option></select></Field><Field label="Reference"><input value={deposit.reference} onChange={e=>setDeposit({...deposit,reference:e.target.value})}/></Field><button onClick={()=>api("reservation_deposit",deposit)}>Record Deposit</button></div><div className="pp-list">{(data.reservations||[]).map(r=><div className="pp-row" key={r.id}><b>{r.name}</b><span>{r.date} {r.time} • {r.guests} guests • {r.status}</span></div>)}</div></Card></section>}
 
-    customers.forEach((customer) => {
-      const spend = Number(
-        customer.total_spend ?? customer.lifetime_value ?? 0
-      )
+    {tab === "captain" && <section className="pp-grid"><Card title="Captain / Waiter workflow"><p className="pp-muted">Use the same restaurant-scoped POS/KOT session for table service. Captain devices can open a table, add items, send KOT and request payment without changing inventory.</p><div className="pp-actions"><a className="pp-button" href="/order">Open POS / Captain Order</a><a className="pp-button" href="/dashboard/tables">Open Tables</a><a className="pp-button" href="/kitchen">Open KDS</a></div></Card><Card title="Active captain sessions"><Empty>Captain sessions are shown from the existing Operations Center. Connect the device session to the POS route for live order entry.</Empty><a className="pp-link" href="/dashboard/restaurant-suite?tab=captain">Open Captain / Staff →</a></Card></section>}
 
-      const visits = Number(
-        customer.visit_count ?? customer.total_orders ?? 0
-      )
+    {tab === "online" && <section className="pp-grid"><Card title="Aggregator integration"><form onSubmit={e=>{e.preventDefault();insert("aggregator_integrations",{...aggregator},()=>setAggregator({provider:"zomato",outlet_code:"",active:false}))}} className="pp-form-grid"><Field label="Provider"><select value={aggregator.provider} onChange={e=>setAggregator({...aggregator,provider:e.target.value})}><option>zomato</option><option>swiggy</option><option>dineout</option><option>website</option></select></Field><Field label="Outlet code"><input value={aggregator.outlet_code} onChange={e=>setAggregator({...aggregator,outlet_code:e.target.value})}/></Field><label className="pp-check"><input type="checkbox" checked={aggregator.active} onChange={e=>setAggregator({...aggregator,active:e.target.checked})}/> Active</label><button>Save integration</button></form><p className="pp-muted">Provider credentials are stored only when supplied. The runtime queues sync jobs and webhook payloads; live provider calls require the provider's API credentials.</p></Card><Card title="Orders / reconciliation"><div className="pp-actions"><button onClick={()=>api("aggregator_sync",{provider:"zomato",job_type:"menu"})}>Queue menu sync</button><button onClick={()=>api("aggregator_sync",{provider:"zomato",job_type:"orders"})}>Queue order sync</button><button onClick={()=>api("aggregator_sync",{provider:"zomato",job_type:"settlement"})}>Queue settlement sync</button></div><div className="pp-list">{(data.aggregatorOrders||[]).map(o=><div className="pp-row" key={o.id}><b>{o.provider} • {o.external_order_id}</b><span>{o.status} • {money(o.net_payout)}</span></div>)}</div></Card></section>}
 
-      if (spend >= 25000) {
-        segments.vip += 1
-      } else if (visits >= 3) {
-        segments.repeat += 1
-      } else {
-        segments.new += 1
-      }
-    })
+    {tab === "crm" && <section className="pp-grid"><Card title="Customer segments"><form onSubmit={e=>{e.preventDefault();let rules={};try{rules=JSON.parse(segment.rules)}catch{setMessage("Rules must be valid JSON");return}insert("customer_segments",{name:segment.name,code:segment.code.toLowerCase().replace(/\s+/g,"-"),rules},()=>setSegment({name:"",code:"",rules:'{"min_orders":2}'}))}} className="pp-form-grid"><Field label="Name"><input required value={segment.name} onChange={e=>setSegment({...segment,name:e.target.value})}/></Field><Field label="Code"><input required value={segment.code} onChange={e=>setSegment({...segment,code:e.target.value})}/></Field><Field label="Rules JSON"><textarea rows="3" value={segment.rules} onChange={e=>setSegment({...segment,rules:e.target.value})}/></Field><button>Save segment</button></form><div className="pp-list">{(data.segments||[]).map(s=><div className="pp-row" key={s.id}><b>{s.name}</b><span>{s.code} • {s.active?"Active":"Off"}</span></div>)}</div></Card><Card title="SMS / WhatsApp / Feedback"><div className="pp-form-grid"><Field label="Order for feedback"><select value={feedbackRequest.order_id} onChange={e=>setFeedbackRequest({...feedbackRequest,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)}</option>)}</select></Field><Field label="Channel"><select value={feedbackRequest.channel} onChange={e=>setFeedbackRequest({...feedbackRequest,channel:e.target.value})}><option>qr</option><option>whatsapp</option><option>sms</option></select></Field><button onClick={()=>api("feedback_request",feedbackRequest)}>Create Feedback Request</button></div><form onSubmit={e=>{e.preventDefault();insert("message_queue",{...messageForm,payload:{}})}}><div className="pp-form-grid"><Field label="Channel"><select value={messageForm.channel} onChange={e=>setMessageForm({...messageForm,channel:e.target.value})}><option>whatsapp</option><option>sms</option><option>email</option></select></Field><Field label="Recipient"><input value={messageForm.recipient} onChange={e=>setMessageForm({...messageForm,recipient:e.target.value})}/></Field><Field label="Purpose"><input value={messageForm.purpose} onChange={e=>setMessageForm({...messageForm,purpose:e.target.value})}/></Field><Field label="Template"><input value={messageForm.template} onChange={e=>setMessageForm({...messageForm,template:e.target.value})}/></Field><button type="button" onClick={()=>api("queue_message",messageForm)}>Queue message</button></div></form><div className="pp-list">{(data.messages||[]).map(m=><div className="pp-row" key={m.id}><b>{m.channel}</b><span>{m.recipient||"No recipient"} • {m.status}</span></div>)}</div></Card></section>}
 
-    return (
-      <>
-        <Section title="Customer Segments" subtitle="Basic CRM segmentation">
-          <div className="suite-grid">
-            <Card title="VIP" value={segments.vip} subtitle="₹25k+ spend" icon="⭐" />
-            <Card title="Repeat" value={segments.repeat} subtitle="3+ visits/orders" icon="🔁" />
-            <Card title="New" value={segments.new} subtitle="new customers" icon="🆕" />
-          </div>
-        </Section>
+    {tab === "cash" && <section className="pp-grid"><Card title="Cash drawer"><form onSubmit={e=>{e.preventDefault();insert("cash_shifts",{opening_cash:Number(cash.opening_cash||0),notes:cash.notes,status:"open"},()=>setCash({opening_cash:"",notes:""}))}} className="pp-form-grid"><Field label="Opening cash"><input type="number" value={cash.opening_cash} onChange={e=>setCash({...cash,opening_cash:e.target.value})}/></Field><Field label="Notes"><input value={cash.notes} onChange={e=>setCash({...cash,notes:e.target.value})}/></Field><button>Open shift</button></form><div className="pp-list">{(data.shifts||[]).map(s=><div className="pp-row" key={s.id}><b>{money(s.opening_cash)}</b><span>{s.status} • {s.opened_at && new Date(s.opened_at).toLocaleString("en-IN")}</span>{s.status==="open"&&<button onClick={()=>api("close_shift",{shift_id:s.id,actual_cash:s.expected_cash})}>Close</button>}</div>)}</div></Card><Card title="Cash movement"><div className="pp-form-grid"><Field label="Open shift"><select value={cashMovement.shift_id} onChange={e=>setCashMovement({...cashMovement,shift_id:e.target.value})}><option value="">Select shift</option>{(data.shifts||[]).filter(s=>s.status==="open").map(s=><option key={s.id} value={s.id}>{String(s.id).slice(0,6)} • {money(s.opening_cash)}</option>)}</select></Field><Field label="Type"><select value={cashMovement.movement_type} onChange={e=>setCashMovement({...cashMovement,movement_type:e.target.value})}><option>cash_in</option><option>cash_out</option><option>expense</option><option>petty_cash</option></select></Field><Field label="Amount"><input type="number" value={cashMovement.amount} onChange={e=>setCashMovement({...cashMovement,amount:e.target.value})}/></Field><Field label="Reason"><input value={cashMovement.note} onChange={e=>setCashMovement({...cashMovement,note:e.target.value})}/></Field><button onClick={()=>api("cash_movement",cashMovement)}>Record Movement</button></div><div className="pp-list">{(data.cashMovements||[]).map(m=><div className="pp-row" key={m.id}><b>{m.movement_type}</b><span>{money(m.amount)} • {m.note||"No note"}</span></div>)}</div></Card><Card title="Refund / void / audit"><p className="pp-muted">All operational actions are intended to be recorded in the POS audit trail. Use Billing for refund/void approvals and retain the reason.</p><a className="pp-button" href="/billing">Open Billing & Audit →</a></Card></section>}
 
-        <Section title="Customers" subtitle="Latest customer records">
-          {customers.length === 0 ? (
-            <EmptyState
-              icon="👥"
-              title="No customers"
-              text="Customer records will appear here."
-            />
-          ) : (
-            <div className="suite-list">
-              {customers.slice(0, 25).map((customer) => (
-                <div className="suite-row" key={customer.id}>
-                  <div>
-                    <strong>
-                      {customer.name || customer.full_name || "Customer"}
-                    </strong>
-                    <span>{customer.phone || customer.mobile || ""}</span>
-                  </div>
-                  <span>
-                    {money(
-                      customer.total_spend ??
-                        customer.lifetime_value ??
-                        0
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-      </>
-    )
-  }
+    {tab === "reports" && <section className="pp-grid"><Card title="Scheduled reports"><div className="pp-form-grid"><Field label="Report"><select id="pp-report"><option value="sales">Sales</option><option value="orders">Orders</option><option value="payments">Payments</option><option value="discounts">Discounts</option><option value="staff">Staff</option><option value="delivery">Delivery</option></select></Field><Field label="Schedule"><select id="pp-schedule"><option>daily</option><option>weekly</option><option>monthly</option></select></Field><Field label="Channel"><select id="pp-channel"><option>email</option><option>whatsapp</option></select></Field><button onClick={()=>insert("report_schedules",{report_code:document.getElementById("pp-report")?.value||"sales",schedule:document.getElementById("pp-schedule")?.value||"daily",channel:document.getElementById("pp-channel")?.value||"email"})}>Schedule report</button></div><div className="pp-list">{(data.reports||[]).map(r=><div className="pp-row" key={r.id}><b>{r.report_code}</b><span>{r.schedule} • {r.channel} • {r.active?"Active":"Off"}</span></div>)}</div></Card><Card title="Reports"><a className="pp-button" href="/dashboard/reports">Open report center →</a><p className="pp-muted">The existing report center remains the source of truth for detailed report data and exports.</p></Card></section>}
 
-  function renderReports() {
-    return (
-      <Section title="Reports" subtitle="Saved and scheduled report definitions">
-        {reports.length === 0 ? (
-          <EmptyState
-            icon="📈"
-            title="No saved reports"
-            text="Create report definitions from the Reports module."
-          />
-        ) : (
-          <div className="feature-grid">
-            {reports.map((report) => (
-              <div className="feature-card" key={report.id}>
-                <span>📊</span>
-                <strong>
-                  {report.name || report.title || "Report"}
-                </strong>
-                <p>
-                  {report.schedule ||
-                    report.frequency ||
-                    "On demand"}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-    )
-  }
+    {tab === "hardware" && <section className="pp-grid"><Card title="Print queue"><div className="pp-form-grid"><Field label="Job type"><select value={print.job_type} onChange={e=>setPrint({...print,job_type:e.target.value})}><option>bill</option><option>kot</option><option>invoice</option><option>token</option><option>qr</option></select></Field><Field label="Reference ID"><input value={print.reference_id} onChange={e=>setPrint({...print,reference_id:e.target.value})}/></Field><button onClick={()=>api("print_job",print)}>Queue print</button></div><div className="pp-list">{(data.prints||[]).map(p=><div className="pp-row" key={p.id}><b>{p.job_type}</b><span>{p.status} • {p.attempts} attempts</span></div>)}</div></Card><Card title="Hardware / payment settings"><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/advanced">Open device configuration</a><a className="pp-button" href="/dashboard/cash-closing">Cash closing</a><a className="pp-button" href="/billing">A4 invoice / billing</a></div><p className="pp-muted">Browser-safe print jobs are queued here. Direct thermal printer/socket execution requires a local print agent or provider integration.</p></Card></section>}
 
-  function renderSettings() {
-    return (
-      <>
-        <Section
-          title="Plugin Controls"
-          subtitle="Features enabled for this restaurant"
-        >
-          {enabledPlugins.length === 0 ? (
-            <EmptyState
-              icon="🔌"
-              title="No enabled plugin records"
-              text="Plugin state is controlled from Super Admin."
-            />
-          ) : (
-            <div className="feature-grid">
-              {enabledPlugins.map((plugin) => (
-                <div className="feature-card" key={plugin.id}>
-                  <span>🔌</span>
-                  <strong>
-                    {plugin.plugin_code ||
-                      plugin.code ||
-                      plugin.name ||
-                      "Plugin"}
-                  </strong>
-                  <p>Enabled</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+    {tab === "marketing" && <section className="pp-grid"><Card title="Campaign automation"><div className="feature-grid"><div className="feature-card"><span>🎂</span><b>Birthday</b><p>Trigger a reward or message around the customer's birthday.</p></div><div className="feature-card"><span>🔁</span><b>Win-back</b><p>Target customers who have not ordered for 30/60/90 days.</p></div><div className="feature-card"><span>⭐</span><b>VIP</b><p>Send exclusive offers to high-value customers.</p></div><div className="feature-card"><span>🧾</span><b>Post-order feedback</b><p>Create QR, SMS or WhatsApp feedback requests after completion.</p></div></div><div className="pp-actions"><a className="pp-button" href="/dashboard/offers">Open Offers & Promotions →</a><a className="pp-button" href="/dashboard/crm">Open CRM →</a></div></Card><Card title="Message queue"><div className="pp-list">{(data.messages||[]).slice(0,12).map(m=><div className="pp-row" key={m.id}><b>{m.channel}</b><span>{m.purpose} • {m.status}</span></div>)}</div></Card></section>}
 
-        <Section title="Operations Modules" subtitle="Current implementation scope">
-          <div className="feature-grid">
-            {TABS.filter((tab) => tab.id !== "settings").map((tab) => (
-              <button
-                type="button"
-                className="feature-card feature-card-button"
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <span>{tab.icon}</span>
-                <strong>{tab.label}</strong>
-                <p>Open module</p>
-              </button>
-            ))}
-          </div>
-        </Section>
-      </>
-    )
-  }
+    {tab === "enterprise" && <section className="pp-grid"><Card title="Branches"><div className="pp-list">{(data.branches||[]).length ? (data.branches||[]).map(b=><div className="pp-row" key={b.id}><b>{b.name}</b><span>{b.code||"No code"} • {b.active===false?"Inactive":"Active"}</span></div>) : <Empty>No child branches configured.</Empty>}</div><div className="pp-actions"><a className="pp-button" href="/super-admin">Open Super Admin →</a><a className="pp-button" href="/super-admin/analytics">Head Office Analytics →</a></div></Card><Card title="Plugin-controlled modules"><div className="pp-list">{Object.entries(plugins).filter(([,enabled])=>enabled).slice(0,30).map(([code])=><div className="pp-row" key={code}><b>{code}</b><span>Enabled</span></div>)}</div><p className="pp-muted">Super Admin controls activation. Restaurant users only see enabled modules.</p></Card></section>}
 
-  function renderActiveTab() {
-    switch (activeTab) {
-      case "tables":
-        return renderTables()
-      case "billing":
-        return renderBilling()
-      case "kitchen":
-        return renderKitchen()
-      case "delivery":
-        return renderDelivery()
-      case "reservations":
-        return renderReservations()
-      case "captain":
-        return renderCaptain()
-      case "qr":
-        return renderQr()
-      case "kiosk":
-        return renderKiosk()
-      case "display":
-        return renderDisplay()
-      case "customers":
-        return renderCustomers()
-      case "reports":
-        return renderReports()
-      case "settings":
-        return renderSettings()
-      case "overview":
-      default:
-        return renderOverview()
-    }
-  }
+    {message && <div className="pp-toast">{message}</div>}
 
-  return (
-    <main className="restaurant-suite-page">
-      <style jsx global>{`
-        :root {
-          --suite-bg: var(--background, #06130f);
-          --suite-surface: var(--surface, #0d241c);
-          --suite-surface-2: var(--surface-2, #143126);
-          --suite-text: var(--text, #f5f0df);
-          --suite-muted: var(--muted, #a9b9af);
-          --suite-border: var(--border, rgba(220, 180, 65, 0.25));
-          --suite-primary: var(--primary, #e0ad35);
-          --suite-success: var(--success, #35d477);
-          --suite-danger: var(--danger, #e35d5d);
-        }
-
-        * {
-          box-sizing: border-box;
-        }
-
-        .restaurant-suite-page {
-          min-height: 100vh;
-          padding: 28px;
-          color: var(--suite-text);
-          background:
-            radial-gradient(
-              circle at top right,
-              rgba(224, 173, 53, 0.08),
-              transparent 30%
-            ),
-            var(--suite-bg);
-        }
-
-        .suite-header {
-          display: flex;
-          justify-content: space-between;
-          gap: 20px;
-          align-items: flex-start;
-          margin-bottom: 24px;
-        }
-
-        .suite-kicker {
-          color: var(--suite-primary);
-          font-size: 12px;
-          font-weight: 800;
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-        }
-
-        .suite-header h1 {
-          margin: 6px 0;
-          font-size: clamp(30px, 5vw, 52px);
-          line-height: 1;
-        }
-
-        .suite-header p {
-          margin: 0;
-          color: var(--suite-muted);
-        }
-
-        .suite-actions {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .suite-button,
-        .mini-button {
-          border: 1px solid var(--suite-border);
-          border-radius: 12px;
-          padding: 10px 14px;
-          background: var(--suite-surface);
-          color: var(--suite-text);
-          cursor: pointer;
-          font-weight: 700;
-        }
-
-        .suite-button:hover,
-        .mini-button:hover {
-          border-color: var(--suite-primary);
-        }
-
-        .mini-button.primary {
-          background: var(--suite-primary);
-          color: #171006;
-          border-color: var(--suite-primary);
-        }
-
-        .suite-tabs {
-          display: flex;
-          gap: 8px;
-          overflow-x: auto;
-          padding: 8px;
-          margin-bottom: 24px;
-          border: 1px solid var(--suite-border);
-          border-radius: 18px;
-          background: rgba(13, 36, 28, 0.72);
-          scrollbar-width: thin;
-        }
-
-        .suite-tab {
-          flex: 0 0 auto;
-          border: 0;
-          border-radius: 12px;
-          padding: 11px 15px;
-          color: var(--suite-muted);
-          background: transparent;
-          cursor: pointer;
-          font-weight: 700;
-        }
-
-        .suite-tab.active {
-          color: #171006;
-          background: var(--suite-primary);
-        }
-
-        .suite-error {
-          margin-bottom: 18px;
-          padding: 13px 16px;
-          border: 1px solid rgba(227, 93, 93, 0.45);
-          border-radius: 14px;
-          color: #ffd9d9;
-          background: rgba(227, 93, 93, 0.1);
-        }
-
-        .suite-loading {
-          min-height: 300px;
-          display: grid;
-          place-items: center;
-          color: var(--suite-muted);
-        }
-
-        .suite-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 16px;
-          margin-bottom: 20px;
-        }
-
-        .suite-card,
-        .suite-section,
-        .feature-card,
-        .table-card {
-          border: 1px solid var(--suite-border);
-          background: linear-gradient(
-            145deg,
-            rgba(20, 49, 38, 0.94),
-            rgba(8, 28, 21, 0.94)
-          );
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12);
-        }
-
-        .suite-card {
-          min-height: 150px;
-          padding: 20px;
-          border-radius: 20px;
-        }
-
-        .suite-icon {
-          width: 42px;
-          height: 42px;
-          display: grid;
-          place-items: center;
-          margin-bottom: 16px;
-          border-radius: 13px;
-          color: var(--suite-primary);
-          background: rgba(224, 173, 53, 0.12);
-          font-size: 21px;
-        }
-
-        .suite-card-title {
-          color: var(--suite-muted);
-          font-size: 14px;
-        }
-
-        .suite-card-value {
-          margin-top: 3px;
-          font-size: 30px;
-          font-weight: 800;
-        }
-
-        .suite-card-subtitle {
-          margin-top: 4px;
-          color: var(--suite-muted);
-          font-size: 13px;
-        }
-
-        .suite-section {
-          margin-bottom: 20px;
-          padding: 20px;
-          border-radius: 22px;
-        }
-
-        .suite-section-head {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 15px;
-          margin-bottom: 18px;
-        }
-
-        .suite-section-head h2 {
-          margin: 0;
-          font-size: 24px;
-        }
-
-        .suite-section-head p {
-          margin: 5px 0 0;
-          color: var(--suite-muted);
-        }
-
-        .suite-list {
-          display: grid;
-        }
-
-        .suite-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 15px;
-          padding: 16px 4px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        }
-
-        .suite-row:last-child {
-          border-bottom: 0;
-        }
-
-        .suite-row > div:first-child {
-          min-width: 0;
-        }
-
-        .suite-row strong {
-          display: block;
-        }
-
-        .suite-row span {
-          display: block;
-          margin-top: 4px;
-          color: var(--suite-muted);
-          font-size: 13px;
-        }
-
-        .suite-row-right {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-
-        .suite-badge {
-          display: inline-block !important;
-          margin: 0 !important;
-          padding: 6px 10px;
-          border: 1px solid rgba(53, 212, 119, 0.25);
-          border-radius: 999px;
-          color: var(--suite-success) !important;
-          background: rgba(53, 212, 119, 0.08);
-          font-size: 12px !important;
-          font-weight: 700;
-        }
-
-        .table-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .table-card {
-          position: relative;
-          min-height: 160px;
-          padding: 18px;
-          border-radius: 18px;
-        }
-
-        .table-number {
-          font-size: 22px;
-          font-weight: 800;
-        }
-
-        .status-dot {
-          width: 11px;
-          height: 11px;
-          margin-top: 15px;
-          border-radius: 50%;
-          background: var(--suite-success);
-          box-shadow: 0 0 12px currentColor;
-        }
-
-        .status-occupied,
-        .status-running {
-          background: var(--suite-danger);
-        }
-
-        .status-reserved {
-          background: var(--suite-primary);
-        }
-
-        .table-status {
-          margin-top: 8px;
-          color: var(--suite-muted);
-          text-transform: capitalize;
-        }
-
-        .table-actions {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-          margin-top: 15px;
-        }
-
-        .feature-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .feature-card {
-          min-height: 145px;
-          padding: 18px;
-          border-radius: 18px;
-        }
-
-        .feature-card > span {
-          display: block;
-          margin-bottom: 12px;
-          font-size: 25px;
-        }
-
-        .feature-card strong {
-          display: block;
-          font-size: 17px;
-        }
-
-        .feature-card p {
-          margin: 7px 0 0;
-          color: var(--suite-muted);
-          line-height: 1.5;
-        }
-
-        .feature-card-button {
-          width: 100%;
-          text-align: left;
-          color: var(--suite-text);
-          cursor: pointer;
-        }
-
-        .pipeline {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          gap: 10px;
-        }
-
-        .pipeline-step {
-          padding: 16px;
-          text-align: center;
-          border: 1px solid var(--suite-border);
-          border-radius: 14px;
-          background: rgba(224, 173, 53, 0.06);
-          color: var(--suite-primary);
-          font-weight: 800;
-        }
-
-        .suite-empty {
-          min-height: 180px;
-          display: grid;
-          place-items: center;
-          align-content: center;
-          gap: 7px;
-          color: var(--suite-muted);
-          text-align: center;
-        }
-
-        .suite-empty strong {
-          color: var(--suite-text);
-          font-size: 17px;
-        }
-
-        .suite-empty-icon {
-          font-size: 34px;
-        }
-
-        @media (max-width: 900px) {
-          .suite-grid,
-          .feature-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .table-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-        }
-
-        @media (max-width: 650px) {
-          .restaurant-suite-page {
-            padding: 15px;
-          }
-
-          .suite-header {
-            flex-direction: column;
-          }
-
-          .suite-grid,
-          .feature-grid,
-          .table-grid,
-          .pipeline {
-            grid-template-columns: 1fr;
-          }
-
-          .suite-section {
-            padding: 15px;
-            border-radius: 18px;
-          }
-
-          .suite-section-head {
-            flex-direction: column;
-          }
-
-          .suite-row {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .suite-row-right {
-            justify-content: flex-start;
-          }
-        }
-      `}</style>
-
-      <header className="suite-header">
-        <div>
-          <div className="suite-kicker">Restaurant Operations</div>
-          <h1>Petpooja Operations Hub</h1>
-          <p>
-            Billing, tables, KOT, delivery, QR, kiosk, CRM and reporting.
-          </p>
-        </div>
-
-        <div className="suite-actions">
-          <button
-            type="button"
-            className="suite-button"
-            onClick={() => loadData(true)}
-            disabled={refreshing}
-          >
-            {refreshing ? "Refreshing..." : "↻ Refresh"}
-          </button>
-        </div>
-      </header>
-
-      <nav className="suite-tabs">
-        {TABS.map((tab) => (
-          <button
-            type="button"
-            key={tab.id}
-            className={`suite-tab ${
-              activeTab === tab.id ? "active" : ""
-            }`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.icon} {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? <div className="suite-error">⚠️ {error}</div> : null}
-
-      {loading ? (
-        <div className="suite-loading">
-          <div>Loading Restaurant Operations...</div>
-        </div>
-      ) : (
-        <>
-          {activeTab !== "overview" ? (
-            <div
-              style={{
-                marginBottom: 18,
-                color: "var(--suite-muted)",
-                fontSize: 13,
-              }}
-            >
-              Restaurant ID: {restaurantId || "Connected"}
-            </div>
-          ) : null}
-
-          {renderActiveTab()}
-        </>
-      )}
-    </main>
-  )
+    <style jsx global>{`
+      .pp-wrap{min-height:100vh;padding:28px;max-width:1500px;margin:0 auto;color:var(--text,#f5f0e6);background:var(--background,#07120e)}
+      .pp-hero{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;padding:28px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:24px;background:var(--surface,#0c251b);box-shadow:0 20px 70px rgba(0,0,0,.2)}
+      .pp-hero small{color:var(--primary,#e7ae39);letter-spacing:.18em;font-weight:800}.pp-hero h1{margin:8px 0;font-size:clamp(28px,4vw,48px);font-family:Georgia,serif}.pp-hero p,.pp-muted{color:var(--muted,#aeb8b2)}.pp-badge{padding:10px 14px;border-radius:999px;background:rgba(231,174,57,.1);border:1px solid rgba(231,174,57,.35);color:var(--primary,#e7ae39);white-space:nowrap}
+      .pp-tabs{display:flex;gap:8px;overflow:auto;padding:16px 0}.pp-tabs button,.pp-button,.pp-actions button,.pp-card button{border:1px solid var(--border,rgba(255,255,255,.12));background:var(--surface-2,#102d22);color:var(--text,#f5f0e6);border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.pp-tabs button.active,.pp-card button:hover,.pp-actions button:hover,.pp-button:hover{background:var(--primary,#e7ae39);color:#111}.pp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.pp-card{border:1px solid var(--border,rgba(255,255,255,.12));background:var(--surface,#0c251b);border-radius:22px;padding:20px;min-width:0}.pp-card-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.pp-card h2{margin:0 0 16px;font-size:20px}.pp-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pp-field{display:flex;flex-direction:column;gap:7px}.pp-field span{font-size:12px;color:var(--muted,#aeb8b2);font-weight:700}.pp-field input,.pp-field select,.pp-field textarea{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:11px;border:1px solid var(--border,rgba(255,255,255,.12));background:rgba(0,0,0,.15);color:var(--text,#f5f0e6);outline:none}.pp-form-grid button{align-self:end}.pp-list{margin-top:14px;display:flex;flex-direction:column}.pp-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--border,rgba(255,255,255,.08))}.pp-row span{color:var(--muted,#aeb8b2);font-size:13px}.pp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.pp-table-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:16px}.pp-table{min-height:92px;display:flex!important;flex-direction:column;gap:5px;align-items:flex-start!important}.pp-table small,.pp-table em{font-size:12px;color:var(--muted,#aeb8b2);font-style:normal}.pp-table.occupied{border-color:#d45b4d}.pp-table.reserved{border-color:#e7ae39}.pp-empty,.pp-lock{padding:18px;border:1px dashed var(--border,rgba(255,255,255,.18));border-radius:16px;color:var(--muted,#aeb8b2)}.pp-lock{margin-bottom:16px;color:#e7ae39}.pp-stats{font-size:12px;color:var(--muted,#aeb8b2)}.pp-check{display:flex;align-items:center;gap:8px}.pp-link{display:inline-block;margin-top:16px;color:var(--primary,#e7ae39)}.pp-toast{position:fixed;right:20px;bottom:20px;max-width:420px;padding:14px 18px;border:1px solid rgba(231,174,57,.4);background:#0d241a;color:#fff;border-radius:14px;box-shadow:0 15px 40px rgba(0,0,0,.35);z-index:50}
+      .feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}.feature-card{padding:16px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;background:rgba(0,0,0,.12)}.feature-card span{font-size:24px;display:block;margin-bottom:8px}.feature-card b{display:block}.feature-card p{margin:6px 0 0;color:var(--muted,#aeb8b2);font-size:13px;line-height:1.45}
+      @media(max-width:900px){.pp-grid{grid-template-columns:1fr}.feature-grid{grid-template-columns:1fr}.pp-hero{flex-direction:column}.pp-form-grid{grid-template-columns:1fr}.pp-wrap{padding:16px}.pp-row{grid-template-columns:1fr auto}.pp-row .pp-actions{grid-column:1/-1}}
+    `}</style>
+  </main>
 }

@@ -26,6 +26,65 @@ export async function POST(req) {
       if (error) throw error
       return NextResponse.json({ success: true, data })
     }
+    if (action === "hold_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { data, error } = await supabaseAdmin.from("order_holds").insert({ restaurant_id: rid, order_id: body.order_id, hold_type: body.hold_type || "hold", note: body.note || null, created_by: user.id }).select().single()
+      if (error) throw error
+      await supabaseAdmin.from("orders").update({ hold_status: "held" }).eq("id", body.order_id).eq("restaurant_id", rid)
+      await audit(rid, user.id, "order.held", "order", body.order_id, { hold_id: data.id })
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "resume_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { error: holdError } = await supabaseAdmin.from("order_holds").update({ released_at: new Date().toISOString() }).eq("restaurant_id", rid).eq("order_id", body.order_id).is("released_at", null)
+      if (holdError) throw holdError
+      const { error } = await supabaseAdmin.from("orders").update({ hold_status: "active" }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await audit(rid, user.id, "order.resumed", "order", body.order_id, { hold_status: "active" })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "reopen_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { error } = await supabaseAdmin.from("orders").update({ status: "open", reopened_at: new Date().toISOString() }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await supabaseAdmin.from("order_status_history").insert({ restaurant_id: rid, order_id: body.order_id, status: "open", source: "reopen", note: body.reason || "Reopened", changed_by: user.id })
+      await audit(rid, user.id, "order.reopened", "order", body.order_id, { status: "open" }, body.reason)
+      return NextResponse.json({ success: true })
+    }
+    if (action === "table_transfer") {
+      if (!body.order_id || !body.to_table_id) throw new Error("Order and destination table are required")
+      const { data: order, error: orderError } = await supabaseAdmin.from("orders").select("table_id").eq("id", body.order_id).eq("restaurant_id", rid).single()
+      if (orderError) throw orderError
+      const { error } = await supabaseAdmin.from("orders").update({ table_id: body.to_table_id }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await supabaseAdmin.from("order_transfers").insert({ restaurant_id: rid, order_id: body.order_id, from_table_id: order.table_id || null, to_table_id: body.to_table_id, moved_by: user.id })
+      await audit(rid, user.id, "table.transfer", "order", body.order_id, { from_table_id: order.table_id, to_table_id: body.to_table_id })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "reservation_deposit") {
+      if (!body.reservation_id || Number(body.amount || 0) <= 0) throw new Error("Reservation and positive deposit are required")
+      const { data, error } = await supabaseAdmin.from("reservation_deposits").insert({ restaurant_id: rid, reservation_id: body.reservation_id, amount: Number(body.amount), payment_method: body.payment_method || "upi", reference: body.reference || null, status: "paid", paid_at: new Date().toISOString() }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "feedback_request") {
+      const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      const { data, error } = await supabaseAdmin.from("feedback_requests").insert({ restaurant_id: rid, order_id: body.order_id || null, customer_id: body.customer_id || null, channel: body.channel || "qr", token, status: "pending", sent_at: new Date().toISOString() }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "cash_movement") {
+      const amount = Number(body.amount || 0)
+      if (amount <= 0 || !body.shift_id) throw new Error("Shift and positive amount are required")
+      const { data, error } = await supabaseAdmin.from("cash_movements").insert({ restaurant_id: rid, session_id: body.shift_id, movement_type: body.movement_type || "cash_in", amount, reference: body.reference || null, note: body.note || null, created_by: user.id }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "report_export") {
+      const { data, error } = await supabaseAdmin.from("report_exports").insert({ restaurant_id: rid, report_type: body.report_type || "sales", filters: body.filters || {}, format: body.format || "csv", status: "requested", requested_by: user.id }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
     if (action === "payment") {
       const amount = Number(body.amount || 0)
       if (!body.order_id || amount <= 0) throw new Error("Order and positive amount are required")
