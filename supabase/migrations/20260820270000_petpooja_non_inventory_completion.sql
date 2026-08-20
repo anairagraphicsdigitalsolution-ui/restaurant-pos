@@ -1,4 +1,4 @@
--- Anaira non-inventory Petpooja parity completion.
+-- Anaira non-inventory Anaira parity completion.
 -- Additive only. Inventory tables are intentionally not touched.
 
 create table if not exists public.central_kitchens (

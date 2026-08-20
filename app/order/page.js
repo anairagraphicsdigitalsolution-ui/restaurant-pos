@@ -248,7 +248,7 @@ export default function OrderPage() {
     setDeliveryCharge(Number(zone?.charge || 0))
   }
 
-  // Petpooja-style POS order flow: dine-in, takeaway and delivery share one cart.
+  // Anaira POS order flow: dine-in, takeaway and delivery share one cart.
   async function placeOrder() {
 
     if (!restaurantId) return alert("Restaurant missing")

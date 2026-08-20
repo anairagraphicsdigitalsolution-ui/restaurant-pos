@@ -1,4 +1,4 @@
--- Petpooja-style non-inventory runtime completion.
+-- Anaira non-inventory runtime completion.
 -- Additive only. Inventory tables and inventory logic are intentionally untouched.
 
 create table if not exists public.reservation_waitlist (

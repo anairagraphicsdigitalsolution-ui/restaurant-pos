@@ -1,4 +1,4 @@
--- Anaira Restaurant Suite: Petpooja-style operational expansion.
+-- Anaira Restaurant Suite: Anaira operational expansion.
 -- NON-DESTRUCTIVE: only creates new tables/functions/triggers/indexes and does not delete or rewrite existing business data.
 
 create table if not exists public.order_tokens (

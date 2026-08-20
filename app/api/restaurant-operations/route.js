@@ -266,7 +266,7 @@ export async function POST(req) {
     }
     throw new Error("Unsupported action")
   } catch (error) {
-    console.error("petpooja parity", error)
+    console.error("restaurant operations", error)
     return NextResponse.json({ success: false, error: error?.message || "Operation failed" }, { status: 400 })
   }
 }

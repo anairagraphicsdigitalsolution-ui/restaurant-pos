@@ -51,7 +51,7 @@ function Field({ label, children }) {
 
 function Empty({ children }) { return <div className="pp-empty">{children}</div> }
 
-export default function PetpoojaParity() {
+export default function AnairaOperationsHub() {
   const [rid, setRid] = useState("")
   const [role, setRole] = useState("")
   const [tab, setTab] = useState("floor")
@@ -152,7 +152,7 @@ export default function PetpoojaParity() {
   async function api(action, payload = {}) {
     setBusy(true)
     const { data: session } = await supabase.auth.getSession()
-    const response = await fetch("/api/petpooja-parity", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.session?.access_token || ""}` }, body: JSON.stringify({ action, ...payload }) })
+    const response = await fetch("/api/restaurant-operations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.session?.access_token || ""}` }, body: JSON.stringify({ action, ...payload }) })
     const json = await response.json().catch(() => ({}))
     setBusy(false)
     setMessage(json.error || (response.ok ? "Completed successfully" : "Operation failed"))
@@ -166,7 +166,7 @@ export default function PetpoojaParity() {
 
   return <main className="pp-wrap">
     <header className="pp-hero">
-      <div><small>RESTAURANT OPERATIONS</small><h1>Petpooja-style Operations Hub</h1><p>Tables → Order → KOT → KDS → Token → Delivery → Payment → CRM → Reports</p><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/command">Open Command Center →</a></div></div>
+      <div><small>RESTAURANT OPERATIONS</small><h1>Anaira Operations Hub</h1><p>Tables → Order → KOT → KDS → Token → Delivery → Payment → CRM → Reports</p><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/command">Open Command Center →</a></div></div>
       <div className="pp-badge">{role || "staff"} • {busy ? "Working…" : "Live"}</div>
     </header>
 

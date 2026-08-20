@@ -1,4 +1,4 @@
--- Anaira Petpooja-style parity completion.
+-- Anaira Anaira parity completion.
 -- NON-DESTRUCTIVE: creates additive tables/functions/indexes only.
 -- No existing business rows are deleted or rewritten.
 
