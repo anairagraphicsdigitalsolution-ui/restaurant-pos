@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
@@ -100,33 +101,11 @@ export async function POST(req) {
      * has_plan_feature(), because this API uses supabaseAdmin.
      */
 
-    const { data: billingEnabled, error: featureError } =
-      await supabaseAdmin.rpc("has_restaurant_plan_feature", {
-        p_restaurant_id: order.restaurant_id,
-        p_plugin_code: "billing"
-      })
-
-    if (featureError) {
-      console.error(
-        "BILLING PLAN CHECK ERROR:",
-        featureError
-      )
-
+    try {
+      await requireFeature(order.restaurant_id, "payments")
+    } catch (featureError) {
       return Response.json(
-        {
-          success: false,
-          error: "Unable to verify billing plan"
-        },
-        { status: 500 }
-      )
-    }
-
-    if (billingEnabled !== true) {
-      return Response.json(
-        {
-          success: false,
-          error: "Billing is not available on your current plan"
-        },
+        { success: false, error: featureError.message },
         { status: 403 }
       )
     }

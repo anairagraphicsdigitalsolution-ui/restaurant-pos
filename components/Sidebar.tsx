@@ -31,6 +31,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   const [planName, setPlanName] = useState("")
   const [planEndsAt, setPlanEndsAt] = useState("")
   const [hubPlugins, setHubPlugins] = useState<Record<string, boolean>>({})
+  const [featurePlugins, setFeaturePlugins] = useState<Record<string, boolean>>({})
   const [openAdminMenus, setOpenAdminMenus] = useState<Record<string, boolean>>({})
   const [manualClosedMenus, setManualClosedMenus] = useState<Record<string, boolean>>({})
   const [restaurantId, setRestaurantId] = useState<string | null>(null)
@@ -98,20 +99,39 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       const live = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
       setPlanName(plan?.name || "")
       setPlanEndsAt(planData?.subscription?.ends_at || "")
-      setPlanFeatures({
-        qr: live && plan?.qr_ordering === true,
-        loyalty: live && plan?.loyalty === true,
-        offers: live && plan?.offers === true,
-        analytics: live && plan?.analytics === true,
-        reservations: live && plan?.reservations === true,
-        whatsapp: live && plan?.whatsapp === true,
-      })
-
-      const { data: hubRows } = await supabase
+      const { data: pluginRows } = await supabase
         .from("restaurant_plugins")
         .select("plugin_code,enabled")
         .eq("restaurant_id", profile.restaurant_id)
-        .in("plugin_code", ["operations-hub","restaurant-core","restaurant-pro"])
+
+      const pluginState: Record<string, boolean> = {}
+      for (const row of pluginRows || []) {
+        pluginState[row.plugin_code] = row.enabled === true
+      }
+
+      const aliases: Record<string,string[]> = {
+        qr: ["qr-ordering-pro","qr-menu"],
+        loyalty: ["loyalty"],
+        offers: ["offers"],
+        analytics: ["analytics"],
+        reservations: ["reservations-pro","reservations"],
+        whatsapp: ["whatsapp-invoice","whatsapp"],
+      }
+
+      const resolved: Record<string, boolean> = { ...pluginState }
+      for (const [key, codes] of Object.entries(aliases)) {
+        resolved[key] = codes.some(code => pluginState[code] === true)
+      }
+
+      // Super Admin plugin state is the runtime navigation source of truth.
+      // The subscription is still displayed for billing context, but it no longer
+      // silently turns a feature on when the Super Admin has switched it off.
+      setPlanFeatures(resolved)
+      setFeaturePlugins(resolved)
+
+      const hubRows = (pluginRows || []).filter(row =>
+        ["operations-hub","restaurant-core","restaurant-pro"].includes(row.plugin_code)
+      )
 
       setHubPlugins(
         Object.fromEntries((hubRows || []).map(row => [row.plugin_code, row.enabled === true]))
@@ -193,14 +213,14 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       hubPlugin: "operations-hub",
       children: [
         { name: "Overview", path: "/dashboard/business" },
-        { name: "Customers", path: "/dashboard/business?tab=customers" },
-        { name: "Modifiers", path: "/dashboard/business?tab=modifiers" },
-        { name: "KOT", path: "/dashboard/business?tab=kot" },
-        { name: "Expenses", path: "/dashboard/business?tab=expenses" },
-        { name: "Attendance", path: "/dashboard/business?tab=attendance" },
-        { name: "Loyalty", path: "/dashboard/business?tab=loyalty" },
-        { name: "Feedback", path: "/dashboard/business?tab=feedback" },
-        { name: "Permissions", path: "/dashboard/business?tab=permissions" },
+        { name: "Customers", path: "/dashboard/business?tab=customers", feature: "crm" },
+        { name: "Modifiers", path: "/dashboard/business?tab=modifiers", feature: "combos-variants" },
+        { name: "KOT", path: "/dashboard/business?tab=kot", feature: "kds" },
+        { name: "Expenses", path: "/dashboard/business?tab=expenses", feature: "analytics" },
+        { name: "Attendance", path: "/dashboard/business?tab=attendance", feature: "staff-attendance" },
+        { name: "Loyalty", path: "/dashboard/business?tab=loyalty", feature: "loyalty" },
+        { name: "Feedback", path: "/dashboard/business?tab=feedback", feature: "feedback-reviews" },
+        { name: "Permissions", path: "/dashboard/business?tab=permissions", feature: "permissions" },
       ]
     },
     {
@@ -211,13 +231,13 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       children: [
         { name: "Overview", path: "/dashboard/restaurant-pro" },
         { name: "GST & Billing", path: "/dashboard/restaurant-pro?tab=gst" },
-        { name: "Suppliers", path: "/dashboard/restaurant-pro?tab=suppliers" },
-        { name: "Purchasing", path: "/dashboard/restaurant-pro?tab=purchases" },
-        { name: "Recipes", path: "/dashboard/restaurant-pro?tab=recipes" },
-        { name: "Delivery", path: "/dashboard/restaurant-pro?tab=delivery" },
-        { name: "Staff Shifts", path: "/dashboard/restaurant-pro?tab=staff" },
-        { name: "Loyalty", path: "/dashboard/restaurant-pro?tab=loyalty" },
-        { name: "Cash Session", path: "/dashboard/restaurant-pro?tab=cash" },
+        { name: "Suppliers", path: "/dashboard/restaurant-pro?tab=suppliers", feature: "purchasing" },
+        { name: "Purchasing", path: "/dashboard/restaurant-pro?tab=purchases", feature: "purchasing" },
+        { name: "Recipes", path: "/dashboard/restaurant-pro?tab=recipes", feature: "recipe-bom" },
+        { name: "Delivery", path: "/dashboard/restaurant-pro?tab=delivery", feature: "delivery" },
+        { name: "Staff Shifts", path: "/dashboard/restaurant-pro?tab=staff", feature: "staff-attendance" },
+        { name: "Loyalty", path: "/dashboard/restaurant-pro?tab=loyalty", feature: "loyalty" },
+        { name: "Cash Session", path: "/dashboard/restaurant-pro?tab=cash", feature: "cash-closing" },
       ]
     },
     {
@@ -227,47 +247,51 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       hubPlugin: "restaurant-core",
       children: [
         { name: "POS & Orders", path: "/dashboard/restaurant-core?tab=pos" },
-        { name: "Tables", path: "/dashboard/restaurant-core?tab=tables" },
-        { name: "Kitchen / KDS", path: "/dashboard/restaurant-core?tab=kds" },
-        { name: "Billing", path: "/dashboard/restaurant-core?tab=billing" },
-        { name: "Inventory", path: "/dashboard/restaurant-core?tab=inventory" },
-        { name: "Delivery", path: "/dashboard/restaurant-core?tab=delivery" },
-        { name: "Customers", path: "/dashboard/restaurant-core?tab=crm" },
-        { name: "Analytics", path: "/dashboard/restaurant-core?tab=analytics" },
+        { name: "Tables", path: "/dashboard/restaurant-core?tab=tables", feature: "table-management" },
+        { name: "Kitchen / KDS", path: "/dashboard/restaurant-core?tab=kds", feature: "kds" },
+        { name: "Billing", path: "/dashboard/restaurant-core?tab=billing", feature: "payments" },
+        { name: "Inventory", path: "/dashboard/restaurant-core?tab=inventory", feature: "inventory-advanced" },
+        { name: "Delivery", path: "/dashboard/restaurant-core?tab=delivery", feature: "delivery" },
+        { name: "Customers", path: "/dashboard/restaurant-core?tab=crm", feature: "crm" },
+        { name: "Analytics", path: "/dashboard/restaurant-core?tab=analytics", feature: "analytics" },
       ]
     },
     {
       name: "Restaurant Suite",
       icon: "🏆",
       path: "/dashboard/restaurant-suite",
+      feature: "pos-core",
       children: [
         { name: "Operations Center", path: "/dashboard/restaurant-suite" },
-        { name: "Token / Pickup", path: "/dashboard/restaurant-suite?tab=tokens" },
-        { name: "Online Reconciliation", path: "/dashboard/restaurant-suite?tab=online" },
-        { name: "Food Cost", path: "/dashboard/restaurant-suite?tab=costing" },
-        { name: "CRM Campaigns", path: "/dashboard/restaurant-suite?tab=marketing" },
-        { name: "Captain / Staff", path: "/dashboard/restaurant-suite?tab=captain" },
-        { name: "Kiosk / Display", path: "/dashboard/restaurant-suite?tab=devices" },
+        { name: "Token / Pickup", path: "/dashboard/restaurant-suite?tab=tokens", feature: "token-management" },
+        { name: "Online Reconciliation", path: "/dashboard/restaurant-suite?tab=online", feature: "online-reconciliation" },
+        { name: "Food Cost", path: "/dashboard/restaurant-suite?tab=costing", feature: "profit-food-cost" },
+        { name: "CRM Campaigns", path: "/dashboard/restaurant-suite?tab=marketing", feature: "campaigns" },
+        { name: "Captain / Staff", path: "/dashboard/restaurant-suite?tab=captain", feature: "captain-app" },
+        { name: "Kiosk / Display", path: "/dashboard/restaurant-suite?tab=devices", feature: "digital-display" },
+        { name: "Advanced Operations", path: "/dashboard/restaurant-suite/advanced", feature: "pos-core" },
       ]
     },
     {
       name: "Offers",
       icon: "🎁",
       path: "/dashboard/offers",
+      feature: "offers",
       children: [
         { name: "All Offers", path: "/dashboard/offers" },
-        { name: "Combos", path: "/dashboard/combos" },
+        { name: "Combos", path: "/dashboard/combos", feature: "combos-variants" },
       ]
     },
     {
       name: "Customers",
       icon: "👥",
       path: "/dashboard/customers",
+      feature: "crm",
       children: [
         { name: "Customer CRM", path: "/dashboard/customers" },
         { name: "Reservations", path: "/dashboard/reservations", feature: "reservations" },
         { name: "Loyalty & Rewards", path: "/dashboard/business?tab=loyalty", feature: "loyalty" },
-        { name: "Feedback & Reviews", path: "/dashboard/business?tab=feedback" },
+        { name: "Feedback & Reviews", path: "/dashboard/business?tab=feedback", feature: "feedback-reviews" },
       ]
     },
     {
@@ -294,6 +318,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       name: "Notifications",
       icon: "🔔",
       path: "/dashboard/notifications",
+      feature: "smart-notifications",
       badge: unreadNotifications,
     },
     {
@@ -302,7 +327,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       path: "/dashboard/theme",
       children: [
         { name: "Theme & Branding", path: "/dashboard/theme" },
-        { name: "Cash Closing", path: "/dashboard/cash-closing" },
+        { name: "Cash Closing", path: "/dashboard/cash-closing", feature: "cash-closing" },
       ]
     },
   ]
@@ -317,9 +342,9 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     ...(isAdmin ? [{ name: "Dashboard", path: "/dashboard", icon: "📊" }] : []),
     ...((isStaff || isAdmin)
       ? [
-          ...(isAdmin || canStaff("orders") ? [{ name: "Order", path: "/order", icon: "🧾" }] : []),
-          ...(isAdmin || canStaff("kitchen") ? [{ name: "Kitchen", path: "/kitchen", icon: "🍳" }] : []),
-          ...(isAdmin || canStaff("billing") ? [{ name: "Billing", path: "/billing", icon: "💰" }] : [])
+          ...(isAdmin || canStaff("orders") ? [{ name: "Order", path: "/order", icon: "🧾", feature: "pos-core" }] : []),
+          ...(isAdmin || canStaff("kitchen") ? [{ name: "Kitchen", path: "/kitchen", icon: "🍳", feature: "kds" }] : []),
+          ...(isAdmin || canStaff("billing") ? [{ name: "Billing", path: "/billing", icon: "💰", feature: "payments" }] : [])
         ]
       : [])
   ]
@@ -605,7 +630,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
         {role !== "super_admin" && (
           <Section title="MAIN">
-            {mainMenu.map(renderLink)}
+            {mainMenu.filter((item: any) => !item.feature || planFeatures[item.feature] === true).map(renderLink)}
           </Section>
         )}
       </div>

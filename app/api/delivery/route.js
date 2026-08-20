@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
@@ -43,6 +44,12 @@ export async function GET(req) {
     const { restaurantId } = await resolveRestaurant(user.id)
     if (!restaurantId) return Response.json({ success:false, error:"No restaurant linked" }, { status:403 })
 
+    try {
+      await requireFeature(restaurantId, "delivery")
+    } catch (featureError) {
+      return Response.json({ success:false, error:featureError.message }, { status:403 })
+    }
+
     const [deliveryRes, riderRes, zoneRes] = await Promise.all([
       supabaseAdmin
         .from("restaurant_deliveries")
@@ -84,6 +91,12 @@ export async function POST(req) {
     const user = await requireApiUser(req)
     const { restaurantId } = await resolveRestaurant(user.id)
     if (!restaurantId) return Response.json({ success:false, error:"No restaurant linked" }, { status:403 })
+
+    try {
+      await requireFeature(restaurantId, "delivery")
+    } catch (featureError) {
+      return Response.json({ success:false, error:featureError.message }, { status:403 })
+    }
 
     const body = await req.json()
     const action = String(body?.action || "").trim().toLowerCase()

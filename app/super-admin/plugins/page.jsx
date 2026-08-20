@@ -134,11 +134,13 @@ export default function PluginsPage(){
 
   async function setAll(enabled){
     if(!selected) return
-    const rows=enabled ? merged.filter(x=>!x.plugin) : installed.filter(x=>x.enabled).map(x=>({
-      code:x.plugin_code,
-      name:x.display_name||x.plugin_code,
-      plugin:x
-    }))
+    const rows = enabled
+      ? merged.filter(x => !x.plugin?.enabled)
+      : installed.filter(x => x.enabled).map(x => ({
+          code:x.plugin_code,
+          name:x.display_name||x.plugin_code,
+          plugin:x
+        }))
     if(!rows.length){
       setMessage(enabled?"All plugins are already installed.":"No active plugins to disable.")
       return
@@ -151,10 +153,17 @@ export default function PluginsPage(){
     try{
       for(const item of rows){
         if(enabled){
-          await fetch("/api/super-admin/plugins",{
-            method:"POST",headers,
-            body:JSON.stringify({restaurant_id:selected.id,plugin_code:item.code})
-          })
+          if(item.plugin?.id){
+            await fetch("/api/super-admin/plugins",{
+              method:"PATCH",headers,
+              body:JSON.stringify({restaurant_id:selected.id,id:item.plugin.id,enabled:true})
+            })
+          } else {
+            await fetch("/api/super-admin/plugins",{
+              method:"POST",headers,
+              body:JSON.stringify({restaurant_id:selected.id,plugin_code:item.code})
+            })
+          }
         }else{
           await fetch("/api/super-admin/plugins",{
             method:"PATCH",headers,
@@ -203,6 +212,7 @@ export default function PluginsPage(){
               <span style={badge}>🏪 {restaurants.length} Restaurants</span>
               <span style={badge}>⚡ {activeCount} Active</span>
               <span style={badge}>📈 {coverage}% Coverage</span>
+              {selected&&<span style={badge}>🏪 {selected.name}</span>}
             </div>
           </div>
         </header>

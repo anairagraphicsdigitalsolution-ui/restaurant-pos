@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { featureCodes, FEATURE_CATALOG } from "@/lib/featureCatalog"
 
 export const runtime = "nodejs"
 
@@ -7,19 +8,9 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-const PLUGIN_ALIASES = {
-  "qr-ordering-pro": ["qr-ordering-pro", "qr-menu"],
-  "qr-menu": ["qr-ordering-pro", "qr-menu"],
-  "pos-core": ["pos-core", "pos"],
-  pos: ["pos-core", "pos"],
-  "whatsapp-invoice": ["whatsapp-invoice", "whatsapp"],
-  whatsapp: ["whatsapp-invoice", "whatsapp"],
-  "reservations-pro": ["reservations-pro", "reservations"],
-  reservations: ["reservations-pro", "reservations"]
-}
 
 function aliasCodes(pluginCode) {
-  return PLUGIN_ALIASES[pluginCode] || [pluginCode]
+  return featureCodes(pluginCode)
 }
 
 function db() {
@@ -100,6 +91,9 @@ export async function GET(request) {
 
     if (catalogError) throw new Error(catalogError.message)
 
+    const canonicalCodes = new Set(FEATURE_CATALOG.map(item => item.code).concat(["operations-hub","restaurant-core","restaurant-pro"]))
+    const canonicalCatalog = (catalog || []).filter(item => canonicalCodes.has(item.code))
+
     if (!restaurantId) {
       const { data: restaurants, error: restaurantsError } = await admin
         .from("restaurants")
@@ -110,7 +104,7 @@ export async function GET(request) {
 
       return NextResponse.json({
         success: true,
-        catalog: catalog || [],
+        catalog: canonicalCatalog,
         restaurants: restaurants || []
       })
     }
@@ -128,7 +122,7 @@ export async function GET(request) {
 
     return NextResponse.json({
       success: true,
-      catalog: catalog || [],
+      catalog: canonicalCatalog,
       plugins: data || []
     })
 
@@ -186,22 +180,6 @@ export async function POST(request) {
 
     await ensureRestaurant(admin, restaurantId)
 
-    const { data: existing, error: existingError } = await admin
-      .from("restaurant_plugins")
-      .select("id")
-      .eq("restaurant_id", restaurantId)
-      .eq("plugin_code", pluginCode)
-      .maybeSingle()
-
-    if (existingError) throw new Error(existingError.message)
-
-    if (existing) {
-      return NextResponse.json(
-        { success: false, error: "Plugin already installed" },
-        { status: 409 }
-      )
-    }
-
     const codes = aliasCodes(pluginCode)
     const results = []
 
@@ -256,8 +234,8 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
-      plugin: data?.find(row => row.plugin_code === pluginCode) || data?.[0] || null,
-      plugins: data || []
+      plugin: results.find(row => row.plugin_code === pluginCode) || results[0] || null,
+      plugins: results
     })
   } catch (error) {
     console.error("PLUGIN INSTALL ERROR:", error)
