@@ -3,117 +3,1483 @@
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
-const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
-const statusLabel = (s) => ({ pending:"Pending", assigned:"Assigned", out_for_delivery:"Out for delivery", delivered:"Delivered", ready_for_pickup:"Ready for pickup", picked_up:"Picked up", cancelled:"Cancelled", settled:"Settled" }[s] || s || "Pending")
+const money = (v) =>
+  `₹${Number(v || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  })}`
+
+const statusLabel = (s) =>
+  ({
+    pending: "Pending",
+    assigned: "Assigned",
+    out_for_delivery: "Out for delivery",
+    delivered: "Delivered",
+    ready_for_pickup: "Ready for pickup",
+    picked_up: "Picked up",
+    cancelled: "Cancelled",
+  }[s] || s || "Pending")
+
+const collectionLabel = (s) =>
+  ({
+    pending_collection: "COD — collect on delivery",
+    pending_settlement: "Payment with rider / owner",
+    settled: "Settled",
+    not_required: "Prepaid / no collection",
+  }[s] || "Collection pending")
 
 export default function DeliveryManagement() {
   const search = useSearchParams()
-  const [deliveries,setDeliveries] = useState([])
-  const [riders,setRiders] = useState([])
-  const [zones,setZones] = useState([])
-  const [loading,setLoading] = useState(true)
-  const [selected,setSelected] = useState(null)
-  const [riderId,setRiderId] = useState("")
-  const [cash,setCash] = useState("")
-  const [upi,setUpi] = useState("")
-  const [card,setCard] = useState("")
-  const [filter,setFilter] = useState("active")
-  const [busy,setBusy] = useState(false)
+
+  const [deliveries, setDeliveries] = useState([])
+  const [riders, setRiders] = useState([])
+  const [zones, setZones] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [personType, setPersonType] = useState("rider")
+  const [riderId, setRiderId] = useState("")
+  const [ownerName, setOwnerName] = useState("Restaurant Owner")
+  const [ownerPhone, setOwnerPhone] = useState("")
+  const [cash, setCash] = useState("")
+  const [upi, setUpi] = useState("")
+  const [card, setCard] = useState("")
+  const [collectionNote, setCollectionNote] = useState("")
+  const [filter, setFilter] = useState("active")
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState("")
+  const [error, setError] = useState("")
 
   async function load() {
     setLoading(true)
+    setError("")
+
     try {
-      const res = await fetch("/api/delivery", { cache:"no-store" })
+      const res = await fetch("/api/delivery", { cache: "no-store" })
       const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.error || "Delivery data unavailable")
-      setDeliveries(data.deliveries || [])
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Delivery data unavailable")
+      }
+
+      const rows = data.deliveries || []
+      setDeliveries(rows)
       setRiders(data.riders || [])
       setZones(data.zones || [])
+
       const slip = search.get("slip")
       if (slip) {
-        const match = (data.deliveries || []).find(x => x.slip_no === slip)
-        if (match) setSelected(match)
+        const match = rows.find((x) => x.slip_no === slip)
+        if (match) selectDelivery(match)
+      } else if (selected) {
+        const refreshed = rows.find((x) => x.id === selected.id)
+        if (refreshed) selectDelivery(refreshed, false)
       }
     } catch (e) {
-      alert(e.message)
-    } finally { setLoading(false) }
+      setError(e?.message || "Delivery data unavailable")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(()=>{ load() },[])
+  useEffect(() => {
+    load()
+  }, [])
+
+  function selectDelivery(delivery, resetCollection = true) {
+    setSelected(delivery)
+    setPersonType(delivery.delivery_person_type || (delivery.rider_id ? "rider" : "owner"))
+    setRiderId(delivery.rider_id || "")
+    setOwnerName(delivery.delivery_person_name || "Restaurant Owner")
+    setOwnerPhone(delivery.delivery_person_phone || "")
+    if (resetCollection) {
+      setCash("")
+      setUpi("")
+      setCard("")
+      setCollectionNote("")
+    }
+  }
 
   async function action(body) {
     setBusy(true)
+    setError("")
+    setNotice("")
+
     try {
-      const res = await fetch("/api/delivery", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) })
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
       const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.error || "Operation failed")
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Operation failed")
+      }
+
       await load()
-      if (data.delivery) setSelected(data.delivery)
+
+      if (data.delivery) {
+        selectDelivery(data.delivery)
+      }
+
+      if (data.settlement_result) {
+        setNotice(
+          data.settlement_result === "settled"
+            ? "Payment settled successfully."
+            : `Payment settled with ${data.settlement_result} difference.`
+        )
+      } else {
+        setNotice("Updated successfully.")
+      }
+
       return data.delivery
-    } catch(e) { alert(e.message) } finally { setBusy(false) }
+    } catch (e) {
+      setError(e?.message || "Operation failed")
+      return null
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const filtered = useMemo(()=>deliveries.filter(d=>{
-    if (filter === "active") return !["settled","cancelled"].includes(String(d.settlement_status || "")) && d.status !== "cancelled"
-    if (filter === "settled") return d.settlement_status === "settled"
-    if (filter === "out") return d.status === "out_for_delivery"
-    if (filter === "delivered") return d.status === "delivered"
-    return true
-  }),[deliveries,filter])
+  const filtered = useMemo(
+    () =>
+      deliveries.filter((d) => {
+        if (filter === "active") {
+          return (
+            d.status !== "cancelled" &&
+            d.settlement_status !== "settled"
+          )
+        }
+
+        if (filter === "out") {
+          return d.status === "out_for_delivery"
+        }
+
+        if (filter === "delivered") {
+          return (
+            d.status === "delivered" &&
+            d.settlement_status !== "settled"
+          )
+        }
+
+        if (filter === "settlement") {
+          return (
+            ["delivered", "picked_up"].includes(d.status) &&
+            d.settlement_status !== "settled"
+          )
+        }
+
+        if (filter === "settled") {
+          return d.settlement_status === "settled"
+        }
+
+        return true
+      }),
+    [deliveries, filter]
+  )
+
+  const stats = useMemo(
+    () => ({
+      active: deliveries.filter(
+        (d) =>
+          d.status !== "cancelled" &&
+          d.settlement_status !== "settled"
+      ).length,
+      out: deliveries.filter((d) => d.status === "out_for_delivery").length,
+      delivered: deliveries.filter(
+        (d) =>
+          ["delivered", "picked_up"].includes(d.status) &&
+          d.settlement_status !== "settled"
+      ).length,
+      settlement: deliveries.filter(
+        (d) =>
+          ["delivered", "picked_up"].includes(d.status) &&
+          d.settlement_status !== "settled"
+      ).length,
+      settled: deliveries.filter(
+        (d) => d.settlement_status === "settled"
+      ).length,
+    }),
+    [deliveries]
+  )
 
   function printSlip(delivery) {
     if (!delivery) return
+
+    const title =
+      delivery.order_mode === "takeaway"
+        ? "TAKEAWAY SLIP"
+        : "DELIVERY SLIP"
+
+    const person =
+      delivery.delivery_person_name ||
+      delivery.rider_name ||
+      "Not assigned"
+
+    const collection =
+      delivery.settlement_status === "settled"
+        ? "SETTLED"
+        : ["cash", "cod"].includes(
+            String(delivery.payment_method || "cash").toLowerCase()
+          )
+          ? "PAYMENT TO BE COLLECTED"
+          : "PREPAID"
+
     const w = window.open("", "_blank", "width=420,height=720")
-    if (!w) return alert("Please allow pop-ups to print the slip.")
-    w.document.write(`<!doctype html><html><head><title>${delivery.slip_no || "Delivery Slip"}</title><style>body{font-family:Arial,sans-serif;padding:18px;color:#111}h2{margin:0 0 4px}.muted{color:#666;font-size:12px}.line{border-top:1px dashed #777;margin:12px 0}.row{display:flex;justify-content:space-between;gap:10px;margin:6px 0}.big{font-size:20px;font-weight:800}.items{margin:12px 0}.note{background:#f5f5f5;padding:8px;border-radius:6px;font-size:12px}@media print{button{display:none}}</style></head><body><h2>${delivery.order_mode === "takeaway" ? "TAKEAWAY SLIP" : "DELIVERY SLIP"}</h2><div class="muted">${delivery.slip_no || ""}</div><div class="line"></div><div><b>${delivery.customer_name || "Customer"}</b></div><div>${delivery.phone || ""}</div><div>${delivery.address || "Takeaway"}</div><div>${delivery.zone || ""}</div><div class="line"></div><div class="row"><span>Order</span><b>#${String(delivery.order_id || "").slice(0,8)}</b></div>${(delivery.items || []).map(i => `<div class="row"><span>${Number(i.quantity||0)} × ${i.item_name || "Item"}</span><b>${money(i.line_total ?? Number(i.unit_price||0)*Number(i.quantity||0))}</b></div>`).join("")}<div class="line"></div><div class="row"><span>Amount</span><b class="big">${money(delivery.expected_amount)}</b></div><div class="row"><span>Payment</span><b>${String(delivery.payment_method || "cash").toUpperCase()}</b></div><div class="row"><span>Rider</span><b>${delivery.rider_name || "Not assigned"}</b></div>${delivery.customer_notes ? `<div class="note">Note: ${delivery.customer_notes}</div>` : ""}<div class="line"></div><div class="muted">Generated ${new Date().toLocaleString("en-IN")}</div><script>window.onload=()=>{window.print();}</script></body></html>`)
+
+    if (!w) {
+      setError("Please allow pop-ups to print the slip.")
+      return
+    }
+
+    w.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${delivery.slip_no || "Delivery Slip"}</title>
+          <style>
+            body{font-family:Arial,sans-serif;padding:18px;color:#111}
+            h2{margin:0 0 4px}
+            .muted{color:#666;font-size:12px}
+            .line{border-top:1px dashed #777;margin:12px 0}
+            .row{display:flex;justify-content:space-between;gap:10px;margin:6px 0}
+            .big{font-size:20px;font-weight:800}
+            .hold{padding:10px;border:2px solid #111;border-radius:7px;margin:12px 0;font-weight:800;text-align:center}
+            .note{background:#f5f5f5;padding:8px;border-radius:6px;font-size:12px}
+            @media print{button{display:none}}
+          </style>
+        </head>
+        <body>
+          <h2>ANAIRA</h2>
+          <div><b>${title}</b></div>
+          <div class="muted">${delivery.slip_no || ""}</div>
+          <div class="line"></div>
+
+          <div><b>${delivery.customer_name || "Customer"}</b></div>
+          <div>${delivery.phone || ""}</div>
+          <div>${delivery.address || "Counter pickup"}</div>
+          <div>${delivery.zone || ""}</div>
+
+          <div class="line"></div>
+
+          <div class="row">
+            <span>Order</span>
+            <b>#${String(delivery.order_id || "").slice(0, 8)}</b>
+          </div>
+
+          <div class="row">
+            <span>Amount</span>
+            <b class="big">${money(delivery.expected_amount)}</b>
+          </div>
+
+          <div class="row">
+            <span>Payment</span>
+            <b>${String(delivery.payment_method || "cash").toUpperCase()}</b>
+          </div>
+
+          <div class="row">
+            <span>Delivered by</span>
+            <b>${person}</b>
+          </div>
+
+          <div class="hold">${collection}</div>
+
+          ${
+            delivery.customer_notes
+              ? `<div class="note">Customer note: ${delivery.customer_notes}</div>`
+              : ""
+          }
+
+          <div class="line"></div>
+          <div class="muted">
+            Generated ${new Date().toLocaleString("en-IN")}
+          </div>
+
+          <script>
+            window.onload = () => window.print()
+          </script>
+        </body>
+      </html>
+    `)
+
     w.document.close()
+  }
+
+  async function assignDeliveryPerson() {
+    if (!selected) return
+
+    if (personType === "rider" && !riderId) {
+      setError("Select a rider.")
+      return
+    }
+
+    await action({
+      action: "assign",
+      delivery_id: selected.id,
+      delivery_person_type: personType,
+      rider_id: personType === "rider" ? riderId : null,
+      delivery_person_name:
+        personType === "owner" ? ownerName : undefined,
+      delivery_person_phone:
+        personType === "owner" ? ownerPhone : undefined,
+    })
+  }
+
+  async function markDelivered() {
+    if (!selected) return
+
+    if (
+      selected.status !== "out_for_delivery" &&
+      selected.status !== "assigned"
+    ) {
+      setError("Send the delivery out first.")
+      return
+    }
+
+    await action({
+      action: "status",
+      delivery_id: selected.id,
+      status: "delivered",
+    })
   }
 
   async function settle() {
     if (!selected) return
-    const total = Number(cash||0)+Number(upi||0)+Number(card||0)
-    if (total <= 0) return alert("Enter the amount collected by the rider.")
-    const result = await action({ action:"settle", delivery_id:selected.id, cash_collected:Number(cash||0), upi_collected:Number(upi||0), card_collected:Number(card||0) })
-    if (result) { setCash(""); setUpi(""); setCard("") }
+
+    if (!["delivered", "picked_up"].includes(selected.status)) {
+      setError("Mark the delivery as delivered before settling payment.")
+      return
+    }
+
+    const total =
+      Number(cash || 0) +
+      Number(upi || 0) +
+      Number(card || 0)
+
+    if (total <= 0 && Number(selected.expected_amount || 0) > 0) {
+      setError("Enter the amount actually received.")
+      return
+    }
+
+    await action({
+      action: "settle",
+      delivery_id: selected.id,
+      cash_collected: Number(cash || 0),
+      upi_collected: Number(upi || 0),
+      card_collected: Number(card || 0),
+      collection_notes: collectionNote,
+    })
+
+    setCash("")
+    setUpi("")
+    setCard("")
+    setCollectionNote("")
   }
 
-  return <main className="deliveryPage">
-    <section className="deliveryHero">
-      <div><div className="eyebrow">DELIVERY CONTROL CENTER</div><h1>Delivery & Takeaway</h1><p>Issue slips, assign riders, track delivery and settle COD/UPI when the rider returns.</p></div>
-      <div className="heroActions"><button className="ghostBtn" onClick={load}>↻ Refresh</button><a className="primaryBtn" href="/order">＋ New Order</a></div>
-    </section>
+  return (
+    <main className="deliveryPage">
+      <section className="deliveryHero">
+        <div>
+          <div className="eyebrow">DELIVERY COLLECTION CONTROL</div>
+          <h1>Delivery & Takeaway</h1>
+          <p>
+            Print a delivery slip, send it with a rider or restaurant owner,
+            keep COD payment on hold, and settle it only when the money returns
+            to the restaurant.
+          </p>
+        </div>
 
-    <section className="deliveryStats">
-      <Stat label="Active" value={deliveries.filter(d=>!['settled','cancelled'].includes(d.settlement_status||'') && d.status!=='cancelled').length} />
-      <Stat label="Out for delivery" value={deliveries.filter(d=>d.status==='out_for_delivery').length} />
-      <Stat label="Delivered" value={deliveries.filter(d=>d.status==='delivered').length} />
-      <Stat label="Settled" value={deliveries.filter(d=>d.settlement_status==='settled').length} />
-    </section>
+        <div className="heroActions">
+          <button className="ghostBtn" onClick={load} disabled={busy}>
+            ↻ Refresh
+          </button>
 
-    <section className="deliveryLayout">
-      <div className="panel deliveryListPanel">
-        <div className="panelHeader"><div><h2>Delivery Queue</h2><span>{filtered.length} slips</span></div><div className="filters">{[["active","Active"],["out","Out"],["delivered","Delivered"],["settled","Settled"],["all","All"]].map(([v,l])=><button key={v} onClick={()=>setFilter(v)} className={filter===v?"filter active":"filter"}>{l}</button>)}</div></div>
-        {loading ? <div className="empty">Loading delivery queue…</div> : !filtered.length ? <div className="empty">No delivery slips in this view.</div> : <div className="queue">{filtered.map(d=><button key={d.id} className={`deliveryRow ${selected?.id===d.id?"selected":""}`} onClick={()=>{setSelected(d);setRiderId(d.rider_id||"")}}><div className="slip"><b>{d.slip_no || "DELIVERY"}</b><small>{d.customer_name || "Customer"} • {d.phone || "No phone"}</small><small>{d.zone || d.address || "Address not set"}</small></div><div className="rowRight"><strong>{money(d.expected_amount)}</strong><span className={`status ${d.status}`}>{statusLabel(d.status)}</span><small>{d.settlement_status === "settled" ? "✓ Settled" : String(d.payment_method||"cash").toUpperCase()}</small></div></button>)}</div>}
-      </div>
+          <a className="primaryBtn" href="/order">
+            ＋ New Order
+          </a>
+        </div>
+      </section>
 
-      <div className="panel detailPanel">
-        {!selected ? <div className="empty bigEmpty"><div>🛵</div><h2>Select a delivery</h2><p>Create an order from POS, then manage its rider, status and settlement here.</p></div> : <>
-          <div className="detailHeader"><div><div className="eyebrow">{selected.order_mode === "takeaway" ? "TAKEAWAY" : "DELIVERY"}</div><h2>{selected.slip_no || "Delivery"}</h2><p>{selected.customer_name} • {selected.phone || "No phone"}</p></div><button className="printBtn" onClick={()=>printSlip(selected)}>🖨 Print Slip</button></div>
-          <div className="customerCard"><b>Address</b><span>{selected.address || "Takeaway / counter pickup"}</span>{selected.zone && <small>Zone: {selected.zone}</small>}{selected.customer_notes && <small>Note: {selected.customer_notes}</small>}</div>
-          <div className="detailGrid">
-            <div>{selected.order_mode === "takeaway" ? <><label>Pickup</label><strong>Counter pickup</strong><small>No rider assignment required.</small></> : <><label>Rider</label><select value={riderId} onChange={e=>setRiderId(e.target.value)}><option value="">Unassigned</option>{riders.filter(r=>r.active!==false).map(r=><option key={r.id} value={r.id}>{r.name} {r.phone?`• ${r.phone}`:""}</option>)}</select><button disabled={busy} onClick={()=>action({action:"assign",delivery_id:selected.id,rider_id:riderId||null})}>Assign Rider</button></>}</div>
-            <div><label>Expected collection</label><strong className="amountBig">{money(selected.expected_amount)}</strong><small>{String(selected.payment_method||"cash").toUpperCase()} • {selected.settlement_status === "settled" ? "Settled" : "Pending settlement"}</small></div>
+      {error ? <div className="message error">{error}</div> : null}
+      {notice ? <div className="message success">{notice}</div> : null}
+
+      <section className="deliveryStats">
+        <Stat label="Active" value={stats.active} />
+        <Stat label="Out for delivery" value={stats.out} />
+        <Stat label="Payment to settle" value={stats.settlement} />
+        <Stat label="Settled" value={stats.settled} />
+      </section>
+
+      <section className="deliveryLayout">
+        <div className="panel deliveryListPanel">
+          <div className="panelHeader">
+            <div>
+              <h2>Delivery Slips</h2>
+              <span>{filtered.length} records</span>
+            </div>
+
+            <div className="filters">
+              {[
+                ["active", "Active"],
+                ["out", "Out"],
+                ["delivered", "Delivered"],
+                ["settlement", "Settle"],
+                ["settled", "Settled"],
+                ["all", "All"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => setFilter(value)}
+                  className={
+                    filter === value ? "filter active" : "filter"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="statusActions">{selected.order_mode === "takeaway" ? <><button disabled={busy} onClick={()=>action({action:"status",delivery_id:selected.id,status:"ready_for_pickup"})}>📦 Ready for Pickup</button><button disabled={busy} onClick={()=>action({action:"status",delivery_id:selected.id,status:"picked_up"})}>✓ Picked Up</button></> : <><button disabled={busy} onClick={()=>action({action:"status",delivery_id:selected.id,status:"out_for_delivery"})}>🛵 Out for Delivery</button><button disabled={busy} onClick={()=>action({action:"status",delivery_id:selected.id,status:"delivered"})}>✓ Delivered</button></>}<button disabled={busy} onClick={()=>action({action:"status",delivery_id:selected.id,status:"cancelled"})}>Cancel</button></div>
-          <div className="settlement"><div><div className="eyebrow">RIDER SETTLEMENT</div><h3>Settle collected payment</h3><p>Enter what the rider actually brought back. Difference is recorded for reconciliation.</p></div><div className="settleGrid"><MoneyInput label="Cash" value={cash} setValue={setCash}/><MoneyInput label="UPI" value={upi} setValue={setUpi}/><MoneyInput label="Card" value={card} setValue={setCard}/></div><div className="settleFooter"><strong>Collected: {money(Number(cash||0)+Number(upi||0)+Number(card||0))}</strong><button disabled={busy || selected.settlement_status === "settled"} onClick={settle}>✓ Settle Rider</button></div></div>
-          <div className="timeline"><b>Workflow</b><div><span className={selected.status!=="pending"?"done":""}>1. Slip issued</span><span className={selected.status === "assigned" || selected.status === "out_for_delivery" || selected.status === "delivered"?"done":""}>2. Rider assigned</span><span className={selected.status === "out_for_delivery" || selected.status === "delivered"?"done":""}>3. Out for delivery</span><span className={selected.status === "delivered"?"done":""}>4. Delivered</span><span className={selected.settlement_status === "settled"?"done":""}>5. Payment settled</span></div></div>
-        </>}
-      </div>
-    </section>
 
-    <style jsx>{`\n      .deliveryPage{min-height:100vh;padding:22px;background:linear-gradient(135deg,var(--background),var(--surface-2),var(--background));color:#fff}\n      .deliveryHero,.panel,.deliveryStats>div{background:rgba(var(--surface-2-rgb),.82);border:1px solid rgba(var(--primary-rgb),.15);border-radius:24px;box-shadow:0 20px 55px rgba(0,0,0,.3);backdrop-filter:blur(18px)}\n      .deliveryHero{padding:24px;display:flex;justify-content:space-between;gap:18px;align-items:center}.deliveryHero h1{margin:4px 0;font-size:34px}.deliveryHero p{margin:0;color:var(--muted);max-width:680px}.eyebrow{color:var(--primary);font-size:11px;font-weight:900;letter-spacing:1.7px}.heroActions{display:flex;gap:9px}.primaryBtn,.ghostBtn,.printBtn,.settleFooter button,.statusActions button,.detailGrid button{border-radius:12px;padding:11px 14px;border:1px solid rgba(var(--primary-rgb),.22);background:rgba(var(--primary-rgb),.1);color:#fff;font-weight:800;cursor:pointer;text-decoration:none}.primaryBtn{background:var(--primary);color:#111}.deliveryStats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}.deliveryStats>div{padding:16px}.deliveryStats span{display:block;color:var(--muted);font-size:12px}.deliveryStats strong{display:block;font-size:25px;margin-top:4px}.deliveryLayout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr);gap:14px}.panel{padding:18px}.panelHeader,.detailHeader,.settleFooter{display:flex;justify-content:space-between;gap:12px;align-items:center}.panelHeader h2,.detailHeader h2{margin:0}.panelHeader span,.detailHeader p{color:var(--muted);font-size:12px}.filters{display:flex;gap:5px;overflow:auto}.filter{border:0;background:rgba(255,255,255,.04);color:var(--muted);padding:7px 9px;border-radius:9px;white-space:nowrap}.filter.active{background:rgba(var(--primary-rgb),.14);color:var(--primary)}.queue{display:grid;gap:7px;margin-top:14px;max-height:680px;overflow:auto}.deliveryRow{width:100%;display:flex;justify-content:space-between;gap:10px;text-align:left;padding:13px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);color:#fff;cursor:pointer}.deliveryRow.selected{border-color:var(--primary);background:rgba(var(--primary-rgb),.08)}.slip{min-width:0}.slip b,.slip small,.rowRight small{display:block}.slip small{color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rowRight{text-align:right;display:grid;justify-items:end;gap:4px}.status{font-size:10px;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.07)}.status.out_for_delivery{color:#facc15}.status.delivered{color:#4ade80}.status.cancelled{color:#f87171}.rowRight small{color:var(--muted);font-size:10px}.empty{text-align:center;padding:50px 20px;color:var(--muted)}.bigEmpty div{font-size:42px}.customerCard{margin-top:15px;padding:13px;border-radius:14px;background:rgba(255,255,255,.035);display:grid;gap:5px}.customerCard span{font-size:13px;line-height:1.45}.customerCard small{color:var(--muted)}.detailGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.detailGrid>div{padding:12px;border-radius:14px;background:rgba(255,255,255,.03);display:grid;gap:7px}.detailGrid label{font-size:10px;color:var(--muted);text-transform:uppercase}.detailGrid select,.settleGrid input{width:100%;box-sizing:border-box;padding:10px;border-radius:10px;background:#10241c;color:#fff;border:1px solid rgba(255,255,255,.12)}.detailGrid button{padding:9px}.amountBig{font-size:25px}.statusActions{display:flex;gap:7px;margin-top:10px}.statusActions button{flex:1}.settlement{margin-top:14px;padding:15px;border-radius:17px;border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05)}.settlement h3{margin:3px 0}.settlement p{color:var(--muted);font-size:12px}.settleGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.settleGrid label{display:block;color:var(--muted);font-size:10px;margin-bottom:4px}.timeline{margin-top:14px;padding:13px;border-radius:14px;background:rgba(255,255,255,.025)}.timeline>div{display:grid;gap:6px;margin-top:8px}.timeline span{font-size:12px;color:var(--muted)}.timeline span.done{color:#4ade80}.timeline span.done:before{content:'✓ ';color:#4ade80}@media(max-width:900px){.deliveryPage{padding:12px}.deliveryHero{display:block}.heroActions{margin-top:12px}.deliveryStats{grid-template-columns:repeat(2,1fr)}.deliveryLayout{grid-template-columns:1fr}.detailPanel{order:-1}.deliveryHero h1{font-size:27px}}@media(max-width:560px){.deliveryStats{gap:7px}.deliveryStats>div{padding:12px}.deliveryStats strong{font-size:21px}.deliveryHero{padding:17px}.panel{padding:13px}.detailGrid,.settleGrid{grid-template-columns:1fr}.statusActions{display:grid;grid-template-columns:1fr}.filters{max-width:100%}}\n    `}</style>
-  </main>
+          {loading ? (
+            <div className="empty">Loading delivery queue…</div>
+          ) : !filtered.length ? (
+            <div className="empty">
+              <div className="emptyIcon">🧾</div>
+              <strong>No slips in this view</strong>
+              <span>Delivery and takeaway orders will appear here.</span>
+            </div>
+          ) : (
+            <div className="queue">
+              {filtered.map((delivery) => (
+                <button
+                  key={delivery.id}
+                  className={`deliveryRow ${
+                    selected?.id === delivery.id ? "selected" : ""
+                  }`}
+                  onClick={() => selectDelivery(delivery)}
+                >
+                  <div className="slip">
+                    <b>{delivery.slip_no || "DELIVERY"}</b>
+
+                    <small>
+                      {delivery.customer_name || "Customer"} •{" "}
+                      {delivery.phone || "No phone"}
+                    </small>
+
+                    <small>
+                      {delivery.delivery_person_name ||
+                        delivery.rider_name ||
+                        "No delivery person"}
+                    </small>
+                  </div>
+
+                  <div className="rowRight">
+                    <strong>{money(delivery.expected_amount)}</strong>
+
+                    <span className={`status ${delivery.status}`}>
+                      {statusLabel(delivery.status)}
+                    </span>
+
+                    <small
+                      className={
+                        delivery.settlement_status === "settled"
+                          ? "settledText"
+                          : "pendingText"
+                      }
+                    >
+                      {delivery.settlement_status === "settled"
+                        ? "✓ Payment settled"
+                        : delivery.collection_status === "pending_settlement"
+                          ? "💰 Money to settle"
+                          : collectionLabel(
+                              delivery.collection_status
+                            )}
+                    </small>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="panel detailPanel">
+          {!selected ? (
+            <div className="empty bigEmpty">
+              <div className="emptyIcon">🛵</div>
+              <h2>Select a delivery</h2>
+              <p>
+                The slip remains linked to the order until delivery payment
+                is settled.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="detailHeader">
+                <div>
+                  <div className="eyebrow">
+                    {selected.order_mode === "takeaway"
+                      ? "TAKEAWAY"
+                      : "DELIVERY"}
+                  </div>
+
+                  <h2>{selected.slip_no || "Delivery"}</h2>
+
+                  <p>
+                    {selected.customer_name} •{" "}
+                    {selected.phone || "No phone"}
+                  </p>
+                </div>
+
+                <button
+                  className="printBtn"
+                  onClick={() => printSlip(selected)}
+                >
+                  🖨 Print Slip
+                </button>
+              </div>
+
+              <div className="collectionBanner">
+                <div>
+                  <strong>
+                    {selected.settlement_status === "settled"
+                      ? "✓ Payment settled"
+                      : selected.collection_status === "pending_settlement"
+                        ? "💰 Payment is with rider / owner"
+                        : selected.collection_status === "pending_collection"
+                          ? "💰 Collect payment from customer"
+                          : "✓ No cash collection required"}
+                  </strong>
+
+                  <span>
+                    Expected collection:{" "}
+                    <b>{money(selected.expected_amount)}</b>
+                  </span>
+                </div>
+
+                <div className="collectionAmount">
+                  {money(
+                    selected.collection_received ||
+                      selected.cash_collected +
+                        selected.upi_collected +
+                        selected.card_collected
+                  )}
+                </div>
+              </div>
+
+              <div className="customerCard">
+                <b>Customer / Delivery</b>
+                <span>
+                  {selected.address || "Counter pickup"}
+                </span>
+
+                {selected.zone ? (
+                  <small>Zone: {selected.zone}</small>
+                ) : null}
+
+                {selected.customer_notes ? (
+                  <small>
+                    Note: {selected.customer_notes}
+                  </small>
+                ) : null}
+              </div>
+
+              <div className="detailGrid">
+                <div>
+                  <label>Delivery person</label>
+
+                  {selected.order_mode === "takeaway" ? (
+                    <>
+                      <strong>Counter pickup</strong>
+                      <small>No rider required.</small>
+                    </>
+                  ) : (
+                    <>
+                      <div className="personTabs">
+                        <button
+                          className={
+                            personType === "rider"
+                              ? "personTab active"
+                              : "personTab"
+                          }
+                          onClick={() => setPersonType("rider")}
+                        >
+                          🛵 Rider
+                        </button>
+
+                        <button
+                          className={
+                            personType === "owner"
+                              ? "personTab active"
+                              : "personTab"
+                          }
+                          onClick={() => setPersonType("owner")}
+                        >
+                          👤 Owner
+                        </button>
+                      </div>
+
+                      {personType === "rider" ? (
+                        <select
+                          value={riderId}
+                          onChange={(e) => setRiderId(e.target.value)}
+                        >
+                          <option value="">Select rider</option>
+
+                          {riders
+                            .filter((r) => r.active !== false)
+                            .map((rider) => (
+                              <option
+                                key={rider.id}
+                                value={rider.id}
+                              >
+                                {rider.name}
+                                {rider.phone
+                                  ? ` • ${rider.phone}`
+                                  : ""}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            value={ownerName}
+                            onChange={(e) =>
+                              setOwnerName(e.target.value)
+                            }
+                            placeholder="Owner name"
+                          />
+
+                          <input
+                            value={ownerPhone}
+                            onChange={(e) =>
+                              setOwnerPhone(e.target.value)
+                            }
+                            placeholder="Owner phone"
+                          />
+                        </>
+                      )}
+
+                      <button
+                        disabled={busy}
+                        onClick={assignDeliveryPerson}
+                      >
+                        {personType === "owner"
+                          ? "Assign Owner"
+                          : "Assign Rider"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div>
+                  <label>Payment</label>
+
+                  <strong className="amountBig">
+                    {money(selected.expected_amount)}
+                  </strong>
+
+                  <small>
+                    {String(
+                      selected.payment_method || "cash"
+                    ).toUpperCase()}
+                    {" • "}
+                    {selected.settlement_status === "settled"
+                      ? "Settled"
+                      : selected.collection_status ===
+                          "pending_settlement"
+                        ? "Settlement pending"
+                        : "Collection pending"}
+                  </small>
+                </div>
+              </div>
+
+              <div className="statusActions">
+                {selected.order_mode === "takeaway" ? (
+                  <>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "ready_for_pickup",
+                        })
+                      }
+                    >
+                      📦 Ready for Pickup
+                    </button>
+
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "picked_up",
+                        })
+                      }
+                    >
+                      ✓ Picked Up
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      disabled={
+                        busy ||
+                        selected.status === "out_for_delivery"
+                      }
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "out_for_delivery",
+                        })
+                      }
+                    >
+                      🛵 Out for Delivery
+                    </button>
+
+                    <button
+                      disabled={
+                        busy ||
+                        !["assigned", "out_for_delivery"].includes(
+                          selected.status
+                        )
+                      }
+                      onClick={markDelivered}
+                    >
+                      ✓ Delivered
+                    </button>
+                  </>
+                )}
+
+                <button
+                  disabled={
+                    busy ||
+                    selected.status === "cancelled" ||
+                    selected.settlement_status === "settled"
+                  }
+                  onClick={() =>
+                    action({
+                      action: "status",
+                      delivery_id: selected.id,
+                      status: "cancelled",
+                    })
+                  }
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="settlement">
+                <div>
+                  <div className="eyebrow">
+                    DELIVERY PAYMENT SETTLEMENT
+                  </div>
+
+                  <h3>
+                    {selected.settlement_status === "settled"
+                      ? "Settlement complete"
+                      : "Settle money returned to restaurant"}
+                  </h3>
+
+                  <p>
+                    COD payment stays pending while the rider or owner is
+                    outside. Enter the actual money received only after the
+                    delivery has been completed.
+                  </p>
+                </div>
+
+                <div className="settleGrid">
+                  <MoneyInput
+                    label="Cash"
+                    value={cash}
+                    setValue={setCash}
+                  />
+
+                  <MoneyInput
+                    label="UPI"
+                    value={upi}
+                    setValue={setUpi}
+                  />
+
+                  <MoneyInput
+                    label="Card"
+                    value={card}
+                    setValue={setCard}
+                  />
+                </div>
+
+                <textarea
+                  value={collectionNote}
+                  onChange={(e) =>
+                    setCollectionNote(e.target.value)
+                  }
+                  placeholder="Settlement note (optional)"
+                  rows={2}
+                />
+
+                <div className="settleFooter">
+                  <div>
+                    <strong>
+                      Received:{" "}
+                      {money(
+                        Number(cash || 0) +
+                          Number(upi || 0) +
+                          Number(card || 0)
+                      )}
+                    </strong>
+
+                    <span>
+                      Expected: {money(selected.expected_amount)}
+                    </span>
+                  </div>
+
+                  <button
+                    disabled={
+                      busy ||
+                      selected.settlement_status === "settled" ||
+                      !["delivered", "picked_up"].includes(
+                        selected.status
+                      )
+                    }
+                    onClick={settle}
+                  >
+                    ✓ Settle Payment
+                  </button>
+                </div>
+              </div>
+
+              <div className="timeline">
+                <b>Delivery lifecycle</b>
+
+                <div>
+                  <span className="done">
+                    1. Slip issued —{" "}
+                    {selected.slip_no || "pending"}
+                  </span>
+
+                  <span
+                    className={
+                      ["assigned", "out_for_delivery", "delivered"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    2. Rider / owner assigned
+                  </span>
+
+                  <span
+                    className={
+                      ["out_for_delivery", "delivered"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    3. Out for delivery
+                  </span>
+
+                  <span
+                    className={
+                      ["delivered", "picked_up"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    4. Delivered / picked up
+                  </span>
+
+                  <span
+                    className={
+                      selected.settlement_status === "settled"
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    5. Money returned & settled
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <style jsx>{`
+        .deliveryPage {
+          min-height: 100vh;
+          padding: 22px;
+          background:
+            radial-gradient(
+              circle at top right,
+              rgba(var(--primary-rgb), 0.09),
+              transparent 34%
+            ),
+            linear-gradient(
+              135deg,
+              var(--background),
+              var(--surface-2),
+              var(--background)
+            );
+          color: #fff;
+        }
+
+        .deliveryHero,
+        .panel,
+        .deliveryStats > div {
+          background: rgba(var(--surface-2-rgb), 0.82);
+          border: 1px solid rgba(var(--primary-rgb), 0.15);
+          border-radius: 24px;
+          box-shadow: 0 20px 55px rgba(0, 0, 0, 0.3);
+          backdrop-filter: blur(18px);
+        }
+
+        .deliveryHero {
+          padding: 24px;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: center;
+        }
+
+        .deliveryHero h1 {
+          margin: 4px 0;
+          font-size: 34px;
+        }
+
+        .deliveryHero p {
+          margin: 0;
+          color: var(--muted);
+          max-width: 760px;
+          line-height: 1.5;
+        }
+
+        .eyebrow {
+          color: var(--primary);
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 1.7px;
+        }
+
+        .heroActions,
+        .statusActions {
+          display: flex;
+          gap: 9px;
+        }
+
+        .primaryBtn,
+        .ghostBtn,
+        .printBtn,
+        .settleFooter button,
+        .statusActions button,
+        .detailGrid button {
+          border-radius: 12px;
+          padding: 11px 14px;
+          border: 1px solid rgba(var(--primary-rgb), 0.22);
+          background: rgba(var(--primary-rgb), 0.1);
+          color: #fff;
+          font-weight: 800;
+          cursor: pointer;
+          text-decoration: none;
+        }
+
+        .primaryBtn {
+          background: var(--primary);
+          color: #111;
+        }
+
+        button:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .message {
+          margin: 12px 0;
+          padding: 13px 15px;
+          border-radius: 13px;
+          font-weight: 700;
+        }
+
+        .message.error {
+          border: 1px solid rgba(248, 113, 113, 0.35);
+          background: rgba(248, 113, 113, 0.09);
+          color: #fecaca;
+        }
+
+        .message.success {
+          border: 1px solid rgba(74, 222, 128, 0.35);
+          background: rgba(74, 222, 128, 0.09);
+          color: #bbf7d0;
+        }
+
+        .deliveryStats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin: 14px 0;
+        }
+
+        .deliveryStats > div {
+          padding: 16px;
+        }
+
+        .deliveryStats span {
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .deliveryStats strong {
+          display: block;
+          font-size: 25px;
+          margin-top: 4px;
+        }
+
+        .deliveryLayout {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(390px, 0.9fr);
+          gap: 14px;
+        }
+
+        .panel {
+          padding: 18px;
+        }
+
+        .panelHeader,
+        .detailHeader,
+        .settleFooter {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+        }
+
+        .panelHeader h2,
+        .detailHeader h2 {
+          margin: 0;
+        }
+
+        .panelHeader span,
+        .detailHeader p {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .filters {
+          display: flex;
+          gap: 5px;
+          overflow: auto;
+        }
+
+        .filter {
+          border: 0;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--muted);
+          padding: 7px 9px;
+          border-radius: 9px;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+
+        .filter.active {
+          background: rgba(var(--primary-rgb), 0.14);
+          color: var(--primary);
+        }
+
+        .queue {
+          display: grid;
+          gap: 7px;
+          margin-top: 14px;
+          max-height: 720px;
+          overflow: auto;
+        }
+
+        .deliveryRow {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          text-align: left;
+          padding: 13px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.025);
+          color: #fff;
+          cursor: pointer;
+        }
+
+        .deliveryRow.selected {
+          border-color: var(--primary);
+          background: rgba(var(--primary-rgb), 0.08);
+        }
+
+        .slip {
+          min-width: 0;
+        }
+
+        .slip b,
+        .slip small,
+        .rowRight small {
+          display: block;
+        }
+
+        .slip small {
+          color: var(--muted);
+          margin-top: 4px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 330px;
+        }
+
+        .rowRight {
+          text-align: right;
+          display: grid;
+          justify-items: end;
+          gap: 4px;
+        }
+
+        .status {
+          font-size: 10px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.07);
+        }
+
+        .status.out_for_delivery {
+          color: #facc15;
+        }
+
+        .status.delivered {
+          color: #4ade80;
+        }
+
+        .status.cancelled {
+          color: #f87171;
+        }
+
+        .settledText {
+          color: #4ade80 !important;
+        }
+
+        .pendingText {
+          color: #facc15 !important;
+        }
+
+        .empty {
+          text-align: center;
+          padding: 50px 20px;
+          color: var(--muted);
+        }
+
+        .empty strong {
+          display: block;
+          color: #fff;
+          margin-bottom: 5px;
+        }
+
+        .emptyIcon {
+          font-size: 42px;
+          margin-bottom: 8px;
+        }
+
+        .customerCard {
+          margin-top: 15px;
+          padding: 13px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.035);
+          display: grid;
+          gap: 5px;
+        }
+
+        .customerCard span {
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .customerCard small {
+          color: var(--muted);
+        }
+
+        .collectionBanner {
+          margin-top: 14px;
+          padding: 14px;
+          border: 1px solid rgba(var(--primary-rgb), 0.22);
+          border-radius: 16px;
+          background: rgba(var(--primary-rgb), 0.07);
+          display: flex;
+          justify-content: space-between;
+          gap: 15px;
+          align-items: center;
+        }
+
+        .collectionBanner strong,
+        .collectionBanner span {
+          display: block;
+        }
+
+        .collectionBanner span {
+          margin-top: 4px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .collectionAmount {
+          font-size: 24px;
+          font-weight: 900;
+          color: var(--primary);
+        }
+
+        .detailGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .detailGrid > div {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.03);
+          display: grid;
+          gap: 7px;
+        }
+
+        .detailGrid label {
+          font-size: 10px;
+          color: var(--muted);
+          text-transform: uppercase;
+        }
+
+        .detailGrid select,
+        .detailGrid input,
+        .settleGrid input,
+        .settlement textarea {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 10px;
+          border-radius: 10px;
+          background: #10241c;
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .personTabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+        }
+
+        .personTab {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 10px;
+          padding: 9px;
+          color: var(--muted);
+          background: rgba(255, 255, 255, 0.03);
+          cursor: pointer;
+        }
+
+        .personTab.active {
+          border-color: var(--primary);
+          color: var(--primary);
+          background: rgba(var(--primary-rgb), 0.08);
+        }
+
+        .amountBig {
+          font-size: 25px;
+        }
+
+        .statusActions {
+          margin-top: 10px;
+        }
+
+        .statusActions button {
+          flex: 1;
+        }
+
+        .settlement {
+          margin-top: 14px;
+          padding: 15px;
+          border-radius: 17px;
+          border: 1px solid rgba(var(--primary-rgb), 0.16);
+          background: rgba(var(--primary-rgb), 0.05);
+        }
+
+        .settlement h3 {
+          margin: 3px 0;
+        }
+
+        .settlement p {
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .settleGrid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .settleGrid label {
+          display: block;
+          color: var(--muted);
+          font-size: 10px;
+          margin-bottom: 4px;
+        }
+
+        .settlement textarea {
+          margin-top: 9px;
+          resize: vertical;
+        }
+
+        .settleFooter {
+          margin-top: 12px;
+        }
+
+        .settleFooter > div {
+          display: grid;
+          gap: 3px;
+        }
+
+        .settleFooter span {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .timeline {
+          margin-top: 14px;
+          padding: 13px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.025);
+        }
+
+        .timeline > div {
+          display: grid;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .timeline span {
+          font-size: 12px;
+          color: var(--muted);
+        }
+
+        .timeline span.done {
+          color: #4ade80;
+        }
+
+        .timeline span.done:before {
+          content: "✓ ";
+          color: #4ade80;
+        }
+
+        @media (max-width: 900px) {
+          .deliveryPage {
+            padding: 12px;
+          }
+
+          .deliveryHero {
+            display: block;
+          }
+
+          .heroActions {
+            margin-top: 12px;
+          }
+
+          .deliveryStats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .deliveryLayout {
+            grid-template-columns: 1fr;
+          }
+
+          .detailPanel {
+            order: -1;
+          }
+
+          .deliveryHero h1 {
+            font-size: 27px;
+          }
+        }
+
+        @media (max-width: 560px) {
+          .deliveryStats {
+            gap: 7px;
+          }
+
+          .deliveryStats > div {
+            padding: 12px;
+          }
+
+          .deliveryStats strong {
+            font-size: 21px;
+          }
+
+          .deliveryHero {
+            padding: 17px;
+          }
+
+          .panel {
+            padding: 13px;
+          }
+
+          .detailGrid,
+          .settleGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .statusActions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .settleFooter {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .filters {
+            max-width: 100%;
+          }
+
+          .collectionBanner {
+            align-items: flex-start;
+          }
+        }
+      `}</style>
+    </main>
+  )
 }
 
-function Stat({label,value}){ return <div><span>{label}</span><strong>{value}</strong></div> }
-function MoneyInput({label,value,setValue}){ return <label><span>{label}</span><input value={value} onChange={e=>setValue(e.target.value)} inputMode="decimal" placeholder="₹0" /></label> }
+function Stat({ label, value }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function MoneyInput({ label, value, setValue }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        inputMode="decimal"
+        placeholder="₹0"
+      />
+    </label>
+  )
+}

@@ -127,15 +127,35 @@ export async function POST(req) {
         address: String(body?.address || "").trim() || null,
         zone: String(body?.zone || "").trim() || null,
         delivery_charge: cleanMoney(body?.delivery_charge),
-        rider_id: body?.rider_id || null,
-        rider_name: String(body?.rider_name || "").trim() || null,
-        rider_phone: String(body?.rider_phone || "").trim() || null,
+        rider_id: body?.delivery_person_type === "owner" ? null : (body?.rider_id || null),
+        rider_name: body?.delivery_person_type === "owner" ? null : (String(body?.rider_name || "").trim() || null),
+        rider_phone: body?.delivery_person_type === "owner" ? null : (String(body?.rider_phone || "").trim() || null),
+        delivery_person_type: body?.delivery_person_type === "owner" ? "owner" : "rider",
+        delivery_person_name:
+          body?.delivery_person_type === "owner"
+            ? (String(body?.delivery_person_name || "Restaurant Owner").trim() || "Restaurant Owner")
+            : (String(body?.rider_name || "").trim() || null),
+        delivery_person_phone:
+          body?.delivery_person_type === "owner"
+            ? (String(body?.delivery_person_phone || "").trim() || null)
+            : (String(body?.rider_phone || "").trim() || null),
         expected_amount: cleanMoney(order.total_amount),
+        collection_expected: cleanMoney(order.total_amount),
         payment_method: String(body?.payment_method || "cash").toLowerCase(),
         payment_status: "pending",
         settlement_status: "pending",
-        status: body?.rider_id ? "assigned" : "pending",
-        assigned_at: body?.rider_id ? new Date().toISOString() : null,
+        collection_status:
+          [ "cash", "cod" ].includes(String(body?.payment_method || "cash").toLowerCase())
+            ? "pending_collection"
+            : "not_required",
+        status:
+          body?.delivery_person_type === "owner" || body?.rider_id
+            ? "assigned"
+            : "pending",
+        assigned_at:
+          body?.delivery_person_type === "owner" || body?.rider_id
+            ? new Date().toISOString()
+            : null,
         customer_notes: String(body?.customer_notes || "").trim() || null
       }
 
@@ -163,23 +183,64 @@ export async function POST(req) {
     if (!delivery) return Response.json({ success:false,error:"Delivery not found" },{status:404})
 
     if (action === "assign") {
-      const riderId = body?.rider_id || null
+      const personType = String(body?.delivery_person_type || "rider").toLowerCase()
+      if (!["rider", "owner"].includes(personType)) {
+        return Response.json({ success:false, error:"Delivery person must be rider or owner" }, { status:400 })
+      }
+
       let rider = null
-      if (riderId) {
-        const { data } = await supabaseAdmin.from("delivery_riders").select("id,name,phone").eq("id",riderId).eq("restaurant_id",restaurantId).maybeSingle()
-        rider = data
-        if (!rider) return Response.json({success:false,error:"Rider not found"},{status:404})
+      if (personType === "rider") {
+        const riderId = body?.rider_id || null
+        if (riderId) {
+          const { data } = await supabaseAdmin
+            .from("delivery_riders")
+            .select("id,name,phone")
+            .eq("id", riderId)
+            .eq("restaurant_id", restaurantId)
+            .maybeSingle()
+          rider = data
+          if (!rider) {
+            return Response.json({ success:false,error:"Rider not found" },{status:404})
+          }
+        } else {
+          return Response.json({ success:false,error:"Select a rider" },{status:400})
+        }
       }
+
+      const ownerName = String(body?.delivery_person_name || "Restaurant Owner").trim() || "Restaurant Owner"
+      const ownerPhone = String(body?.delivery_person_phone || "").trim() || null
+
       const patch = {
-        rider_id: rider?.id || null,
-        rider_name: rider?.name || null,
-        rider_phone: rider?.phone || null,
-        status: rider ? "assigned" : "pending",
-        assigned_at: rider ? new Date().toISOString() : null
+        rider_id: personType === "rider" ? rider.id : null,
+        rider_name: personType === "rider" ? rider.name : null,
+        rider_phone: personType === "rider" ? rider.phone : null,
+        delivery_person_type: personType,
+        delivery_person_name: personType === "rider" ? rider.name : ownerName,
+        delivery_person_phone: personType === "rider" ? rider.phone : ownerPhone,
+        status: "assigned",
+        assigned_at: new Date().toISOString()
       }
-      const { data: updated,error } = await supabaseAdmin.from("restaurant_deliveries").update(patch).eq("id",deliveryId).eq("restaurant_id",restaurantId).select("*").single()
+
+      const { data: updated,error } = await supabaseAdmin
+        .from("restaurant_deliveries")
+        .update(patch)
+        .eq("id",deliveryId)
+        .eq("restaurant_id",restaurantId)
+        .select("*")
+        .single()
+
       if (error) return Response.json({success:false,error:error.message},{status:400})
-      await addEvent({restaurantId,deliveryId,status:patch.status,note:rider ? `Assigned to ${rider.name}` : "Rider unassigned",userId:user.id})
+
+      await addEvent({
+        restaurantId,
+        deliveryId,
+        status:"assigned",
+        note: personType === "owner"
+          ? `Delivery assigned to restaurant owner ${ownerName}`
+          : `Assigned to ${rider.name}`,
+        userId:user.id
+      })
+
       return Response.json({success:true,delivery:updated})
     }
 
@@ -187,29 +248,134 @@ export async function POST(req) {
       const next = String(body?.status || "").trim().toLowerCase()
       const allowed = ["pending","assigned","out_for_delivery","delivered","ready_for_pickup","picked_up","cancelled"]
       if (!allowed.includes(next)) return Response.json({success:false,error:"Invalid delivery status"},{status:400})
+
       const now = new Date().toISOString()
-      const patch = { status:next }
-      if (next === "out_for_delivery") patch.out_for_delivery_at = now
-      if (next === "delivered" || next === "picked_up") patch.delivered_at = now
-      const { data: updated,error } = await supabaseAdmin.from("restaurant_deliveries").update(patch).eq("id",deliveryId).eq("restaurant_id",restaurantId).select("*").single()
-      if (error) return Response.json({success:false,error:error.message},{status:400})
-      if (delivery.order_id) {
-        const orderStatus = ["delivered","picked_up"].includes(next) ? "completed" : ["out_for_delivery"].includes(next) ? "out_for_delivery" : next === "cancelled" ? "cancelled" : "pending"
-        await supabaseAdmin.from("orders").update({status:orderStatus}).eq("id",delivery.order_id).eq("restaurant_id",restaurantId)
+      const isCod = ["cash","cod"].includes(String(delivery.payment_method || "cash").toLowerCase())
+      const patch = { status:next, updated_at:now }
+
+      if (next === "out_for_delivery") {
+        patch.out_for_delivery_at = now
       }
-      await addEvent({restaurantId,deliveryId,status:next,note:body?.note || null,userId:user.id})
+
+      if (next === "delivered" || next === "picked_up") {
+        patch.delivered_at = now
+        patch.collection_status = isCod
+          ? "pending_settlement"
+          : "not_required"
+      }
+
+      if (next === "cancelled") {
+        patch.collection_status = "not_required"
+      }
+
+      const { data: updated,error } = await supabaseAdmin
+        .from("restaurant_deliveries")
+        .update(patch)
+        .eq("id",deliveryId)
+        .eq("restaurant_id",restaurantId)
+        .select("*")
+        .single()
+
+      if (error) return Response.json({success:false,error:error.message},{status:400})
+
+      if (delivery.order_id) {
+        const orderStatus =
+          ["delivered","picked_up"].includes(next)
+            ? (isCod ? "delivered" : "completed")
+            : next === "out_for_delivery"
+              ? "out_for_delivery"
+              : next === "cancelled"
+                ? "cancelled"
+                : "pending"
+
+        await supabaseAdmin
+          .from("orders")
+          .update({status:orderStatus})
+          .eq("id",delivery.order_id)
+          .eq("restaurant_id",restaurantId)
+      }
+
+      await addEvent({
+        restaurantId,
+        deliveryId,
+        status:next,
+        note: isCod && ["delivered","picked_up"].includes(next)
+          ? "Delivered. COD collection is pending settlement."
+          : body?.note || null,
+        userId:user.id
+      })
+
       return Response.json({success:true,delivery:updated})
     }
 
     if (action === "settle") {
-      if (delivery.settlement_status === "settled") return Response.json({success:false,error:"Delivery is already settled"},{status:400})
+      if (delivery.settlement_status === "settled") {
+        return Response.json({success:false,error:"Delivery is already settled"},{status:400})
+      }
+
+      if (!["delivered","picked_up"].includes(String(delivery.status || "").toLowerCase())) {
+        return Response.json({
+          success:false,
+          error:"Delivery must be marked delivered before payment can be settled."
+        },{status:400})
+      }
+
+      const isCod = ["cash","cod"].includes(String(delivery.payment_method || "cash").toLowerCase())
+      const expected = cleanMoney(delivery.collection_expected ?? delivery.expected_amount)
+
+      if (!isCod) {
+        const { data: updated,error } = await supabaseAdmin
+          .from("restaurant_deliveries")
+          .update({
+            settlement_status:"settled",
+            collection_status:"not_required",
+            settled_at:new Date().toISOString(),
+            settled_by:user.id,
+            collection_received_by:user.id,
+            collection_received_at:new Date().toISOString(),
+            settlement_method:String(delivery.payment_method || "online").toLowerCase(),
+            collection_notes:String(body?.collection_notes || "").trim() || null,
+            status:delivery.status
+          })
+          .eq("id",deliveryId)
+          .eq("restaurant_id",restaurantId)
+          .select("*")
+          .single()
+
+        if (error) return Response.json({success:false,error:error.message},{status:400})
+
+        await addEvent({
+          restaurantId,
+          deliveryId,
+          status:"settled",
+          note:"Prepaid delivery marked settled. No cash collection required.",
+          userId:user.id
+        })
+
+        return Response.json({success:true,delivery:updated,difference:0})
+      }
+
       const cash = cleanMoney(body?.cash_collected)
       const upi = cleanMoney(body?.upi_collected)
       const card = cleanMoney(body?.card_collected)
-      const totalCollected = cash + upi + card
-      const expected = cleanMoney(delivery.expected_amount)
+      const totalCollected = Math.round((cash + upi + card) * 100) / 100
       const difference = Math.round((totalCollected - expected) * 100) / 100
-      const primaryMethod = cash > 0 && upi === 0 && card === 0 ? "cash" : upi > 0 && cash === 0 && card === 0 ? "upi" : card > 0 && cash === 0 && upi === 0 ? "card" : "other"
+
+      if (totalCollected <= 0 && expected > 0) {
+        return Response.json({
+          success:false,
+          error:`Enter the amount actually collected. Expected ${money(expected)}.`
+        },{status:400})
+      }
+
+      const primaryMethod =
+        cash > 0 && upi === 0 && card === 0
+          ? "cash"
+          : upi > 0 && cash === 0 && card === 0
+            ? "upi"
+            : card > 0 && cash === 0 && upi === 0
+              ? "card"
+              : "other"
 
       if (delivery.order_id && totalCollected > 0) {
         const { data: existingPayments } = await supabaseAdmin
@@ -219,47 +385,102 @@ export async function POST(req) {
           .eq("restaurant_id",restaurantId)
           .eq("status","paid")
 
-        const alreadyPaid = (existingPayments || []).reduce((sum,row)=>sum+Number(row.amount||0),0)
-        const remaining = Math.max(0, expected - alreadyPaid)
+        const alreadyPaid = (existingPayments || [])
+          .reduce((sum,row)=>sum+Number(row.amount||0),0)
+
+        let remaining = Math.max(0, expected - alreadyPaid)
         const methods = [["cash",cash],["upi",upi],["card",card]]
+
         for (const [method,amount] of methods) {
-          const n = Math.min(Number(amount||0), remaining)
+          const available = Number(amount || 0)
+          const n = Math.min(available, remaining)
           if (n <= 0) continue
-          await supabaseAdmin.from("order_payments").insert([{
-            restaurant_id:restaurantId,
-            order_id:delivery.order_id,
-            payment_method:method,
-            amount:n,
-            status:"paid",
-            paid_at:new Date().toISOString(),
-            created_by:user.id,
-            notes:`Delivery settlement ${delivery.slip_no || delivery.id}`
-          }])
+
+          await supabaseAdmin
+            .from("order_payments")
+            .insert([{
+              restaurant_id:restaurantId,
+              order_id:delivery.order_id,
+              payment_method:method,
+              amount:n,
+              status:"paid",
+              paid_at:new Date().toISOString(),
+              created_by:user.id,
+              notes:`Delivery settlement ${delivery.slip_no || delivery.id}`
+            }])
+
+          remaining = Math.max(0, remaining - n)
         }
-        const newPaid = alreadyPaid + Math.min(totalCollected, remaining)
-        const paymentStatus = newPaid >= expected && expected > 0 ? "paid" : newPaid > 0 ? "partially_paid" : "unpaid"
-        await supabaseAdmin.from("orders").update({
-          paid_amount:newPaid,
-          payment_status:paymentStatus,
-          payment_method:primaryMethod,
-          status:paymentStatus === "paid" ? "completed" : delivery.status
-        }).eq("id",delivery.order_id).eq("restaurant_id",restaurantId)
+
+        const newPaid = alreadyPaid + Math.min(totalCollected, expected)
+        const paymentStatus =
+          newPaid >= expected && expected > 0
+            ? "paid"
+            : newPaid > 0
+              ? "partially_paid"
+              : "unpaid"
+
+        await supabaseAdmin
+          .from("orders")
+          .update({
+            paid_amount:newPaid,
+            payment_status:paymentStatus,
+            payment_method:primaryMethod,
+            status:paymentStatus === "paid" ? "completed" : "delivered"
+          })
+          .eq("id",delivery.order_id)
+          .eq("restaurant_id",restaurantId)
       }
 
-      const { data: updated,error } = await supabaseAdmin.from("restaurant_deliveries").update({
-        cash_collected:cash,
-        upi_collected:upi,
-        card_collected:card,
-        payment_status: totalCollected >= expected && expected > 0 ? "paid" : totalCollected > 0 ? "partial" : "pending",
-        settlement_status:"settled",
-        settlement_difference:difference,
-        settled_at:new Date().toISOString(),
-        settled_by:user.id,
-        status:delivery.status === "cancelled" ? "cancelled" : "delivered"
-      }).eq("id",deliveryId).eq("restaurant_id",restaurantId).select("*").single()
+      const resultStatus =
+        difference === 0 ? "settled" : difference < 0 ? "short" : "over"
+
+      const { data: updated,error } = await supabaseAdmin
+        .from("restaurant_deliveries")
+        .update({
+          cash_collected:cash,
+          upi_collected:upi,
+          card_collected:card,
+          collection_received:totalCollected,
+          collection_difference:difference,
+          payment_status:
+            totalCollected >= expected && expected > 0
+              ? "paid"
+              : totalCollected > 0
+                ? "partial"
+                : "pending",
+          collection_status:"settled",
+          settlement_status:"settled",
+          settlement_difference:difference,
+          settlement_method:primaryMethod,
+          collection_received_by:user.id,
+          collection_received_at:new Date().toISOString(),
+          collection_notes:String(body?.collection_notes || "").trim() || null,
+          settled_at:new Date().toISOString(),
+          settled_by:user.id,
+          status:delivery.status === "cancelled" ? "cancelled" : "delivered"
+        })
+        .eq("id",deliveryId)
+        .eq("restaurant_id",restaurantId)
+        .select("*")
+        .single()
+
       if (error) return Response.json({success:false,error:error.message},{status:400})
-      await addEvent({restaurantId,deliveryId,status:"settled",note:`Collected ₹${totalCollected.toLocaleString("en-IN")} | Difference ₹${difference.toLocaleString("en-IN")}`,userId:user.id})
-      return Response.json({success:true,delivery:updated,difference})
+
+      await addEvent({
+        restaurantId,
+        deliveryId,
+        status:"settled",
+        note:`${resultStatus.toUpperCase()}: collected ₹${totalCollected.toLocaleString("en-IN")} | expected ₹${expected.toLocaleString("en-IN")} | difference ₹${difference.toLocaleString("en-IN")}`,
+        userId:user.id
+      })
+
+      return Response.json({
+        success:true,
+        delivery:updated,
+        difference,
+        settlement_result:resultStatus
+      })
     }
 
     return Response.json({success:false,error:"Unknown delivery action"},{status:400})
