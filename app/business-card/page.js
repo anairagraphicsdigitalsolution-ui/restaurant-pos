@@ -1,11 +1,9 @@
 "use client"
 
+"use client"
+
 import { useState, useRef, useEffect } from "react"
 import html2canvas from "html2canvas"
-import "@fontsource/poppins"
-import "@fontsource/inter"
-import "@fontsource/roboto"
-import "@fontsource/montserrat"
 /* ================= ELEMENT ================= */
 const createElement = (type, shapeType="rect") => ({
   id: crypto.randomUUID(),
