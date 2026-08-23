@@ -251,24 +251,44 @@ setDescription((item as any).description || "")
 
   async function addTable(){
     if(!tableInput || !restaurantId) return
-
-    await supabase.from("tables").insert([{
-      table_number: tableInput,
-      restaurant_id: restaurantId
-    }])
-
-    setTableInput("")
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if(!token) throw new Error("Session expired. Please login again.")
+      const response = await fetch("/api/dashboard-add-table", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ table_number: Number(tableInput) })
+      })
+      const result = await response.json()
+      if(!response.ok || !result?.success) throw new Error(result?.error || "Unable to add table")
+      setTableInput("")
+      loadData(restaurantId)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unable to add table"
+      alert(message)
+    }
   }
 
   async function addRoom(){
     if(!roomInput || !restaurantId) return
-
-    await supabase.from("rooms").insert([{
-      room_number: roomInput,
-      restaurant_id: restaurantId
-    }])
-
-    setRoomInput("")
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if(!token) throw new Error("Session expired. Please login again.")
+      const response = await fetch("/api/dashboard-add-room", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ room_number: Number(roomInput) })
+      })
+      const result = await response.json()
+      if(!response.ok || !result?.success) throw new Error(result?.error || "Unable to add room")
+      setRoomInput("")
+      loadData(restaurantId)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unable to add room"
+      alert(message)
+    }
   }
 
   function handleLogo(e: React.ChangeEvent<HTMLInputElement>){

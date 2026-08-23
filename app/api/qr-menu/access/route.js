@@ -36,14 +36,19 @@ export async function GET(req) {
 
     const state = Object.fromEntries((plugins || []).map(row => [row.plugin_code, row.enabled === true]))
     const orderingEnabled = isSuperAdmin || state["qr-ordering-pro"] === true || state["qr-menu"] === true
-    const printEnabled = isSuperAdmin ? state["qr-print-center"] === true : state["qr-print-center"] === true
+    const printEnabled = state["qr-print-center"] === true
+
+    // Restaurant Admin's internal QR page is intentionally gated by the
+    // separate Print Center plugin. This does NOT disable the public QR
+    // ordering runtime when Advanced QR Ordering is active.
+    const adminDashboardEnabled = isSuperAdmin ? (orderingEnabled || printEnabled) : printEnabled
 
     return NextResponse.json({
       success: true,
-      enabled: orderingEnabled || printEnabled,
+      enabled: adminDashboardEnabled,
       orderingEnabled,
       printEnabled,
-      reason: orderingEnabled || printEnabled ? null : "plugin"
+      reason: adminDashboardEnabled ? null : "qr-print-center"
     })
   } catch (error) {
     return NextResponse.json({ success: false, error: error?.message || "Unable to check QR access" }, { status: 401 })

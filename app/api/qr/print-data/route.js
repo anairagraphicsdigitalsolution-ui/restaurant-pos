@@ -50,12 +50,12 @@ export async function GET(req) {
     const orderingEnabled = pluginState["qr-ordering-pro"] === true || pluginState["qr-menu"] === true
     const printEnabled = pluginState["qr-print-center"] === true
 
-    if (!isSuperAdmin && !orderingEnabled && !printEnabled) {
-      return Response.json({ success: false, error: "QR Ordering and QR Print Center are both disabled for this restaurant" }, { status: 403 })
+    // Restaurant Admin's internal QR page is intentionally available only
+    // when the independent QR Print Center plugin is enabled. The public
+    // customer QR ordering runtime is controlled separately by qr-ordering-pro.
+    if (!isSuperAdmin && !printEnabled) {
+      return Response.json({ success: false, error: "QR Print Center is disabled for this restaurant" }, { status: 403 })
     }
-
-    // Restaurant Admin may load QR data when ordering is enabled, but print controls
-    // are exposed only when the independent QR Print Center plugin is enabled.
 
     const [{ data: restaurant, error: restaurantError }, { data: tables }, { data: rooms }] = await Promise.all([
       supabaseAdmin

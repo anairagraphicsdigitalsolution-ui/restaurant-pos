@@ -41,7 +41,10 @@ function requiredFeatureForPath(pathname: string) {
   // SaaS feature gating either. Other premium modules remain gated.
   if (pathname.startsWith("/dashboard/reservations")) return "reservations"
   if (pathname.startsWith("/dashboard/reports")) return "analytics"
-  if (pathname.startsWith("/dashboard/qr")) return "qr_ordering"
+  // The Restaurant Admin QR area is intentionally controlled by the
+  // independent QR Print Center plugin. Advanced QR Ordering remains
+  // separate for the public/customer ordering runtime.
+  if (pathname.startsWith("/dashboard/qr")) return "qr-print-center"
   if (pathname.startsWith("/dashboard/business") && pathname.includes("tab=loyalty")) return "loyalty"
   return null
 }

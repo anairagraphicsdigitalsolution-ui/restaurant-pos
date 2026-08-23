@@ -122,11 +122,30 @@ export default function QRPrintCenter({ superAdmin = false }) {
         .eq("id", userData.user.id)
         .maybeSingle()
 
-      if (profileError || !profile?.restaurant_id) {
-        throw new Error("Restaurant profile not found")
+      if (profileError) throw new Error("Unable to load restaurant profile")
+
+      const metadataRestaurantId =
+        userData.user.user_metadata?.restaurant_id ||
+        userData.user.app_metadata?.restaurant_id ||
+        null
+
+      let resolvedRestaurantId = profile?.restaurant_id || metadataRestaurantId || null
+
+      if (!resolvedRestaurantId) {
+        const { data: ownedRestaurant } = await supabase
+          .from("restaurants")
+          .select("id")
+          .eq("owner_id", userData.user.id)
+          .limit(1)
+          .maybeSingle()
+        resolvedRestaurantId = ownedRestaurant?.id || null
       }
 
-      setRestaurantId(profile.restaurant_id)
+      if (!resolvedRestaurantId) {
+        throw new Error("Restaurant not linked to this account")
+      }
+
+      setRestaurantId(resolvedRestaurantId)
     } catch (err) {
       console.error("QR RESTAURANT LOAD ERROR:", err)
       setError(err?.message || "Unable to load restaurants")
@@ -243,12 +262,6 @@ export default function QRPrintCenter({ superAdmin = false }) {
       </div>
 
       {error && <div className="qr-error-box" style={errorBox}>⚠️ {error}</div>}
-      {pluginAccess === true && orderingEnabled && !printEnabled && !superAdmin && (
-        <div style={infoBox}>
-          📱 <strong>Advanced QR Ordering is active.</strong> QR Menu and ordering are available.
-          QR generation/printing will appear when Super Admin enables <strong>QR Print Center</strong>.
-        </div>
-      )}
 
       {pluginAccess === null ? (
         <div style={emptyState}>
@@ -263,8 +276,8 @@ export default function QRPrintCenter({ superAdmin = false }) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
           <h2 style={{ margin: "0 0 8px" }}>QR Menu is locked</h2>
           <p style={{ color: "var(--muted)", maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
-            Super Admin must activate the QR Menu plugin for this restaurant.
-            Once activated, this page will automatically use the restaurant's selected theme.
+            Super Admin must activate the separate <strong>QR Print Center</strong> plugin for this restaurant.
+            Advanced QR Ordering remains independent and controls the public customer ordering runtime.
           </p>
         </div>
       ) : loading && !selectedRestaurant ? (

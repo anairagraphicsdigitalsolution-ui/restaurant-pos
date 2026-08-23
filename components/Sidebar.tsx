@@ -300,9 +300,12 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       name: "QR & Ordering",
       icon: "📱",
       path: "/dashboard/qr",
-      anyFeature: ["qr", "qr-print-center"],
+      // Restaurant Admin sees the QR section only after Super Admin
+      // explicitly enables the separate QR Print Center plugin.
+      // Advanced QR Ordering remains an independent customer-ordering feature.
+      feature: "qr-print-center",
       children: [
-        { name: "QR Menu", path: "/dashboard/qr", feature: "qr" },
+        { name: "QR Menu", path: "/dashboard/qr", feature: "qr-print-center" },
         { name: "QR Print Center", path: "/dashboard/qr?view=print", feature: "qr-print-center" },
       ]
     },

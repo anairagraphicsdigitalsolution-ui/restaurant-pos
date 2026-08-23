@@ -83,56 +83,9 @@ export async function GET(request) {
     const { admin } = auth
     const restaurantId = new URL(request.url).searchParams.get("restaurant_id")
 
-    // Keep the database catalog aligned with the canonical feature catalog.
-    // This makes newly-added plugins visible even if an older migration was not seeded yet.
-    const canonicalRows = FEATURE_CATALOG.map((item, index) => ({
-      code: item.code,
-      name: item.name,
-      icon: item.icon || "🧩",
-      category: item.category || "General",
-      description: item.description || "",
-      kind: "feature",
-      sort_order: index + 1,
-      active: true
-    }))
-    for (const row of canonicalRows) {
-      const { error: seedError } = await admin
-        .from("plugin_catalog")
-        .upsert(row, { onConflict: "code" })
-      if (seedError) {
-        console.error("PLUGIN CATALOG SEED ERROR:", seedError)
-        break
-      }
-    }
-
-    // Self-heal the independent QR Print Center installation row for every restaurant.
-    // This never changes an existing enabled value; it only creates a missing OFF row.
-    const qrPrintCatalog = canonicalRows.find((row) => row.code === "qr-print-center")
-    if (qrPrintCatalog) {
-      const { data: allRestaurants } = await admin.from("restaurants").select("id")
-      const { data: existingQrRows } = await admin
-        .from("restaurant_plugins")
-        .select("restaurant_id")
-        .eq("plugin_code", "qr-print-center")
-      const existingQr = new Set((existingQrRows || []).map((row) => row.restaurant_id))
-      const missingQr = (allRestaurants || [])
-        .filter((r) => !existingQr.has(r.id))
-        .map((r) => ({
-          restaurant_id: r.id,
-          plugin_code: "qr-print-center",
-          plugin_slug: "qr-print-center",
-          enabled: false,
-          config: {},
-          display_name: qrPrintCatalog.name,
-          category: qrPrintCatalog.category,
-          description: qrPrintCatalog.description,
-          feature_kind: qrPrintCatalog.kind,
-        }))
-      if (missingQr.length) {
-        const { error: qrSeedError } = await admin.from("restaurant_plugins").insert(missingQr)
-        if (qrSeedError) console.error("QR PRINT CENTER INSTALL ROW SEED ERROR:", qrSeedError)
-      }
-    }
+    // The plugin catalog and default restaurant plugin rows are seeded by
+    // Supabase migrations. Do not write to the database while opening the
+    // Plugin Center; this endpoint is a read path and must stay fast.
 
     const { data: catalog, error: catalogError } = await admin
       .from("plugin_catalog")
