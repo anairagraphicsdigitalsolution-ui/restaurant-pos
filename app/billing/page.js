@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import SalesChart from "@/components/SalesChart"
 import ItemChart from "@/components/ItemChart"
@@ -8,6 +9,15 @@ import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 
 export default function BillingPage() {
+
+  const router = useRouter()
+  const pathname = usePathname()
+  const isDedicatedBillPage = pathname === "/billing/bill"
+  const [billView, setBillView] = useState(false)
+  const isBillScreen = isDedicatedBillPage || billView
+  const [printSize, setPrintSize] = useState("A4")
+  const [customPrintWidth, setCustomPrintWidth] = useState("210")
+  const [customPrintHeight, setCustomPrintHeight] = useState("297")
 
   const [orders, setOrders] = useState([])
   const [selectedOrder, setSelectedOrder] = useState("")
@@ -39,8 +49,25 @@ export default function BillingPage() {
   const invoiceRef = useRef(null)
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      setBillView(isDedicatedBillPage || params.get("view") === "bill")
+    }
     init()
-  }, [billingRefresh])
+  }, [billingRefresh, isDedicatedBillPage, pathname])
+
+  // When the user opens the dedicated Bill view, restore the last selected
+  // order so the workflow is: open bill -> review -> finalize -> print.
+  useEffect(() => {
+    if (!isBillScreen || selectedOrder || !orders.length) return
+    const savedOrder = typeof window !== "undefined"
+      ? window.localStorage.getItem("anaira_pos_selected_order")
+      : null
+    const orderId = savedOrder && orders.some(o => o.id === savedOrder)
+      ? savedOrder
+      : orders[0]?.id
+    if (orderId) loadBill(orderId)
+  }, [isBillScreen, orders, selectedOrder])
 
   async function init() {
     const { data: auth } = await supabase.auth.getUser()
@@ -243,6 +270,9 @@ export default function BillingPage() {
 
     setCurrentOrder(selected)
     setSelectedOrder(orderId)
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("anaira_pos_selected_order", orderId)
+    }
     setFinalizedBill(null)
     setEditMode(false)
 
@@ -859,15 +889,27 @@ export default function BillingPage() {
         windowWidth: element.scrollWidth,
       })
 
+      const printDimensions = {
+        "A4": [210, 297],
+        "A5": [148, 210],
+        "THERMAL_80": [80, 200],
+        "THERMAL_58": [58, 200],
+        "CUSTOM": [
+          Math.max(40, Number(customPrintWidth) || 210),
+          Math.max(60, Number(customPrintHeight) || 297),
+        ],
+      }
+
+      const [pageWidth, pageHeight] =
+        printDimensions[printSize] || printDimensions.A4
+
       const pdf = new jsPDF({
-        orientation: "portrait",
+        orientation: pageWidth > pageHeight ? "landscape" : "portrait",
         unit: "mm",
-        format: "a4",
+        format: [pageWidth, pageHeight],
       })
 
-      const pageWidth = 210
-      const pageHeight = 297
-      const margin = 8
+      const margin = printSize === "THERMAL_58" || printSize === "THERMAL_80" ? 3 : 8
       const usableWidth = pageWidth - margin * 2
       const imageHeight = (canvas.height * usableWidth) / canvas.width
       const imageData = canvas.toDataURL("image/jpeg", 0.95)
@@ -917,7 +959,7 @@ export default function BillingPage() {
     }
   }
 
-  function printContent(id) {
+  function printContent(id, selectedPrintSize = printSize) {
 
     const element =
       document.getElementById(id)
@@ -945,14 +987,48 @@ export default function BillingPage() {
       return
     }
 
+    const printDimensions = {
+      "A4": ["210mm", "297mm"],
+      "A5": ["148mm", "210mm"],
+      "THERMAL_80": ["80mm", "200mm"],
+      "THERMAL_58": ["58mm", "200mm"],
+      "CUSTOM": [
+        `${Math.max(40, Number(customPrintWidth) || 210)}mm`,
+        `${Math.max(60, Number(customPrintHeight) || 297)}mm`,
+      ],
+    }
+
+    const [printWidth, printHeight] =
+      printDimensions[selectedPrintSize] || printDimensions.A4
+
+    const printPadding =
+      selectedPrintSize === "THERMAL_58" || selectedPrintSize === "THERMAL_80"
+        ? "3mm"
+        : "8mm"
+
     win.document.write(
       `<html>
         <head>
-          <title>Print</title>
+          <title>Invoice</title>
           <style>
+            @page {
+              size: ${printWidth} ${printHeight};
+              margin: 0;
+            }
+
+            * { box-sizing: border-box; }
+
+            html, body {
+              margin: 0;
+              padding: 0;
+              width: ${printWidth};
+              background: #fff;
+            }
+
             body {
               font-family: Arial, sans-serif;
-              padding: 20px;
+              padding: ${printPadding};
+              color: #111;
             }
 
             table {
@@ -961,9 +1037,26 @@ export default function BillingPage() {
             }
 
             th, td {
-              padding: 10px;
+              padding: ${selectedPrintSize.startsWith("THERMAL") ? "5px 3px" : "10px 6px"};
               border-bottom: 1px solid #ddd;
               text-align: left;
+            }
+
+            h1, h2, h3, h4, p {
+              max-width: 100%;
+              overflow-wrap: anywhere;
+            }
+
+            .billing-invoice-card {
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 !important;
+              box-shadow: none !important;
+              border: 0 !important;
+            }
+
+            @media print {
+              body { width: ${printWidth}; }
             }
           
 
@@ -1093,6 +1186,7 @@ export default function BillingPage() {
     min-height:44px!important;
   }
 }
+
 </style>
         </head>
         <body>
@@ -1109,7 +1203,58 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="billing-page" style={layout}>
+    <>
+      <style>{`
+        .billing-bill-view .billing-summary-wrap,
+        .billing-bill-view .billing-chart-grid,
+        .billing-bill-view .billing-left-panel {
+          display: none !important;
+        }
+
+        .billing-bill-view .billing-topbar > :not(.billing-bill-jump) {
+          display: none !important;
+        }
+
+        .billing-bill-view .billing-topbar {
+          grid-template-columns: 1fr !important;
+        }
+
+        .billing-bill-view .billing-main-grid {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+
+        .billing-print-settings {
+          display: grid;
+          grid-template-columns: minmax(180px, 1fr) minmax(140px, .7fr) minmax(140px, .7fr);
+          gap: 10px;
+          align-items: end;
+          padding: 14px;
+          margin: 14px 0 18px;
+          border: 1px solid rgba(0,0,0,.08);
+          border-radius: 14px;
+          background: #f8fafc;
+        }
+
+        .billing-print-settings .billing-field-label {
+          display: block;
+          margin-bottom: 6px;
+        }
+
+        @media(max-width:700px){
+          .billing-print-settings {
+            grid-template-columns: 1fr;
+          }
+
+          .billing-bill-view .billing-topbar {
+            padding: 12px !important;
+          }
+
+          .billing-bill-view .billing-invoice-card {
+            padding: 14px !important;
+          }
+        }
+      `}</style>
+    <div className={`billing-page${isBillScreen ? " billing-bill-view" : ""}`} style={layout}>
 
       {/* HEADER */}
 
@@ -1141,7 +1286,7 @@ export default function BillingPage() {
         </div>
 
         <h1 className="billing-title" style={title}>
-          💰 Billing Dashboard
+          {isBillScreen ? "🧾 Bill" : "💰 Billing Dashboard"}
         </h1>
 
         <p
@@ -1149,7 +1294,9 @@ export default function BillingPage() {
             color:"var(--muted)"
           }}
         >
-          Reports, invoices and sales analytics
+          {isBillScreen
+            ? "Review bill, finalize payment and print the invoice."
+            : "Reports, invoices and sales analytics"}
         </p>
 
       </div>
@@ -1161,14 +1308,16 @@ export default function BillingPage() {
         <button
           type="button"
           onClick={() => {
-            document
-              .getElementById("billing-bill-section")
-              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            if (isDedicatedBillPage) {
+              router.push("/billing")
+            } else {
+              router.push("/billing/bill")
+            }
           }}
           className="billing-action billing-bill-jump"
           style={{ ...btnGreen, marginTop: 0, width: "auto", minWidth: 150 }}
         >
-          🧾 Bill
+          {isBillScreen ? "← Billing" : "🧾 Open Bill"}
         </button>
 
         <button
@@ -1424,9 +1573,69 @@ export default function BillingPage() {
                   <span className="billing-toolbar-label">Order</span>
                   <strong>#{String(selectedOrder).slice(0, 8)}</strong>
                 </div>
+
+                <select
+                  value={selectedOrder}
+                  onChange={e => loadBill(e.target.value)}
+                  className="billing-input"
+                  style={{ ...input, minWidth: 180 }}
+                  aria-label="Select order for bill"
+                >
+                  {(showAllOrders ? orders : orders.slice(0, 5)).map(o => (
+                    <option key={o.id} value={o.id}>
+                      #{String(o.id).slice(0, 8)} | {formatDate(o.created_at)}
+                    </option>
+                  ))}
+                </select>
+
                 <button type="button" onClick={() => setEditMode(v => !v)} className="billing-edit-btn">
                   {editMode ? "✓ Done Editing" : "✏️ Edit Items"}
                 </button>
+              </div>
+
+              <div className="billing-print-settings" data-html2canvas-ignore="true">
+                <div>
+                  <label className="billing-field-label">Print / Paper Size</label>
+                  <select
+                    value={printSize}
+                    onChange={e => setPrintSize(e.target.value)}
+                    className="billing-input"
+                    style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                  >
+                    <option value="A4">A4 — 210 × 297 mm</option>
+                    <option value="A5">A5 — 148 × 210 mm</option>
+                    <option value="THERMAL_80">Thermal 80mm</option>
+                    <option value="THERMAL_58">Thermal 58mm</option>
+                    <option value="CUSTOM">Custom Size</option>
+                  </select>
+                </div>
+
+                {printSize === "CUSTOM" && (
+                  <>
+                    <div>
+                      <label className="billing-field-label">Width (mm)</label>
+                      <input
+                        type="number"
+                        min="40"
+                        value={customPrintWidth}
+                        onChange={e => setCustomPrintWidth(e.target.value)}
+                        className="billing-input"
+                        style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                      />
+                    </div>
+                    <div>
+                      <label className="billing-field-label">Height (mm)</label>
+                      <input
+                        type="number"
+                        min="60"
+                        value={customPrintHeight}
+                        onChange={e => setCustomPrintHeight(e.target.value)}
+                        className="billing-input"
+                        style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <table className="billing-invoice-table" style={table}>
@@ -1744,20 +1953,16 @@ export default function BillingPage() {
                   onClick={generateInvoicePdf}
                   className="billing-action" style={btnGreen}
                   type="button"
+                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
                 >
                   📄 Download Invoice PDF
                 </button>
 
                 <button
-                  onClick={() => {
-                    if (window.innerWidth < 768) {
-                      generateInvoicePdf()
-                    } else {
-                      printContent("bill-print")
-                    }
-                  }}
+                  onClick={() => printContent("bill-print", printSize)}
                   className="billing-action" style={btnGreen}
                   type="button"
+                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
                 >
                   🖨 Print Invoice
                 </button>
@@ -1767,8 +1972,6 @@ export default function BillingPage() {
           )}
 
         </div>
-
-      </div>
 
         {/* LEFT */}
 
@@ -1982,7 +2185,8 @@ export default function BillingPage() {
 
       </div>
 
-    
+    </div>
+    </>
   )
 }
 

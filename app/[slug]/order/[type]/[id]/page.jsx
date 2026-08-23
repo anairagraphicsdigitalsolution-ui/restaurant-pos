@@ -1683,7 +1683,7 @@ transform:translateX(-50%);
   .qr-header-action{padding:0 9px !important;min-height:40px !important;border-radius:12px !important;font-size:12px !important;}
 }
 @media (max-width:900px){
-  .qr-menu-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 10px;}
+  .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 10px;}
   .qr-menu-grid > div{min-width:0 !important;border-radius:13px !important;}
   .qr-menu-grid img{height:110px !important;min-height:110px !important;object-fit:cover !important;}
   .qr-menu-grid > div > div{padding:8px 7px !important;gap:5px !important;}
@@ -1692,7 +1692,7 @@ transform:translateX(-50%);
   .qr-menu-grid button{padding:4px 7px !important;font-size:9px !important;border-radius:7px !important;}
 }
 @media (max-width:600px){
-  .qr-menu-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:8px 6px;}
+  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 8px;}
   .qr-menu-grid > div{min-width:0 !important;width:100%;border-radius:10px !important;box-shadow:0 5px 14px rgba(0,0,0,.22) !important;}
   .qr-menu-grid img{width:100% !important;height:76px !important;min-height:76px !important;object-fit:cover !important;}
   .qr-menu-grid > div > div{padding:5px 4px 6px !important;gap:4px !important;}
@@ -1702,12 +1702,12 @@ transform:translateX(-50%);
   .qr-header{padding:12px !important;}
 }
 @media (max-width:380px){
-  .qr-menu-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:7px 5px;}
-  .qr-menu-grid img{height:62px !important;min-height:62px !important;}
-  .qr-menu-grid > div > div{padding:4px 3px 5px !important;gap:3px !important;}
-  .qr-menu-grid h3{font-size:8px !important;min-height:19px !important;height:19px !important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:9px !important;}
-  .qr-menu-grid button{padding:2px 4px !important;font-size:7px !important;min-height:21px !important;}
+  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 6px;}
+  .qr-menu-grid img{height:110px !important;min-height:110px !important;}
+  .qr-menu-grid > div > div{padding:8px 7px 9px !important;gap:5px !important;}
+  .qr-menu-grid h3{font-size:11px !important;min-height:27px !important;height:27px !important;}
+  .qr-menu-grid span[style*="font-size:18px"]{font-size:12px !important;}
+  .qr-menu-grid button{padding:5px 7px !important;font-size:9px !important;min-height:34px !important;}
 }
 `}</style>
 

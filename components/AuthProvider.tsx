@@ -51,10 +51,10 @@ function canAccess(role: Role, pathname: string) {
     return pathname === "/super-admin" || pathname.startsWith("/super-admin/") || pathname.startsWith("/ai/") || pathname === "/ai" || pathname === "/business-card"
   }
   if (role === "admin") {
-    return pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/order" || pathname === "/kitchen" || pathname === "/billing" || pathname === "/business-card"
+    return pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing") || pathname === "/business-card"
   }
   if (role === "staff") {
-    return pathname === "/staff" || pathname === "/order" || pathname === "/kitchen" || pathname === "/billing"
+    return pathname === "/staff" || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing")
   }
   return false
 }

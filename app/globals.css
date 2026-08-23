@@ -1697,3 +1697,249 @@ input, select, textarea, button {
     opacity:.96;
   }
 }
+
+
+/* =========================================================
+   ANAIRA POS — BILL WORKFLOW + DEVICE QA
+   Bill opens as a dedicated route:
+   /billing?view=bill
+   Workflow: Open Bill -> Review -> Finalize -> Print
+========================================================= */
+
+.billing-bill-view .billing-summary-wrap,
+.billing-bill-view .billing-chart-grid,
+.billing-bill-view .billing-left-panel {
+  display: none !important;
+}
+
+.billing-bill-view .billing-main-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: 100% !important;
+}
+
+.billing-bill-view .billing-bill-section {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.billing-bill-view .billing-topbar {
+  align-items: stretch;
+}
+
+.billing-bill-view .billing-topbar > button:not(.billing-bill-jump),
+.billing-bill-view .billing-topbar > input {
+  display: none !important;
+}
+
+.billing-bill-view .billing-topbar > select {
+  flex: 1 1 280px !important;
+  min-width: 0 !important;
+}
+
+.billing-bill-view .billing-bill-jump {
+  flex: 0 0 auto !important;
+}
+
+.billing-page .billing-invoice-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.billing-page .billing-invoice-actions button:disabled {
+  opacity: .45 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(.35);
+}
+
+.billing-page .billing-invoice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.billing-page .billing-invoice-card {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-table input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0 !important;
+}
+
+.billing-page .billing-invoice-card > * {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .billing-page .billing-invoice-card {
+    padding: 24px !important;
+    border-radius: 22px !important;
+  }
+
+  .billing-page .billing-invoice-card h2 {
+    font-size: clamp(20px, 5vw, 30px);
+  }
+}
+
+@media (max-width: 700px) {
+  .billing-page {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      12px
+      max(20px, env(safe-area-inset-bottom))
+      12px !important;
+  }
+
+  .billing-page .billing-title {
+    font-size: clamp(25px, 8vw, 34px) !important;
+  }
+
+  .billing-page .billing-topbar {
+    width: 100% !important;
+  }
+
+  .billing-bill-view .billing-topbar {
+    grid-template-columns: 1fr !important;
+  }
+
+  .billing-bill-view .billing-topbar > select {
+    width: 100% !important;
+    flex: none !important;
+  }
+
+  .billing-page .billing-bill-card {
+    padding: 16px !important;
+    border-radius: 18px !important;
+  }
+
+  .billing-page .billing-bill-card > div:first-child {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .billing-page .billing-bill-card > div:first-child > div:last-child {
+    text-align: left !important;
+  }
+
+  .billing-page .billing-invoice-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .billing-page .billing-edit-btn,
+  .billing-page .billing-invoice-actions button {
+    width: 100% !important;
+    min-height: 48px !important;
+  }
+
+  .billing-page .billing-invoice-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .billing-page .billing-invoice-table {
+    font-size: 11px !important;
+  }
+
+  .billing-page .billing-invoice-table th,
+  .billing-page .billing-invoice-table td {
+    padding: 7px 5px !important;
+    font-size: 11px !important;
+  }
+
+  .billing-page .billing-invoice-table th:first-child,
+  .billing-page .billing-invoice-table td:first-child {
+    width: 43% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(2),
+  .billing-page .billing-invoice-table td:nth-child(2) {
+    width: 14% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(3),
+  .billing-page .billing-invoice-table td:nth-child(3) {
+    width: 20% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(4),
+  .billing-page .billing-invoice-table td:nth-child(4) {
+    width: 23% !important;
+  }
+}
+
+@media (max-width: 390px) {
+  .billing-page .billing-bill-card {
+    padding: 12px !important;
+  }
+
+  .billing-page .billing-invoice-table th,
+  .billing-page .billing-invoice-table td {
+    padding: 6px 3px !important;
+    font-size: 10px !important;
+  }
+
+  .billing-page .billing-invoice-table th:first-child,
+  .billing-page .billing-invoice-table td:first-child {
+    width: 40% !important;
+  }
+}
+
+/* Global touch/device safety for QR, POS, dashboards and forms. */
+@media (max-width: 767px) {
+  .app-main {
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  .app-main > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .app-main img,
+  .app-main video,
+  .app-main canvas,
+  .app-main svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .app-main button,
+  .app-main a[role="button"] {
+    min-height: 44px;
+  }
+
+  .app-main input,
+  .app-main select,
+  .app-main textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .app-main table {
+    max-width: 100%;
+  }
+
+  .app-main [style*="min-width: 700px"],
+  .app-main [style*="min-width:700px"],
+  .app-main [style*="min-width: 600px"],
+  .app-main [style*="min-width:600px"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+}
