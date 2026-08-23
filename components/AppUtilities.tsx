@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 type Result = {
@@ -17,6 +18,7 @@ type Props = {
 }
 
 export default function AppUtilities({ restaurantId, role }: Props) {
+  const pathname = usePathname()
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<Result[]>([])
@@ -227,16 +229,20 @@ export default function AppUtilities({ restaurantId, role }: Props) {
 
   return (
     <>
-      <div className="utility-bar">
-        <button className="utility-search" onClick={() => { setSearchOpen(true); window.setTimeout(() => document.getElementById("global-app-search")?.focus(), 0) }}>
-          🔍 <span>Search anything…</span><kbd>Ctrl K</kbd>
+      <header className="app-header" aria-label="Application header">
+        <div className="header-context">
+          <span className="header-kicker">ANAIRA</span>
+          <strong>{pageTitle(pathname, role)}</strong>
+        </div>
+        <button className="header-search" onClick={() => { setSearchOpen(true); window.setTimeout(() => document.getElementById("global-app-search")?.focus(), 0) }}>
+          <span className="header-search-icon">⌕</span>
+          <span className="header-search-placeholder">{searchPlaceholder(pathname)}</span>
+          <kbd>Ctrl K</kbd>
         </button>
-        {role !== "super_admin" && (
-          <button className="utility-notification" title="Notifications" onClick={() => window.location.href = "/dashboard/notifications"}>
-            🔔{unread > 0 && <b>{unread > 99 ? "99+" : unread}</b>}
-          </button>
-        )}
-      </div>
+        <button className="header-notification" title="Notifications" aria-label="Notifications" onClick={() => window.location.href = role === "super_admin" ? "/super-admin/audit" : "/dashboard/notifications"}>
+          🔔{unread > 0 && <b>{unread > 99 ? "99+" : unread}</b>}
+        </button>
+      </header>
 
       {toast && (
         <div className="order-toast" role="status">
@@ -282,16 +288,50 @@ export default function AppUtilities({ restaurantId, role }: Props) {
       )}
 
       <style jsx global>{`
-        .utility-bar{position:fixed;top:14px;right:18px;z-index:900;display:flex;gap:8px;align-items:center}
-        .utility-search,.utility-notification{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(18,22,28,.88);backdrop-filter:blur(18px);color:var(--text);border-radius:14px;padding:10px 13px;box-shadow:0 12px 35px rgba(0,0,0,.2);cursor:pointer}
-        .utility-search{display:flex;align-items:center;gap:8px;min-width:240px;text-align:left}.utility-search span{color:var(--muted);flex:1}.utility-search kbd{font-size:10px;color:var(--muted);padding:3px 6px;border:1px solid rgba(255,255,255,.12);border-radius:6px}
-        .utility-notification{position:relative;font-size:18px}.utility-notification b{position:absolute;right:-5px;top:-7px;background:#ef4444;color:#fff;border-radius:999px;font-size:9px;min-width:18px;height:18px;display:grid;place-items:center}
+        .app-header{position:sticky;top:0;z-index:900;width:100%;min-height:72px;display:grid;grid-template-columns:minmax(170px,1fr) minmax(280px,680px) auto;align-items:center;gap:14px;padding:12px 18px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid rgba(var(--primary-rgb),.14);box-shadow:0 10px 28px rgba(0,0,0,.12)}
+        .header-context{min-width:0;display:flex;flex-direction:column;gap:3px}.header-kicker{font-size:9px;letter-spacing:1.6px;font-weight:900;color:var(--primary)}.header-context strong{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .header-search{min-width:0;width:100%;height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;border:1px solid rgba(var(--primary-rgb),.18);border-radius:14px;background:rgba(255,255,255,.035);color:var(--text);cursor:text;text-align:left}.header-search:hover{border-color:rgba(var(--primary-rgb),.35);background:rgba(var(--primary-rgb),.045)}.header-search-icon{font-size:20px;color:var(--primary);line-height:1}.header-search-placeholder{flex:1;min-width:0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.header-search kbd{flex:0 0 auto;font-size:10px;color:var(--muted);padding:4px 7px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.03)}
+        .header-notification{position:relative;width:44px;height:44px;display:grid;place-items:center;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(255,255,255,.035);color:var(--text);border-radius:14px;font-size:18px;cursor:pointer}.header-notification:hover{background:rgba(var(--primary-rgb),.08);border-color:rgba(var(--primary-rgb),.3)}.header-notification b{position:absolute;right:-5px;top:-6px;background:#ef4444;color:#fff;border-radius:999px;font-size:9px;min-width:18px;height:18px;display:grid;place-items:center;border:2px solid var(--surface)}
         .order-toast{position:fixed;right:18px;top:72px;z-index:1100;width:min(430px,calc(100vw - 36px));display:flex;align-items:center;gap:12px;padding:14px;border-radius:18px;background:var(--surface);border:1px solid rgba(var(--primary-rgb),.35);box-shadow:0 25px 70px rgba(0,0,0,.35);animation:anairaToastIn .25s ease-out}.toast-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:rgba(var(--primary-rgb),.12);font-size:21px}.toast-copy{min-width:0;flex:1}.toast-copy strong,.toast-copy span{display:block}.toast-copy span{margin-top:3px;color:var(--muted);font-size:12px}.order-toast button{border:0;border-radius:10px;background:rgba(var(--primary-rgb),.12);color:var(--primary);padding:8px 10px;font-weight:800;cursor:pointer}.order-toast .toast-close{background:transparent;color:var(--muted);font-size:18px;padding:3px}.enable-notifications{position:fixed;right:18px;bottom:18px;z-index:1000;border:1px solid rgba(var(--primary-rgb),.25);background:var(--surface);color:var(--text);border-radius:12px;padding:9px 12px;cursor:pointer;box-shadow:0 12px 30px rgba(0,0,0,.2)}
         .search-overlay{position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.58);backdrop-filter:blur(7px);display:flex;justify-content:center;align-items:flex-start;padding:8vh 18px}.search-modal{width:min(820px,100%);max-height:80vh;overflow:hidden;background:var(--surface);border:1px solid rgba(var(--primary-rgb),.25);border-radius:24px;box-shadow:0 35px 100px rgba(0,0,0,.45)}.search-head{display:flex;justify-content:space-between;align-items:center;padding:20px 22px 12px}.search-head small{color:var(--primary);font-size:10px;letter-spacing:1.5px;font-weight:900}.search-head h2{margin:5px 0 0;font-size:22px}.search-head button{border:1px solid rgba(255,255,255,.1);background:var(--surface-2);color:var(--muted);border-radius:8px;padding:5px 8px}.search-input-wrap{margin:0 18px 10px;display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid rgba(var(--primary-rgb),.25);border-radius:15px;background:rgba(255,255,255,.025)}.search-input-wrap span{font-size:22px;color:var(--primary)}.search-input-wrap input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:15px}.search-input-wrap i{font-size:11px;color:var(--muted)}.search-results{max-height:55vh;overflow:auto;padding:6px 12px 14px}.search-hint{padding:32px;text-align:center;color:var(--muted)}.search-result{width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:13px 10px;border:0;background:transparent;color:var(--text);border-radius:13px;cursor:pointer}.search-result:hover{background:rgba(var(--primary-rgb),.08)}.result-icon{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--surface-2);font-size:18px}.search-result span:nth-child(2){min-width:0;flex:1}.search-result strong,.search-result small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.search-result small{margin-top:3px;color:var(--muted);font-size:11px}.search-result em{font-style:normal;color:var(--muted);font-size:20px}@keyframes anairaToastIn{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
-        @media(max-width:720px){.utility-bar{top:10px;right:10px}.utility-search{min-width:0}.utility-search span{display:none}.utility-search kbd{display:none}.order-toast{right:10px;top:64px}.search-overlay{padding:4vh 10px}.search-modal{border-radius:18px}}
+        @media(max-width:900px){.app-header{grid-template-columns:auto minmax(0,1fr) auto}.header-context{display:none}}@media(max-width:520px){.app-header{min-height:62px;padding:9px 10px;gap:8px}.header-search{height:40px}.header-search-placeholder{font-size:11px}.header-search kbd{display:none}.header-notification{width:40px;height:40px}.order-toast{right:10px;top:70px}.search-overlay{padding:4vh 10px}.search-modal{border-radius:18px}}
       `}</style>
     </>
   )
+}
+
+function pageTitle(pathname: string, role: string) {
+  if (role === "super_admin") {
+    if (pathname === "/super-admin") return "Super Admin Dashboard"
+    if (pathname.includes("/super-admin/users")) return "Users & Merchant Accounts"
+    if (pathname.includes("/super-admin/restaurants")) return "Restaurants"
+    if (pathname.includes("/super-admin/plugins")) return "Plugins"
+    if (pathname.includes("/super-admin/subscriptions")) return "Subscriptions"
+    if (pathname.includes("/super-admin/analytics")) return "Platform Analytics"
+    if (pathname.includes("/super-admin/audit")) return "Audit Logs"
+    return "SaaS Control Panel"
+  }
+  const map: Record<string,string> = {
+    "/dashboard":"Dashboard", "/order":"Orders", "/kitchen":"Kitchen / KDS", "/billing":"Billing", "/dashboard/offers":"Offers",
+    "/dashboard/customers":"Customers", "/dashboard/reservations":"Reservations", "/dashboard/tables":"Tables", "/dashboard/reports":"Reports & Analytics",
+    "/dashboard/delivery":"Delivery", "/dashboard/notifications":"Notifications", "/dashboard/business":"Operations Hub",
+    "/dashboard/restaurant-pro":"Restaurant Pro", "/dashboard/restaurant-core":"Restaurant Core", "/dashboard/restaurant-suite":"Restaurant Suite",
+  }
+  return map[pathname] || (pathname.startsWith("/billing/") ? "Billing" : "Restaurant Admin")
+}
+
+function searchPlaceholder(pathname: string) {
+  if (pathname === "/order") return "Search orders, invoices, menu items, customers…"
+  if (pathname === "/billing" || pathname.startsWith("/billing/")) return "Search bills, orders, customers, offers…"
+  if (pathname.includes("customers")) return "Search customers, phone, email, orders…"
+  if (pathname.includes("offers")) return "Search offers, products, categories…"
+  if (pathname.includes("reservations")) return "Search reservations, guests, phone…"
+  if (pathname.includes("tables")) return "Search tables, seats, status…"
+  if (pathname.includes("reports")) return "Search reports, sales, payment records…"
+  if (pathname.includes("kitchen")) return "Search KOTs, orders, tables…"
+  if (pathname.includes("delivery")) return "Search delivery orders, customers, riders…"
+  if (pathname.startsWith("/super-admin")) return "Search restaurants, users, plugins, subscriptions…"
+  return "Search anything…"
 }
 
 type QuickLink = readonly [title: string, url: string, icon: string]

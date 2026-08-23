@@ -443,13 +443,6 @@ textarea:focus-visible {
   }
 }
 
-@media (max-width: 767px) {
-  .app-shell.has-sidebar .app-main {
-    padding-top: 62px;
-  }
-}
-
-
 /* =========================================================
    LIGHT THEME COMPATIBILITY
    Several legacy POS screens still contain inline dark

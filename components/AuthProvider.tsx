@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import Sidebar from "@/components/Sidebar"
 import OrderNotificationListener from "@/components/OrderNotificationListener"
+import AppUtilities from "@/components/AppUtilities"
 
 type Role = "staff" | "admin" | "super_admin" | ""
 type AuthContextValue = {
@@ -363,7 +364,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       <div className={showSidebar ? "app-shell has-sidebar" : "app-shell"}>
         <OrderNotificationListener user={user} restaurantId={restaurantId} role={role} />
         {showSidebar && <Sidebar role={role} />}
-        <main className="app-main">{children}</main>
+        <main className="app-main">
+          {showSidebar && <AppUtilities restaurantId={restaurantId} role={role} />}
+          {children}
+        </main>
       </div>
     </AuthContext.Provider>
   )

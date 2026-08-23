@@ -621,17 +621,17 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
           </Section>
         )}
 
-        {role === "admin" && (
-          <Section title="ADMIN">
-            <div style={adminMenuWrap}>
-              {adminMenu.map(renderAdminMenu)}
-            </div>
+        {role !== "super_admin" && (
+          <Section title="MAIN MENU">
+            {mainMenu.filter((item: any) => !item.feature || planFeatures[item.feature] === true).map(renderLink)}
           </Section>
         )}
 
-        {role !== "super_admin" && (
-          <Section title="MAIN">
-            {mainMenu.filter((item: any) => !item.feature || planFeatures[item.feature] === true).map(renderLink)}
+        {role === "admin" && (
+          <Section title="ADMIN MENU">
+            <div style={adminMenuWrap}>
+              {adminMenu.map(renderAdminMenu)}
+            </div>
           </Section>
         )}
       </div>
