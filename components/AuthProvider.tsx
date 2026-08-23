@@ -71,6 +71,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [restaurantId, setRestaurantId] = useState<string | null>(null)
   const bootstrapped = useRef(false)
   const syncInFlight = useRef(false)
+  const currentUserRef = useRef<any | null>(null)
+  const profileCacheRef = useRef<{ userId: string; profile: any } | null>(null)
+  const syncingUserIdRef = useRef<string | null | undefined>(undefined)
 
   const getProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -145,24 +148,36 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   const syncAuth = useCallback(async (knownUser: any = undefined) => {
     if (syncInFlight.current) {
-      // A bootstrap sync can overlap with the SIGNED_IN event. Queue the
-      // latest auth state instead of dropping it; otherwise the first login
-      // can be ignored and only a refresh would process the session.
+      // If the same user is already being synchronized, do not run a second
+      // profile/restaurant/plan lookup. This commonly happened on first login
+      // when the SIGNED_IN event raced with the initial bootstrap sync.
+      const incomingId = knownUser?.id ?? (knownUser === null ? null : undefined)
+      if (incomingId === syncingUserIdRef.current) return
+
+      // A different auth state arrived while a sync is running. Queue only
+      // that genuinely new state.
       syncQueued.current = true
       queuedUser.current = knownUser
       return
     }
 
     syncInFlight.current = true
+    syncingUserIdRef.current = knownUser?.id ?? (knownUser === null ? null : undefined)
     if (!bootstrapped.current) setLoading(true)
 
     try {
       let currentUser = knownUser
       if (knownUser === undefined) {
-        const { data: { user } } = await supabase.auth.getUser()
-        currentUser = user
+        // After the first successful sync, pathname changes should reuse the
+        // current auth user instead of asking Supabase Auth again.
+        currentUser = bootstrapped.current ? currentUserRef.current : undefined
+        if (currentUser === undefined) {
+          const { data: { user } } = await supabase.auth.getUser()
+          currentUser = user
+        }
       }
 
+      currentUserRef.current = currentUser || null
       setUser(currentUser)
 
       if (!currentUser) {
@@ -172,10 +187,23 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         return
       }
 
-      const profile = await getProfile(currentUser.id)
+      let profile: any = null
+
+      if (profileCacheRef.current && profileCacheRef.current.userId === currentUser.id) {
+        profile = profileCacheRef.current.profile
+      }
+
+      if (!profile) {
+        profile = await getProfile(currentUser.id)
+        if (profile) {
+          profileCacheRef.current = { userId: currentUser.id, profile }
+        }
+      }
 
       if (!profile) {
         await supabase.auth.signOut()
+        currentUserRef.current = null
+        profileCacheRef.current = null
         setUser(null)
         setRole("")
         setRestaurantId(null)
@@ -185,6 +213,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       if ((profile as any).blocked) {
         await supabase.auth.signOut()
+        currentUserRef.current = null
+        profileCacheRef.current = null
         setUser(null)
         setRole("")
         setRestaurantId(null)
@@ -241,6 +271,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
     } catch (error) {
       console.error("AUTH SYNC ERROR:", error)
+      currentUserRef.current = null
+      profileCacheRef.current = null
       setUser(null)
       setRole("")
       setRestaurantId(null)
@@ -248,14 +280,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     } finally {
       bootstrapped.current = true
       syncInFlight.current = false
+      syncingUserIdRef.current = undefined
       setLoading(false)
 
       if (syncQueued.current) {
         const nextUser = queuedUser.current
         syncQueued.current = false
         queuedUser.current = undefined
-        // Run the queued auth state after the current Supabase work has
-        // completely finished. This removes the first-login/refresh race.
+        // Run only genuinely new auth state after the current work finishes.
         window.setTimeout(() => syncAuth(nextUser), 0)
       }
     }
@@ -270,6 +302,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       // so sign-in can finish cleanly before profile/restaurant queries run.
       if (event === "SIGNED_OUT") {
         bootstrapped.current = false
+        currentUserRef.current = null
+        profileCacheRef.current = null
         window.setTimeout(() => syncAuth(null), 0)
         return
       }

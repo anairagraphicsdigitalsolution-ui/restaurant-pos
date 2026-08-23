@@ -67,7 +67,8 @@ export async function GET(req) {
       supabaseAdmin.from("orders")
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
         .eq("restaurant_id",rid)
-        .order("created_at",{ascending:false}),
+        .order("created_at",{ascending:false})
+        .limit(1000),
       supabaseAdmin.from("menu_items")
         .select("id,name,price,image,category")
         .eq("restaurant_id",rid),
@@ -76,9 +77,8 @@ export async function GET(req) {
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false}),
       supabaseAdmin.from("customers")
-        .select("id,name,phone,total_orders,total_spend,loyalty_points,updated_at")
-        .eq("restaurant_id",rid)
-        .order("updated_at",{ascending:false}),
+        .select("id", { count: "exact", head: true })
+        .eq("restaurant_id",rid),
       supabaseAdmin.from("reservations")
         .select("id,name,phone,guests,date,time,status,table_id,created_at")
         .eq("restaurant_id",rid)
@@ -172,7 +172,7 @@ export async function GET(req) {
     )
     const customerCount = customersRes.error
       ? customerIds.size
-      : Math.max(customersRes.data?.length || 0, customerIds.size)
+      : Math.max(Number(customersRes.count || 0), customerIds.size)
 
     const todayReservations = (reservationsRes.data || []).filter(
       reservation => String(reservation.date || "").slice(0, 10) === todayKey

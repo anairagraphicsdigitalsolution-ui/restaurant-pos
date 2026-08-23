@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/components/AuthProvider"
 
 const money = (value) => `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
 
@@ -31,6 +32,7 @@ function statusMeta(status) {
 
 export default function Dashboard() {
   const router = useRouter()
+  const { role: authRole, restaurantId: authRestaurantId, loading: authLoading } = useAuth()
   const [role, setRole] = useState("")
   const [restaurant, setRestaurant] = useState(null)
   const [restaurantId, setRestaurantId] = useState(null)
@@ -49,58 +51,47 @@ export default function Dashboard() {
 
   useEffect(() => {
     let channel
+    let refreshTimer
+    let cancelled = false
+
+    const scheduleRefresh = (rid) => {
+      clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        if (!cancelled) loadData(rid, false)
+      }, 350)
+    }
 
     async function init() {
-      const { data: userData } = await supabase.auth.getUser()
-      if (!userData?.user) {
+      if (authLoading) return
+
+      const rid = authRestaurantId
+      if (!rid) {
         setLoading(false)
         return
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("restaurant_id, role")
-        .eq("id", userData.user.id)
-        .maybeSingle()
-
-      let rid = profile?.restaurant_id || null
-      let resolvedRole = profile?.role || ""
-
-      if (!rid) {
-        const { data: ownedRestaurant } = await supabase
-          .from("restaurants")
-          .select("id")
-          .eq("owner_id", userData.user.id)
-          .limit(1)
-          .maybeSingle()
-        rid = ownedRestaurant?.id || null
-        if (rid && !resolvedRole) resolvedRole = "admin"
-      }
-
-      if (!rid) {
-        setLoading(false)
-        console.error("DASHBOARD: no restaurant linked to current account")
-        return
-      }
-
-      setRole(resolvedRole)
+      setRole(authRole || "")
       setRestaurantId(rid)
       await loadData(rid)
 
+      if (cancelled) return
+
       channel = supabase
         .channel(`dashboard-${rid}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
-        .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
-        .on("postgres_changes", { event: "*", schema: "public", table: "offers", filter: `restaurant_id=eq.${rid}` }, () => loadData(rid))
+        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
+        .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
+        .on("postgres_changes", { event: "*", schema: "public", table: "offers", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
         .subscribe((status) => setLive(status === "SUBSCRIBED"))
     }
 
     init()
 
     return () => {
+      cancelled = true
+      clearTimeout(refreshTimer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [])
+  }, [authLoading, authRestaurantId, authRole])
 
   useEffect(() => {
     if (!items.length) return
@@ -110,15 +101,15 @@ export default function Dashboard() {
     return () => clearInterval(timer)
   }, [items.length])
 
-  async function loadData(rid) {
-    setLoading(true)
+  async function loadData(rid, showLoading = true) {
+    if (showLoading) setLoading(true)
 
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
 
       if (!token) {
-        setLoading(false)
+        if (showLoading) setLoading(false)
         return
       }
 
