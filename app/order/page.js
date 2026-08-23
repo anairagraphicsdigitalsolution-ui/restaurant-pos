@@ -1007,10 +1007,10 @@ export default function OrderPage() {
           `Delivery order created. Slip ${delivery.slip_no}`
         )
 
+        // Delivery orders always enter Kitchen/KOT first.
+        // The KDS Mark Done action then redirects to Delivery Management.
         window.location.href =
-          `/dashboard/delivery?slip=${encodeURIComponent(
-            delivery.slip_no
-          )}`
+          `/kitchen?order_id=${encodeURIComponent(order.id)}&next=delivery`
 
         return
       }

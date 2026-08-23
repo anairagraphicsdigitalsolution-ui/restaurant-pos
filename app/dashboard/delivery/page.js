@@ -94,7 +94,11 @@ export default function DeliveryManagement() {
       setZones(data.zones || [])
 
       const slip = search.get("slip")
-      if (slip) {
+      const orderId = search.get("order_id")
+      if (orderId) {
+        const match = rows.find((x) => x.order_id === orderId)
+        if (match) selectDelivery(match)
+      } else if (slip) {
         const match = rows.find((x) => x.slip_no === slip)
         if (match) selectDelivery(match)
       } else if (selected) {

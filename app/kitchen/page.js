@@ -1,10 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 export default function KitchenPage() {
 
+  const router = useRouter()
+  const search = useSearchParams()
+  const nextPath = search.get("next") || ""
+  const focusOrderId = search.get("order_id") || ""
   const [orders, setOrders] = useState([])
   const [updatingOrderId, setUpdatingOrderId] = useState(null)
   const [updatingStatus, setUpdatingStatus] = useState(null)
@@ -14,6 +19,7 @@ useState(false)
 const [oldOrders,setOldOrders] =
 useState([])
 const [restaurantId,setRestaurantId] = useState(null)
+const [kotSize, setKotSize] = useState("80mm")
 
   useEffect(() => {
     let channel
@@ -41,20 +47,20 @@ const [restaurantId,setRestaurantId] = useState(null)
       await fetchOrders(resolvedRestaurantId)
 
       channel = supabase
-        .channel(`kitchen-${profile.restaurant_id}`)
+        .channel(`kitchen-${resolvedRestaurantId}`)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${profile.restaurant_id}` },
-          () => fetchOrders(profile.restaurant_id)
+          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${resolvedRestaurantId}` },
+          () => fetchOrders(resolvedRestaurantId)
         )
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "order_items" },
-          () => fetchOrders(profile.restaurant_id)
+          () => fetchOrders(resolvedRestaurantId)
         )
         .subscribe()
 
-      fallbackTimer = setInterval(() => fetchOrders(profile.restaurant_id), 15000)
+      fallbackTimer = setInterval(() => fetchOrders(resolvedRestaurantId), 15000)
     }
 
     init()
@@ -122,9 +128,62 @@ const [restaurantId,setRestaurantId] = useState(null)
 
       setOrders(liveOrders)
       setOldOrders(historyOrders)
+
+      if (focusOrderId) {
+        const focused = final.find(order => order.id === focusOrderId)
+        if (focused && nextPath === "delivery" && focused.source_type === "delivery") {
+          // Keep delivery order on KDS until it is marked done.
+        }
+      }
     } catch (error) {
       console.error("KITCHEN FETCH ERROR:", error)
     }
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;")
+  }
+
+  function buildKotHtml(order, size = kotSize) {
+    const width = size === "A4" ? "210mm" : size === "A5" ? "148mm" : size === "58mm" ? "58mm" : "80mm"
+    const items = (order?.items || []).map(item => `
+      <div class="item">
+        <div class="row"><span>${escapeHtml(item.name)}</span><b>x${escapeHtml(item.quantity)}</b></div>
+        ${item.cooking_request ? `<div class="note">${escapeHtml(item.cooking_request)}</div>` : ""}
+      </div>
+    `).join("")
+    return `<!doctype html><html><head><meta charset="utf-8"><title>KOT ${escapeHtml(order?.display || order?.id)}</title>
+      <style>
+        @page{size:${width} auto;margin:${size === "A4" ? "10mm" : "6mm"}}
+        *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;width:${width};font-size:${size === "A4" ? "15px" : size === "A5" ? "13px" : "11px"}}
+        .kot{padding:8px}.center{text-align:center}.title{font-size:20px;font-weight:900;letter-spacing:1px}.sub{font-size:11px;color:#555;margin-top:4px}.line{border-top:1px dashed #111;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;font-weight:800}.item{padding:6px 0;border-bottom:1px dotted #999}.note{font-size:10px;margin-top:3px}.foot{font-size:10px;margin-top:10px}
+      </style></head><body><div class="kot">
+      <div class="center"><div class="title">KITCHEN ORDER TICKET</div><div class="sub">ANAIRA • ${escapeHtml(order?.display || "Order")}</div></div>
+      <div class="line"></div><div><b>Order:</b> ${escapeHtml(order?.display || order?.id)}</div><div><b>Time:</b> ${escapeHtml(order?.created_at ? new Date(order.created_at).toLocaleString("en-IN") : "")}</div>
+      <div class="line"></div>${items || "<div>No items</div>"}<div class="line"></div><div class="foot">KOT • ${escapeHtml(String(order?.id || "").slice(0,8))}</div>
+      </div><script>window.onload=()=>window.print()</script></body></html>`
+  }
+
+  function printKot(order) {
+    if (!order) return
+    const w = window.open("", "_blank", "width=480,height=760")
+    if (!w) { alert("Please allow pop-ups to print KOT."); return }
+    w.document.write(buildKotHtml(order, kotSize)); w.document.close()
+  }
+
+  function downloadKot(order) {
+    if (!order) return
+    const blob = new Blob([buildKotHtml(order, kotSize).replace('<script>window.onload=()=>window.print()</script>','')], { type: "text/html;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `KOT-${String(order.id || "order").slice(0,8)}-${kotSize}.html`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   async function updateStatus(id, status) {
@@ -153,6 +212,13 @@ const [restaurantId,setRestaurantId] = useState(null)
       }
 
       await fetchOrders()
+
+      if (status === "done") {
+        const finished = orders.find(order => order.id === id)
+        if (finished?.source_type === "delivery") {
+          router.push(`/dashboard/delivery?order_id=${encodeURIComponent(id)}`)
+        }
+      }
     } catch (error) {
       console.error(error)
       alert(error.message || "Unable to update order")
@@ -326,6 +392,15 @@ const [restaurantId,setRestaurantId] = useState(null)
             {/* STATUS */}
             <div style={status(order.status)}>
               {order.status.toUpperCase()}
+            </div>
+
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:12,padding:10,borderRadius:12,background:"var(--surface-2)",border:"1px solid var(--border)"}}>
+              <strong style={{fontSize:12}}>KOT</strong>
+              <select value={kotSize} onChange={e=>setKotSize(e.target.value)} style={{padding:"7px 9px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}>
+                <option>A4</option><option>A5</option><option>58mm</option><option>80mm</option>
+              </select>
+              <button type="button" onClick={()=>printKot(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",cursor:"pointer"}}>🖨 Print KOT</button>
+              <button type="button" onClick={()=>downloadKot(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",cursor:"pointer"}}>⬇ Download KOT</button>
             </div>
 
             {/* ACTION */}
