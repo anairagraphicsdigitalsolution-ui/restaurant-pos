@@ -69,6 +69,13 @@ export default function BillingPage() {
     if (orderId) loadBill(orderId)
   }, [isBillScreen, orders, selectedOrder])
 
+  // If the bill opened before offers finished loading, recalculate the bill
+  // once the offer list is available.
+  useEffect(() => {
+    if (!selectedOrder || !offers.length) return
+    loadBill(selectedOrder)
+  }, [offers, selectedOrder])
+
   async function init() {
     const { data: auth } = await supabase.auth.getUser()
 
@@ -338,7 +345,7 @@ export default function BillingPage() {
     } = itemIds.length
       ? await supabase
           .from("menu_items")
-          .select("id,name,price")
+          .select("id,name,price,category")
           .in("id", itemIds)
       : {
           data: [],
@@ -421,56 +428,31 @@ export default function BillingPage() {
       Offers
     */
 
-    const today = new Date()
-
-    const eligibleOffers =
-      (offers || []).filter(offer => {
-        const active = offer.active !== false
-        const fromOk = !offer.valid_from || new Date(offer.valid_from) <= today
-        const tillOk = !offer.valid_till || new Date(`${offer.valid_till}T23:59:59`) >= today
-        const minOrder = Number(offer.min_order || 0)
-        return active && fromOk && tillOk && orderSubtotal >= minOrder
-      })
-
-    const rankedOffers = eligibleOffers
-      .map(offer => {
-        const targetType = String(offer.target_type || "all")
-        let eligibleSubtotal = orderSubtotal
-
-        if (targetType === "products") {
-          const ids = new Set((offer.offer_products || []).map(x => x.menu_item_id))
-          eligibleSubtotal = items.reduce((sum, item) => ids.has(item.menu_items?.id || item.item_id) ? sum + Number(item.line_total || 0) : sum, 0)
-        } else if (targetType === "category") {
-          eligibleSubtotal = items.reduce((sum, item) => item.menu_items?.category === offer.target_category ? sum + Number(item.line_total || 0) : sum, 0)
+    // The database offer engine is authoritative.  It handles product/category
+    // targeting, schedule, customer eligibility, BOGO/free-item rules,
+    // usage limits and max discounts.  The UI only presents its result.
+    let rankedOffers = []
+    if (offers?.length) {
+      const { data: preview, error: previewError } = await supabase.rpc(
+        "preview_order_offers",
+        {
+          p_order_id: orderId,
+          p_subtotal: orderSubtotal
         }
-
-        const value = Math.max(0, Number(offer.discount || 0))
-        const type = String(offer.discount_type || "percent").toLowerCase()
-        let discount = type === "flat"
-          ? Math.min(eligibleSubtotal, value)
-          : Math.min(eligibleSubtotal, eligibleSubtotal * Math.min(value, 100) / 100)
-
-        if (offer.max_discount != null) discount = Math.min(discount, Math.max(0, Number(offer.max_discount)))
-
-        return { ...offer, calculated_discount: Number(discount.toFixed(2)) }
-      })
-        .filter(
-          offer =>
-            offer.calculated_discount >
-            0
-        )
-        .sort(
-          (a, b) =>
-            b.calculated_discount -
-            a.calculated_discount
-        )
+      )
+      if (previewError) {
+        console.error("Billing offer preview:", previewError)
+      } else {
+        rankedOffers = Array.isArray(preview) ? preview : []
+      }
+    }
 
     const storedOffer =
       selected?.offer_id
-        ? (offers || []).find(
-            offer =>
-              offer.id ===
-              selected.offer_id
+        ? (rankedOffers || []).find(
+            offer => offer.id === selected.offer_id
+          ) || (offers || []).find(
+            offer => offer.id === selected.offer_id
           )
         : null
 
@@ -1853,7 +1835,7 @@ export default function BillingPage() {
                   <option value="">No offer</option>
                   {availableOffers.map(offer => (
                     <option key={offer.id} value={offer.id}>
-                      {offer.name || "Offer"} — save ₹{Number(offer.calculated_discount || 0).toFixed(2)}
+                      {offer.title || offer.name || "Offer"} — save ₹{Number(offer.calculated_discount || 0).toFixed(2)}
                     </option>
                   ))}
                 </select>
