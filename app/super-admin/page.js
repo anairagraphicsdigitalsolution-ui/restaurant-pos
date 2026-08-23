@@ -35,7 +35,10 @@ export default function SuperAdmin() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [loadError, setLoadError] = useState("")
-
+  const [subscriptionPlans, setSubscriptionPlans] = useState([])
+  const [initialPlanId, setInitialPlanId] = useState("")
+  const [initialBillingCycle, setInitialBillingCycle] = useState("monthly")
+  const [subscriptionBusy, setSubscriptionBusy] = useState("")
 
   // 🔥 BULK DELETE STATE
   const [selectedItems,setSelectedItems] = useState([])
@@ -64,7 +67,10 @@ export default function SuperAdmin() {
       if (token) {
         const response = await fetch("/api/super-admin/subscriptions", { headers:{ Authorization:`Bearer ${token}` }, cache:"no-store" })
         const payload = await response.json()
-        if (response.ok && payload?.success) subscriptionRows = payload.subscriptions || []
+        if (response.ok && payload?.success) {
+          subscriptionRows = payload.subscriptions || []
+          setSubscriptionPlans(payload.plans || [])
+        }
       }
     } catch (e) {
       console.warn("SUBSCRIPTION SUMMARY LOAD:", e)
@@ -336,7 +342,86 @@ setWhatsappNumbers(map)
     alert("This restaurant is inactive because its subscription is not approved. Open Super Admin → Subscriptions, select a plan and activate it there.")
   }
  
-async function saveRestaurant(){
+async function updateRestaurantSubscription(restaurant, action) {
+    if (!restaurant?.id) return
+
+    const planId = restaurant.subscription?.saas_plan_id || ""
+    if ((action === "approve" || action === "activate") && !planId) {
+      alert("Select a subscription plan before activating this restaurant.")
+      return
+    }
+
+    try {
+      setSubscriptionBusy(`${restaurant.id}:${action}`)
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (!token) throw new Error("Authentication required. Please login again.")
+
+      const response = await fetch("/api/super-admin/subscriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          restaurant_id: restaurant.id,
+          saas_plan_id: planId || null,
+          billing_cycle: restaurant.subscription?.billing_cycle || "monthly",
+          action
+        })
+      })
+
+      const payload = await response.json()
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Subscription update failed")
+      }
+
+      await loadRestaurants()
+    } catch (error) {
+      console.error("INLINE SUBSCRIPTION ERROR:", error)
+      alert(error?.message || "Subscription update failed")
+    } finally {
+      setSubscriptionBusy("")
+    }
+  }
+
+  async function assignRestaurantPlan(restaurant, planId, billingCycle = "monthly") {
+    if (!restaurant?.id || !planId) return
+    try {
+      setSubscriptionBusy(`${restaurant.id}:assign`)
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (!token) throw new Error("Authentication required. Please login again.")
+
+      const response = await fetch("/api/super-admin/subscriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          restaurant_id: restaurant.id,
+          saas_plan_id: planId,
+          billing_cycle: billingCycle,
+          action: restaurant.status === "active" ? "approve" : "pending"
+        })
+      })
+
+      const payload = await response.json()
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Unable to assign subscription")
+      }
+
+      await loadRestaurants()
+    } catch (error) {
+      console.error("ASSIGN SUBSCRIPTION ERROR:", error)
+      alert(error?.message || "Unable to assign subscription")
+    } finally {
+      setSubscriptionBusy("")
+    }
+  }
+
+  async function saveRestaurant(){
 
   if(!form.name.trim()) return alert("Enter restaurant name")
 
@@ -402,7 +487,9 @@ async function saveRestaurant(){
           address: form.address?.trim() || "",
           gst: form.gst?.trim() || "",
           logo: form.logo?.trim() || "",
-          whatsapp: form.whatsapp?.trim() || ""
+          whatsapp: form.whatsapp?.trim() || "",
+          saas_plan_id: initialPlanId || "",
+          billing_cycle: initialBillingCycle
         })
       })
 
@@ -452,10 +539,30 @@ async function saveRestaurant(){
           <h1 style={premiumTitle}>SaaS Command Center</h1>
           <p style={premiumSubtitle}>Monitor restaurants, platform health, menu operations and access from one premium control center.</p>
           <div style={heroActions}>
-            <button style={heroButton} onClick={() => { setEditingId(null); setSelected(null); window.scrollTo({top: document.body.scrollHeight, behavior:"smooth"}) }}>＋ Add Restaurant</button>
-            <button style={heroGhost} onClick={() => window.location.href="/super-admin/plugins"}>🔌 Plugins</button>
-            <button style={heroGhost} onClick={() => window.location.href="/super-admin/qr"}>▣ QR Center</button>
-            <button style={heroGhost} onClick={() => window.location.href="/super-admin/theme"}>🎨 Platform Theme</button>
+            <button
+              style={heroButton}
+              onClick={() => { setEditingId(null); setSelected(null); setInitialPlanId(""); setInitialBillingCycle("monthly"); window.scrollTo({top: document.body.scrollHeight, behavior:"smooth"}) }}
+              onMouseEnter={e=>{e.currentTarget.style.background="var(--warning)";e.currentTarget.style.color="#111";e.currentTarget.style.transform="translateY(-2px)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="var(--primary)";e.currentTarget.style.color="#111";e.currentTarget.style.transform="translateY(0)"}}
+            >＋ Add Restaurant</button>
+            <button
+              style={heroGhost}
+              onClick={() => window.location.href="/super-admin/plugins"}
+              onMouseEnter={e=>{e.currentTarget.style.background="var(--primary)";e.currentTarget.style.color="#111";e.currentTarget.style.transform="translateY(-2px)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.03)";e.currentTarget.style.color="var(--text)";e.currentTarget.style.transform="translateY(0)"}}
+            >🔌 Plugins</button>
+            <button
+              style={heroGhost}
+              onClick={() => window.location.href="/super-admin/qr"}
+              onMouseEnter={e=>{e.currentTarget.style.background="var(--primary)";e.currentTarget.style.color="#111";e.currentTarget.style.transform="translateY(-2px)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.03)";e.currentTarget.style.color="var(--text)";e.currentTarget.style.transform="translateY(0)"}}
+            >▣ QR Center</button>
+            <button
+              style={heroGhost}
+              onClick={() => window.location.href="/super-admin/theme"}
+              onMouseEnter={e=>{e.currentTarget.style.background="var(--primary)";e.currentTarget.style.color="#111";e.currentTarget.style.transform="translateY(-2px)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.03)";e.currentTarget.style.color="var(--text)";e.currentTarget.style.transform="translateY(0)"}}
+            >🎨 Platform Theme</button>
           </div>
         </div>
         <div style={heroLogoWrap}>
@@ -483,7 +590,7 @@ async function saveRestaurant(){
         </div>
       </section>
 
-      <div style={formSection}><div style={formSectionHead}><div><div style={eyebrow}>RESTAURANT SETUP</div><h3 style={{margin:"5px 0 0"}}>{editingId ? "Edit restaurant" : "Add a restaurant"}</h3></div>{editingId && <button style={btnSmall} onClick={()=>{setEditingId(null);setSelected(null);setForm({name:"",owner_name:"",phone:"",address:"",gst:"",logo:"",whatsapp:""})}}>Cancel</button>}</div><div style={formBox}>
+      <div id="restaurant-setup" style={formSection}><div style={formSectionHead}><div><div style={eyebrow}>RESTAURANT SETUP</div><h3 style={{margin:"5px 0 0"}}>{editingId ? "Edit restaurant" : "Add a restaurant"}</h3></div>{editingId && <button style={btnSmall} onClick={()=>{setEditingId(null);setSelected(null);setForm({name:"",owner_name:"",phone:"",address:"",gst:"",logo:"",whatsapp:""})}}>Cancel</button>}</div><div style={formBox}>
         <input name="name" value={form.name} onChange={handleChange} placeholder="Name" style={input}/>
         <input name="owner_name" value={form.owner_name} onChange={handleChange} placeholder="Owner" style={input}/>
         <input name="phone" value={form.phone} onChange={handleChange} placeholder="Phone" style={input}/>
@@ -492,18 +599,47 @@ async function saveRestaurant(){
         <input name="logo" value={form.logo} onChange={handleChange} placeholder="Logo URL" style={input}/>
         <input name="whatsapp" value={form.whatsapp} onChange={handleChange} placeholder="WhatsApp Number" style={input}
 />
+        {!editingId && (
+          <>
+            <select
+              value={initialPlanId}
+              onChange={e=>setInitialPlanId(e.target.value)}
+              style={input}
+              aria-label="Initial subscription plan"
+            >
+              <option value="">Subscription Plan — assign later</option>
+              {subscriptionPlans.map(plan=>(
+                <option key={plan.id} value={plan.id}>
+                  {plan.name} · ₹{Number(plan.monthly_price || 0).toLocaleString("en-IN")}/month
+                </option>
+              ))}
+            </select>
+            <select
+              value={initialBillingCycle}
+              onChange={e=>setInitialBillingCycle(e.target.value)}
+              style={input}
+              aria-label="Billing cycle"
+            >
+              <option value="monthly">Monthly billing</option>
+              <option value="yearly">Yearly billing</option>
+            </select>
+          </>
+        )}
+
         <button
   onClick={saveRestaurant}
   style={btn}
   onMouseEnter={(e)=>{
     e.currentTarget.style.transform="translateY(-4px)"
     e.currentTarget.style.background="var(--primary)"
+    e.currentTarget.style.color="#111"
     e.currentTarget.style.boxShadow=
       "0 20px 40px rgba(117, 84, 0, 0.18)"
   }}
   onMouseLeave={(e)=>{
     e.currentTarget.style.transform="translateY(0)"
     e.currentTarget.style.background="transparent"
+    e.currentTarget.style.color="var(--primary)"
     e.currentTarget.style.boxShadow=
       "0 10px 25px rgba(0, 0, 0, 0.12)"
   }}
@@ -546,8 +682,70 @@ async function saveRestaurant(){
 >
             {r.logo && <img src={r.logo} style={logo}/>}
             <div style={restaurantTop}><div><h3 style={{margin:"0 0 6px"}}>{r.name}</h3><p style={{margin:0,color:"var(--muted)"}}>{r.owner_name || "Owner not set"}</p></div><span style={statusPill(r.status || "active")}>{r.status || "active"}</span></div>
-            <div style={restaurantMeta}><span>📞 {r.phone || "No phone"}</span><span>📍 {r.address || "Address not set"}</span><span>💳 Plan: {r.subscription?.plan?.name || "Pending approval"}</span></div>
-            
+            <div style={restaurantMeta}>
+              <span>📞 {r.phone || "No phone"}</span>
+              <span>📍 {r.address || "Address not set"}</span>
+              <span>💳 Plan: {r.subscription?.plan?.name || "Pending approval"}</span>
+              <span>🔐 Subscription: {r.subscription?.status ? String(r.subscription.status).toUpperCase() : "PENDING"}</span>
+            </div>
+
+            <div style={subscriptionCard}>
+              <div style={subscriptionCardTop}>
+                <div>
+                  <div style={subscriptionEyebrow}>SUBSCRIPTION</div>
+                  <strong>{r.subscription?.plan?.name || "No plan assigned"}</strong>
+                  <span style={{display:"block",color:"var(--muted)",fontSize:11,marginTop:3}}>
+                    {r.subscription?.status === "active" ? "Live access enabled" : "Select a plan to activate"}
+                  </span>
+                </div>
+                <span style={subscriptionStatusPill(r.subscription?.status, r.status)}>
+                  {r.status === "active" && r.subscription?.status === "active" ? "ACTIVE" : "PENDING"}
+                </span>
+              </div>
+              <div style={subscriptionControls}>
+                <select
+                  value={r.subscription?.saas_plan_id || ""}
+                  onChange={e=>assignRestaurantPlan(r, e.target.value, r.subscription?.billing_cycle || "monthly")}
+                  disabled={subscriptionBusy===`${r.id}:assign`}
+                  style={subscriptionSelect}
+                >
+                  <option value="">Select plan</option>
+                  {subscriptionPlans.map(plan=>(
+                    <option key={plan.id} value={plan.id}>{plan.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={r.subscription?.billing_cycle || "monthly"}
+                  onChange={e=>{
+                    const planId = r.subscription?.saas_plan_id
+                    if (planId) assignRestaurantPlan(r, planId, e.target.value)
+                  }}
+                  disabled={!r.subscription?.saas_plan_id || subscriptionBusy===`${r.id}:assign`}
+                  style={subscriptionSelect}
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <div style={subscriptionActions}>
+                <button
+                  type="button"
+                  onClick={()=>updateRestaurantSubscription(r, "approve")}
+                  disabled={!r.subscription?.saas_plan_id || !!subscriptionBusy}
+                  style={{...subscriptionApprove, opacity: (!r.subscription?.saas_plan_id || subscriptionBusy) ? .55 : 1}}
+                >
+                  {subscriptionBusy===`${r.id}:approve` ? "Activating…" : "✓ Activate"}
+                </button>
+                <button
+                  type="button"
+                  onClick={()=>updateRestaurantSubscription(r, "pending")}
+                  disabled={!!subscriptionBusy}
+                  style={subscriptionPending}
+                >
+                  Pending
+                </button>
+              </div>
+            </div>
 
             <div style={actions}>
               <button
@@ -623,6 +821,7 @@ async function saveRestaurant(){
   onMouseLeave={(e)=>{
     e.currentTarget.style.transform="translateY(0)"
     e.currentTarget.style.background="transparent"
+    e.currentTarget.style.color="var(--primary)"
     e.currentTarget.style.boxShadow=
       "0 10px 25px rgba(var(--primary-rgb),.12)"
   }}
@@ -657,6 +856,7 @@ async function saveRestaurant(){
             onMouseEnter={(e)=>{
     e.currentTarget.style.transform="translateY(-4px)"
     e.currentTarget.style.background="var(--primary)"
+    e.currentTarget.style.color="#111"
     e.currentTarget.style.boxShadow=
       "0 20px 40px rgb(0, 0, 0)"
   }}
@@ -1006,6 +1206,32 @@ const logo = {
 }
 
 /* TEXT */
+
+
+const subscriptionCard = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 18,
+  background: "rgba(var(--primary-rgb),.055)",
+  border: "1px solid rgba(var(--primary-rgb),.14)"
+}
+const subscriptionCardTop = { display:"flex", justifyContent:"space-between", gap:12, alignItems:"flex-start" }
+const subscriptionEyebrow = { color:"var(--primary)", fontSize:9, fontWeight:900, letterSpacing:1.4, marginBottom:4 }
+const subscriptionStatusPill = (status, restaurantStatus) => ({
+  padding:"5px 8px",
+  borderRadius:999,
+  fontSize:9,
+  fontWeight:900,
+  letterSpacing:1,
+  background: restaurantStatus === "active" && status === "active" ? "rgba(34,197,94,.10)" : "rgba(245,158,11,.10)",
+  color: restaurantStatus === "active" && status === "active" ? "#86efac" : "#fbbf24",
+  border: `1px solid ${restaurantStatus === "active" && status === "active" ? "rgba(34,197,94,.22)" : "rgba(245,158,11,.22)"}`
+})
+const subscriptionControls = { display:"grid", gridTemplateColumns:"1fr 110px", gap:8, marginTop:10 }
+const subscriptionSelect = { width:"100%", boxSizing:"border-box", padding:"9px 10px", borderRadius:10, border:"1px solid rgba(var(--primary-rgb),.16)", background:"var(--surface-2)", color:"var(--text)", outline:"none", fontSize:12 }
+const subscriptionActions = { display:"flex", gap:8, marginTop:10 }
+const subscriptionApprove = { flex:1, border:"1px solid rgba(34,197,94,.25)", borderRadius:10, padding:"9px 10px", background:"rgba(34,197,94,.08)", color:"#86efac", cursor:"pointer", fontWeight:900 }
+const subscriptionPending = { flex:1, border:"1px solid rgba(245,158,11,.22)", borderRadius:10, padding:"9px 10px", background:"rgba(245,158,11,.06)", color:"#fbbf24", cursor:"pointer", fontWeight:800 }
 
 const actions = {
   display:"flex",

@@ -8,16 +8,6 @@ const nextConfig = {
     "192.168.29.241"
   ],
 
-  // Reduce duplicate vendor code across route chunks.
-  optimizePackageImports: [
-    "recharts",
-    "xlsx",
-    "jspdf",
-    "html2canvas",
-    "react-qr-code",
-    "react-barcode"
-  ],
-
   // Let Vercel/CDN and the browser handle compressed responses.
   compress: true,
   poweredByHeader: false,

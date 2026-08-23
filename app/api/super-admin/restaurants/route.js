@@ -41,12 +41,43 @@ export async function POST(req) {
     const gst = cleanText(body?.gst, 50)
     const logo = cleanText(body?.logo, 1000)
     const whatsapp = cleanText(body?.whatsapp, 40)
+    const saasPlanId = cleanText(body?.saas_plan_id, 100)
+    const billingCycle = cleanText(body?.billing_cycle, 20).toLowerCase() || "monthly"
 
     if (!name) {
       return Response.json(
         { success: false, error: "Restaurant name is required" },
         { status: 400 }
       )
+    }
+
+    if (!["monthly", "yearly"].includes(billingCycle)) {
+      return Response.json(
+        { success: false, error: "Invalid billing cycle" },
+        { status: 400 }
+      )
+    }
+
+    if (saasPlanId) {
+      const { data: plan, error: planError } = await supabaseAdmin
+        .from("saas_plans")
+        .select("id,active")
+        .eq("id", saasPlanId)
+        .maybeSingle()
+
+      if (planError) {
+        return Response.json(
+          { success: false, error: planError.message || "Unable to validate subscription plan" },
+          { status: 400 }
+        )
+      }
+
+      if (!plan || !plan.active) {
+        return Response.json(
+          { success: false, error: "Selected subscription plan is not active" },
+          { status: 400 }
+        )
+      }
     }
 
     const { data: restaurant, error: restaurantError } = await supabaseAdmin
@@ -75,8 +106,10 @@ export async function POST(req) {
       .from("restaurant_subscriptions")
       .insert({
         restaurant_id: restaurant.id,
-        saas_plan_id: null,
+        saas_plan_id: saasPlanId || null,
+        plan_id: null,
         status: "pending",
+        billing_cycle: billingCycle,
         starts_at: null,
         ends_at: null,
         updated_at: new Date().toISOString()
