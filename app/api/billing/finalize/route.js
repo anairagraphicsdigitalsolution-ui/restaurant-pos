@@ -142,6 +142,24 @@ export async function POST(req) {
       )
     }
 
+    const paymentReference = String(body?.payment_reference || "").trim().slice(0, 120)
+    if (paymentReference && Number(data.payment_received || 0) > 0) {
+      const { data: paymentRow } = await supabaseAdmin
+        .from("order_payments")
+        .select("id")
+        .eq("restaurant_id", order.restaurant_id)
+        .eq("order_id", orderId)
+        .eq("created_by", user.id)
+        .eq("status", "paid")
+        .eq("amount", Number(data.payment_received || 0))
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (paymentRow?.id) {
+        await supabaseAdmin.from("order_payments").update({ reference: paymentReference }).eq("id", paymentRow.id)
+      }
+    }
+
     const bill = {
       order_id: data.order_id,
       invoice_no: data.invoice_no,
@@ -152,6 +170,7 @@ export async function POST(req) {
       total: Number(data.total || 0),
 
       paid_amount: Number(data.paid_amount || 0),
+      payment_received: Number(data.payment_received || 0),
 
       payment_status: data.payment_status,
       payment_method: data.payment_method,

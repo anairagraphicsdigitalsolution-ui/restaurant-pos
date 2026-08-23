@@ -37,6 +37,7 @@ export default function BillingPage() {
   const [reportEndDate, setReportEndDate] = useState("")
 
   const [reportTotals, setReportTotals] = useState({})
+  const [paymentLedgerByOrder, setPaymentLedgerByOrder] = useState({})
   const [itemChartData, setItemChartData] = useState([])
   const [itemSalesRows, setItemSalesRows] = useState([])
 
@@ -44,6 +45,7 @@ export default function BillingPage() {
   const [offerDiscount, setOfferDiscount] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState("cash")
   const [paidAmount, setPaidAmount] = useState("")
+  const [paymentReference, setPaymentReference] = useState("")
   const [finalizing, setFinalizing] = useState(false)
   const [finalizedBill, setFinalizedBill] = useState(null)
   const invoiceRef = useRef(null)
@@ -67,7 +69,7 @@ export default function BillingPage() {
       ? savedOrder
       : orders[0]?.id
     if (orderId) loadBill(orderId)
-  }, [isBillScreen, orders, selectedOrder])
+  }, [isBillScreen, orders, selectedOrder, paymentLedgerByOrder])
 
   // If the bill opened before offers finished loading, recalculate the bill
   // once the offer list is available.
@@ -148,13 +150,69 @@ export default function BillingPage() {
       setReportTotals({})
       setItemChartData([])
       setItemSalesRows([])
+      setPaymentLedgerByOrder({})
       return
     }
 
     const orderRows = data || []
-    setOrders(orderRows)
 
     const orderIds = orderRows.map(o => o.id)
+
+    const { data: paymentRows, error: paymentError } = orderIds.length
+      ? await supabase
+          .from("order_payments")
+          .select("id,order_id,payment_method,amount,status,reference,paid_at,created_at")
+          .in("order_id", orderIds)
+      : { data: [], error: null }
+
+    const { data: refundRows, error: refundError } = orderIds.length
+      ? await supabase
+          .from("order_refunds")
+          .select("id,order_id,amount,status,created_at")
+          .in("order_id", orderIds)
+      : { data: [], error: null }
+
+    if (paymentError) console.error("Billing payments:", paymentError)
+    if (refundError) console.error("Billing refunds:", refundError)
+
+    const ledger = {}
+    ;(paymentRows || []).forEach(p => {
+      const key = p.order_id
+      if (!ledger[key]) ledger[key] = { paid: 0, refunds: 0, methods: {}, latestReference: null, latestPaidAt: null }
+      if (p.status === "paid") {
+        ledger[key].paid += Number(p.amount || 0)
+        const method = p.payment_method || "other"
+        ledger[key].methods[method] = (ledger[key].methods[method] || 0) + Number(p.amount || 0)
+        if (!ledger[key].latestPaidAt || new Date(p.paid_at || p.created_at || 0) > new Date(ledger[key].latestPaidAt || 0)) {
+          ledger[key].latestPaidAt = p.paid_at || p.created_at
+          ledger[key].latestReference = p.reference || null
+        }
+      }
+    })
+    ;(refundRows || []).forEach(r => {
+      const key = r.order_id
+      if (!ledger[key]) ledger[key] = { paid: 0, refunds: 0, methods: {}, latestReference: null, latestPaidAt: null }
+      if (r.status === "refunded") ledger[key].refunds += Number(r.amount || 0)
+    })
+    Object.values(ledger).forEach(v => {
+      v.net = Math.max(0, v.paid - v.refunds)
+    })
+    setPaymentLedgerByOrder(ledger)
+
+    const reconciledOrders = orderRows.map(o => {
+      const l = ledger[o.id]
+      if (!l) return o
+      const paid = Number(l.net || 0)
+      const total = Number(o.total_amount || 0)
+      return {
+        ...o,
+        paid_amount: paid,
+        payment_status: total > 0 && paid >= total ? "paid" : paid > 0 ? "partially_paid" : "unpaid",
+        payment_method: Object.entries(l.methods || {}).sort((a,b) => b[1] - a[1])[0]?.[0] || o.payment_method || null
+      }
+    })
+    setOrders(reconciledOrders)
+
 
     const { data: orderItems, error: orderItemsError } = orderIds.length
       ? await supabase
@@ -282,6 +340,7 @@ export default function BillingPage() {
     }
     setFinalizedBill(null)
     setEditMode(false)
+    setPaymentReference("")
 
     if (!selected) {
       setItems([])
@@ -486,15 +545,14 @@ export default function BillingPage() {
         : 0
     )
 
+    const selectedTotal = Number(selected?.total_amount || 0)
+    const selectedPaid = Number(selected?.paid_amount || 0)
+    const outstanding = Math.max(0, selectedTotal - selectedPaid)
+    setPaymentReference(paymentLedgerByOrder[orderId]?.latestReference || "")
     setPaidAmount(
-      selected?.payment_status ===
-        "paid"
-        ? String(
-            selected.paid_amount ||
-            selected.total_amount ||
-            ""
-          )
-        : ""
+      selected?.payment_status === "paid"
+        ? ""
+        : outstanding > 0 ? String(outstanding.toFixed(2)) : ""
     )
   }
 
@@ -680,6 +738,9 @@ export default function BillingPage() {
                   paidAmount || 0
                 ),
 
+              payment_reference:
+                paymentReference || null,
+
               offer_id:
                 selectedOffer?.id ||
                 null
@@ -824,6 +885,18 @@ export default function BillingPage() {
     const paid = Number(o.paid_amount || 0)
     return sum + Math.max(0, orderTotal - paid)
   }, 0)
+
+  const collectedAmount = filteredOrders.reduce((sum, o) => {
+    return sum + Number(o.paid_amount || 0)
+  }, 0)
+
+  const paymentMethodTotals = {}
+  filteredOrders.forEach(o => {
+    const methods = paymentLedgerByOrder[o.id]?.methods || {}
+    Object.entries(methods).forEach(([method, amount]) => {
+      paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + Number(amount || 0)
+    })
+  })
 
   /*
     Sales chart
@@ -1437,7 +1510,7 @@ export default function BillingPage() {
         <div className="billing-summary-card" style={summaryCard}>
           <p style={{ color:"var(--muted)" }}>Paid Orders</p>
           <h2>{paidOrderCount}</h2>
-          <small style={{ color:"var(--success)" }}>Collected</small>
+          <small style={{ color:"var(--success)" }}>Collected ₹{collectedAmount.toFixed(0)}</small>
         </div>
 
         <div className="billing-summary-card" style={summaryCard}>
@@ -1446,6 +1519,14 @@ export default function BillingPage() {
           <small style={{ color:"var(--warning)" }}>Outstanding</small>
         </div>
 
+      </div>
+
+      <div className="billing-payment-breakdown" style={{ display:"flex", flexWrap:"wrap", gap:10, marginBottom:18 }}>
+        {Object.entries(paymentMethodTotals).map(([method, amount]) => (
+          <div key={method} style={{ padding:"10px 14px", borderRadius:12, background:"var(--card)", border:"1px solid var(--border)" }}>
+            <strong>{method.toUpperCase()}</strong> · ₹{Number(amount).toFixed(2)}
+          </div>
+        ))}
       </div>
 
       {/* CHARTS */}
@@ -1894,6 +1975,19 @@ export default function BillingPage() {
                   }}
                 />
 
+                <input
+                  type="text"
+                  value={paymentReference}
+                  onChange={e => setPaymentReference(e.target.value)}
+                  placeholder="UTR / Transaction reference (optional)"
+                  style={{
+                    ...input,
+                    color:"#111827",
+                    background:"#ffffff",
+                    border:"1px solid #d1d5db"
+                  }}
+                />
+
                 <button
                   onClick={
                     finalizeBill
@@ -1928,6 +2022,13 @@ export default function BillingPage() {
 
                 </button>
 
+              </div>
+
+              <div style={{ marginTop:16, padding:14, borderTop:"1px solid #e5e7eb", display:"grid", gap:6 }}>
+                <strong>Payment Receipt</strong>
+                <span>Method: {String(currentOrder?.payment_method || paymentMethod || "—").toUpperCase()}</span>
+                <span>Collected: ₹{Number(currentOrder?.paid_amount || 0).toFixed(2)}</span>
+                {paymentReference ? <span>UTR / Reference: {paymentReference}</span> : null}
               </div>
 
               <div className="billing-invoice-actions" data-html2canvas-ignore="true">
