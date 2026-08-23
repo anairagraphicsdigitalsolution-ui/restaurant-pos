@@ -519,7 +519,7 @@ function QRCard({ type, label, url, restaurant, canPrint = false }) {
     <article ref={cardRef} className="qr-card" style={qrCard}>
       <div style={qrCardTop}>
         <span style={qrPill}>{type === "table" ? "TABLE ORDER" : "ROOM ORDER"}</span>
-        <span style={qrBrand}>ANAIRA</span>
+        <span style={qrBrand}>{restaurant?.name || "Restaurant"}</span>
       </div>
 
       <div style={qrCardLogoLine}>

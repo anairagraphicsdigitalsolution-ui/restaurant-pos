@@ -1117,6 +1117,17 @@ export default function BillingPage() {
               overflow-wrap: anywhere;
             }
 
+            .print-powered-by {
+              display:block;
+              margin-top:14px;
+              padding-top:8px;
+              border-top:1px solid #eee;
+              text-align:center;
+              color:#777;
+              font-size:8px;
+              letter-spacing:.2px;
+            }
+
             .billing-invoice-card {
               width: 100% !important;
               max-width: 100% !important;
@@ -1631,6 +1642,8 @@ export default function BillingPage() {
                   <p>
                     {restaurant?.address}
                   </p>
+                  {restaurant?.phone ? <p>{restaurant.phone}</p> : null}
+                  {restaurant?.gst_enabled && restaurant?.gst_number ? <p>GSTIN: {restaurant.gst_number}</p> : null}
 
                 </div>
 
@@ -2061,6 +2074,8 @@ export default function BillingPage() {
                 <span>Collected: ₹{Number(currentOrder?.paid_amount || 0).toFixed(2)}</span>
                 {paymentReference ? <span>UTR / Reference: {paymentReference}</span> : null}
               </div>
+
+              <div className="print-powered-by">Powered by Anaira Graphics</div>
 
               <div className="billing-invoice-actions" data-html2canvas-ignore="true">
                 <button

@@ -2041,3 +2041,187 @@ html[data-theme-mode="light"] [style*="rgba(255,255,255,.08)"] {
     background: rgba(15,23,42,.22);
   }
 }
+
+/* =========================================================
+   ANAIRA THEME SYSTEM v2 — CONSISTENT LIGHT + DARK UI
+   The old screens contain legacy inline dark tokens. These
+   theme-aware rules make every admin/super-admin surface
+   readable without changing the business logic.
+========================================================= */
+
+html[data-theme] body,
+html[data-theme] button,
+html[data-theme] input,
+html[data-theme] select,
+html[data-theme] textarea {
+  font-family: var(--font-family, Inter, system-ui, sans-serif);
+}
+
+html[data-theme] h1,
+html[data-theme] h2,
+html[data-theme] h3,
+html[data-theme] h4,
+html[data-theme] h5,
+html[data-theme] h6 {
+  font-family: var(--heading-font, Inter, system-ui, sans-serif);
+  font-weight: var(--heading-weight, 800);
+  letter-spacing: -0.025em;
+}
+
+html[data-theme] .app-main,
+html[data-theme] .page,
+html[data-theme] .shell {
+  background: var(--background) !important;
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] body {
+  background: var(--background) !important;
+  color: var(--text) !important;
+  color-scheme: light;
+}
+
+html[data-theme-mode="light"] .app-main,
+html[data-theme-mode="light"] .page,
+html[data-theme-mode="light"] .shell,
+html[data-theme-mode="light"] .app-shell,
+html[data-theme-mode="light"] main {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .glass-pro,
+html[data-theme-mode="light"] .card,
+html[data-theme-mode="light"] .panel,
+html[data-theme-mode="light"] .section,
+html[data-theme-mode="light"] .surface,
+html[data-theme-mode="light"] .stats > div,
+html[data-theme-mode="light"] .stats > article {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--theme-shadow) !important;
+  backdrop-filter: none;
+}
+
+html[data-theme-mode="light"] .input-pro,
+html[data-theme-mode="light"] input,
+html[data-theme-mode="light"] select,
+html[data-theme-mode="light"] textarea {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+}
+
+html[data-theme-mode="light"] input::placeholder,
+html[data-theme-mode="light"] textarea::placeholder {
+  color: var(--muted) !important;
+  opacity: 1;
+}
+
+/* Legacy dark inline backgrounds: convert only the common POS tokens. */
+html[data-theme-mode="light"] [style*="#020617"],
+html[data-theme-mode="light"] [style*="#111827"],
+html[data-theme-mode="light"] [style*="#1f2937"],
+html[data-theme-mode="light"] [style*="rgb(2, 6, 23)"],
+html[data-theme-mode="light"] [style*="rgb(17, 24, 39)"],
+html[data-theme-mode="light"] [style*="rgb(31, 41, 55)"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.025)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.03)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.04)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.05)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.06)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.08)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,0.05)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,0.08)"] {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+}
+
+/* Legacy white text in content areas was the main readability bug. */
+html[data-theme-mode="light"] .app-main span[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main span[style*="color:#fff"],
+html[data-theme-mode="light"] .app-main span[style*="color: #ffffff"],
+html[data-theme-mode="light"] .app-main p[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main p[style*="color:#fff"],
+html[data-theme-mode="light"] .app-main label[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main label[style*="color:#fff"],
+html[data-theme-mode="light"] .app-main small[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main small[style*="color:#fff"],
+html[data-theme-mode="light"] .app-main strong[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main strong[style*="color:#fff"],
+html[data-theme-mode="light"] .app-main h1[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main h2[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main h3[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main td[style*="color: #fff"],
+html[data-theme-mode="light"] .app-main th[style*="color: #fff"] {
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] table {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] th {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] td {
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] .btn-pro,
+html[data-theme-mode="light"] button[class*="primary"],
+html[data-theme-mode="light"] .ui-action {
+  font-weight: 800;
+}
+
+html[data-theme-mode="light"] .badge,
+html[data-theme-mode="light"] [class*="badge"] {
+  font-weight: 800;
+}
+
+html[data-theme-mode="light"] .pos-sidebar {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] .mobile-menu-button {
+  color: var(--text) !important;
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+/* White themes use a restrained, high-contrast scrollbar rather than the old dark track. */
+html[data-theme-mode="light"] ::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+html[data-theme-mode="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--primary), var(--accent));
+  border-color: var(--surface-2);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), .18);
+}
+
+/* Consistent focus ring for keyboard and touch accessibility. */
+html[data-theme] :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), .22);
+  outline-offset: 2px;
+}
+
+/* Light theme: do not allow a legacy dark text token to disappear on white cards. */
+html[data-theme-mode="light"] .app-main [style*="color: white"],
+html[data-theme-mode="light"] .app-main [style*="color:white"] {
+  color: var(--text) !important;
+}

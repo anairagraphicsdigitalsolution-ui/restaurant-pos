@@ -50,7 +50,8 @@ export async function GET(req) {
       return Response.json({ success:false, error:featureError.message }, { status:403 })
     }
 
-    const [deliveryRes, riderRes, zoneRes] = await Promise.all([
+    const [restaurantRes, deliveryRes, riderRes, zoneRes] = await Promise.all([
+      supabaseAdmin.from("restaurants").select("id,name,address,phone,gst_enabled,gst_number").eq("id", restaurantId).maybeSingle(),
       supabaseAdmin
         .from("restaurant_deliveries")
         .select("*")
@@ -72,6 +73,7 @@ export async function GET(req) {
     return Response.json({
       success:true,
       restaurant_id:restaurantId,
+      restaurant:restaurantRes.data || null,
       deliveries:deliveryRes.data || [],
       riders:riderRes.data || [],
       zones:zoneRes.data || [],

@@ -19,6 +19,7 @@ useState(false)
 const [oldOrders,setOldOrders] =
 useState([])
 const [restaurantId,setRestaurantId] = useState(null)
+const [restaurant,setRestaurant] = useState(null)
 const [kotSize, setKotSize] = useState("80mm")
 
   useEffect(() => {
@@ -44,6 +45,12 @@ const [kotSize, setKotSize] = useState("80mm")
       if (!resolvedRestaurantId) return
 
       setRestaurantId(resolvedRestaurantId)
+      const { data: restaurantRow } = await supabase
+        .from("restaurants")
+        .select("id,name,address,phone,gst_enabled,gst_number")
+        .eq("id", resolvedRestaurantId)
+        .maybeSingle()
+      setRestaurant(restaurantRow || null)
       await fetchOrders(resolvedRestaurantId)
 
       channel = supabase
@@ -161,11 +168,11 @@ const [kotSize, setKotSize] = useState("80mm")
       <style>
         @page{size:${width} auto;margin:${size === "A4" ? "10mm" : "6mm"}}
         *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;width:${width};font-size:${size === "A4" ? "15px" : size === "A5" ? "13px" : "11px"}}
-        .kot{padding:8px}.center{text-align:center}.title{font-size:20px;font-weight:900;letter-spacing:1px}.sub{font-size:11px;color:#555;margin-top:4px}.line{border-top:1px dashed #111;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;font-weight:800}.item{padding:6px 0;border-bottom:1px dotted #999}.note{font-size:10px;margin-top:3px}.foot{font-size:10px;margin-top:10px}
+        .kot{padding:8px}.center{text-align:center}.title{font-size:20px;font-weight:900;letter-spacing:1px}.restaurant{font-size:16px;font-weight:900;margin-top:4px}.sub{font-size:11px;color:#555;margin-top:4px}.powered{font-size:8px;color:#777;text-align:center;margin-top:8px;letter-spacing:.2px}.line{border-top:1px dashed #111;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;font-weight:800}.item{padding:6px 0;border-bottom:1px dotted #999}.note{font-size:10px;margin-top:3px}.foot{font-size:10px;margin-top:10px}
       </style></head><body><div class="kot">
-      <div class="center"><div class="title">KITCHEN ORDER TICKET</div><div class="sub">ANAIRA • ${escapeHtml(order?.display || "Order")}</div></div>
+      <div class="center"><div class="title">KITCHEN ORDER TICKET</div><div class="restaurant">${escapeHtml(restaurant?.name || "Restaurant")}</div><div class="sub">${escapeHtml(restaurant?.address || "")}${restaurant?.phone ? ` • ${escapeHtml(restaurant.phone)}` : ""}</div><div class="sub">${escapeHtml(order?.display || "Order")}</div></div>
       <div class="line"></div><div><b>Order:</b> ${escapeHtml(order?.display || order?.id)}</div><div><b>Time:</b> ${escapeHtml(order?.created_at ? new Date(order.created_at).toLocaleString("en-IN") : "")}</div>
-      <div class="line"></div>${items || "<div>No items</div>"}<div class="line"></div><div class="foot">KOT • ${escapeHtml(String(order?.id || "").slice(0,8))}</div>
+      <div class="line"></div>${items || "<div>No items</div>"}<div class="line"></div><div class="foot">KOT • ${escapeHtml(String(order?.id || "").slice(0,8))}</div><div class="powered">Powered by Anaira Graphics</div>
       </div><script>window.onload=()=>window.print()</script></body></html>`
   }
 
@@ -231,7 +238,7 @@ const [kotSize, setKotSize] = useState("80mm")
   return (
     <>
     <style jsx global>{`
-.kds-actions button:disabled{opacity:.62!important;cursor:wait!important;transform:none!important;box-shadow:none!important}
+.kds-actions button{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;line-height:1.15!important;text-align:center!important;padding-left:8px!important;padding-right:8px!important}.kds-actions button:disabled{opacity:.62!important;cursor:wait!important;transform:none!important;box-shadow:none!important}
 @media(max-width:1050px){.kds-history-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.kds-actions{grid-template-columns:1fr 1fr!important}}
 @media(max-width:700px){.kds-page{padding:12px!important}.kds-hero{padding:18px!important;margin-bottom:16px!important}.kds-history-grid{grid-template-columns:1fr!important;padding:10px 0!important;gap:12px!important}.kds-card{min-height:0!important;padding:18px!important}.kds-actions{grid-template-columns:1fr!important}.kds-history-card{width:100%!important;height:auto!important;padding:18px!important}.kds-items{max-height:none!important}}
 `}</style>
@@ -751,13 +758,19 @@ const orderNote = {
 
 const status = (s) => ({
 
+  display:"inline-flex",
+  alignItems:"center",
+  justifyContent:"center",
+  alignSelf:"flex-start",
+  maxWidth:"100%",
+  minWidth:0,
   padding:"8px 14px",
 
   borderRadius:999,
 
   fontSize:12,
 
-  fontWeight:700,
+  fontWeight:800,
 
   textTransform:"uppercase",
 
@@ -790,7 +803,10 @@ const btnBlue = {
 
   flex:1,
 
-  height:44,
+  minHeight:44,
+  height:"auto",
+  padding:"10px 8px",
+  minWidth:0,
 
   borderRadius:14,
 
@@ -801,7 +817,12 @@ const btnBlue = {
 
   color:"#69aafa",
 
-  fontWeight:600,
+  fontWeight:800,
+  fontSize:13,
+  lineHeight:1.15,
+  whiteSpace:"normal",
+  overflowWrap:"anywhere",
+  textAlign:"center",
 
   cursor:"pointer",
 
@@ -811,7 +832,10 @@ const btnGreen = {
 
   flex:1,
 
-  height:44,
+  minHeight:44,
+  height:"auto",
+  padding:"10px 8px",
+  minWidth:0,
 
   borderRadius:14,
 
@@ -822,7 +846,12 @@ const btnGreen = {
 
   color:"var(--primary)",
 
-  fontWeight:600,
+  fontWeight:800,
+  fontSize:13,
+  lineHeight:1.15,
+  whiteSpace:"normal",
+  overflowWrap:"anywhere",
+  textAlign:"center",
 
   cursor:"pointer",
 
@@ -878,7 +907,10 @@ const btnRed = {
 
   flex:1,
 
-  height:44,
+  minHeight:44,
+  height:"auto",
+  padding:"10px 8px",
+  minWidth:0,
 
   borderRadius:14,
 
@@ -889,7 +921,12 @@ const btnRed = {
 
   color:"var(--danger)",
 
-  fontWeight:600,
+  fontWeight:800,
+  fontSize:13,
+  lineHeight:1.15,
+  whiteSpace:"normal",
+  overflowWrap:"anywhere",
+  textAlign:"center",
 
   cursor:"pointer",
 
