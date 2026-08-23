@@ -17,10 +17,26 @@ export default function SuperAdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [created, setCreated] = useState(null)
+  const [payment, setPayment] = useState({
+    plugin_enabled: false,
+    merchant_name: "",
+    upi_id: "",
+    merchant_reference: "",
+    active: false,
+    auto_payment_detection: false,
+    voice_enabled: true,
+    voice_language: "hi-IN"
+  })
+  const [paymentLoading, setPaymentLoading] = useState(false)
+  const [paymentSaving, setPaymentSaving] = useState(false)
 
   useEffect(() => {
     loadRestaurants()
   }, [])
+
+  useEffect(() => {
+    if (form.restaurant_id) loadPaymentAccount(form.restaurant_id)
+  }, [form.restaurant_id])
 
   async function loadRestaurants() {
     try {
@@ -60,6 +76,88 @@ export default function SuperAdminUsersPage() {
       alert(error.message || "Unable to load restaurants")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadPaymentAccount(restaurantId) {
+    try {
+      setPaymentLoading(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch(
+        `/api/super-admin/payment-account?restaurant_id=${encodeURIComponent(restaurantId)}`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      )
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to load payment settings")
+
+      const a = result.account || {}
+      setPayment({
+        plugin_enabled: result.plugin_enabled === true,
+        merchant_name: a.merchant_name || "",
+        upi_id: a.upi_id || "",
+        merchant_reference: a.merchant_reference || "",
+        active: a.active === true,
+        auto_payment_detection: a.auto_payment_detection === true,
+        voice_enabled: a.voice_enabled !== false,
+        voice_language: a.voice_language || "hi-IN"
+      })
+    } catch (error) {
+      console.error("LOAD PAYMENT ACCOUNT ERROR:", error)
+    } finally {
+      setPaymentLoading(false)
+    }
+  }
+
+  async function savePaymentAccount() {
+    if (!form.restaurant_id) {
+      alert("Select restaurant first")
+      return
+    }
+
+    if (!payment.plugin_enabled) {
+      alert("First activate Merchant Payments & Voice from Super Admin → Plugins.")
+      return
+    }
+
+    if (payment.upi_id.trim() && !/^[^\s@]+@[^\s@]+$/.test(payment.upi_id.trim())) {
+      alert("Enter a valid Merchant UPI ID, for example restaurant@upi")
+      return
+    }
+
+    try {
+      setPaymentSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Login session expired. Please login again.")
+
+      const response = await fetch("/api/super-admin/payment-account", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          restaurant_id: form.restaurant_id,
+          merchant_name: payment.merchant_name.trim(),
+          upi_id: payment.upi_id.trim(),
+          merchant_reference: payment.merchant_reference.trim(),
+          active: payment.active,
+          auto_payment_detection: payment.auto_payment_detection,
+          voice_enabled: payment.voice_enabled,
+          voice_language: payment.voice_language
+        })
+      })
+
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to save payment settings")
+
+      alert("Merchant UPI settings saved successfully ✅")
+      await loadPaymentAccount(form.restaurant_id)
+    } catch (error) {
+      alert(error.message || "Unable to save merchant payment settings")
+    } finally {
+      setPaymentSaving(false)
     }
   }
 
@@ -402,6 +500,146 @@ export default function SuperAdminUsersPage() {
               </p>
             </div>
           )}
+
+          <section style={{
+            marginTop: 28,
+            padding: 24,
+            borderRadius: 22,
+            background: "rgba(var(--surface-2-rgb),.92)",
+            border: "1px solid rgba(var(--primary-rgb),.22)",
+            boxShadow: "0 18px 45px rgba(0,0,0,.22)"
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+              <div>
+                <div style={{...styles.eyebrow, color:"var(--primary)"}}>MERCHANT PAYMENTS</div>
+                <h2 style={{margin:"8px 0 5px",color:"#fff"}}>💳 Merchant UPI Account</h2>
+                <p style={{margin:0,color:"var(--muted)",fontSize:13}}>
+                  Connect the selected restaurant's UPI ID from Super Admin.
+                </p>
+              </div>
+              <span style={{
+                padding:"8px 12px",
+                borderRadius:999,
+                fontSize:12,
+                fontWeight:800,
+                background:payment.plugin_enabled ? "rgba(34,197,94,.12)" : "rgba(239,68,68,.12)",
+                color:payment.plugin_enabled ? "#86efac" : "#fca5a5",
+                border:`1px solid ${payment.plugin_enabled ? "rgba(34,197,94,.25)" : "rgba(239,68,68,.25)"}`
+              }}>
+                {payment.plugin_enabled ? "PLUGIN ACTIVE" : "PLUGIN OFF"}
+              </span>
+            </div>
+
+            {!payment.plugin_enabled && (
+              <div style={{
+                marginTop:16,
+                padding:14,
+                borderRadius:12,
+                background:"rgba(245,158,11,.08)",
+                border:"1px solid rgba(245,158,11,.25)",
+                color:"#fbbf24",
+                fontSize:13
+              }}>
+                Activate <b>Merchant Payments & Voice</b> for this restaurant from
+                <b> Super Admin → Plugins</b> first.
+              </div>
+            )}
+
+            <div style={{...styles.grid, marginTop:18}}>
+              <div>
+                <label style={styles.label}>Merchant / Restaurant Name</label>
+                <input
+                  value={payment.merchant_name}
+                  onChange={e=>setPayment({...payment,merchant_name:e.target.value})}
+                  placeholder="Restaurant name"
+                  style={styles.input}
+                  disabled={paymentLoading}
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>Merchant UPI ID</label>
+                <input
+                  value={payment.upi_id}
+                  onChange={e=>setPayment({...payment,upi_id:e.target.value})}
+                  placeholder="restaurant@upi"
+                  style={styles.input}
+                  disabled={paymentLoading}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>Merchant Reference</label>
+                <input
+                  value={payment.merchant_reference}
+                  onChange={e=>setPayment({...payment,merchant_reference:e.target.value})}
+                  placeholder="Optional reference"
+                  style={styles.input}
+                  disabled={paymentLoading}
+                />
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",gap:12,paddingTop:25}}>
+                <input
+                  type="checkbox"
+                  checked={payment.active}
+                  onChange={e=>setPayment({...payment,active:e.target.checked})}
+                  disabled={!payment.plugin_enabled || paymentLoading}
+                  style={{width:18,height:18}}
+                />
+                <label style={{...styles.label,margin:0}}>Merchant account active</label>
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <input
+                  type="checkbox"
+                  checked={payment.auto_payment_detection}
+                  onChange={e=>setPayment({...payment,auto_payment_detection:e.target.checked})}
+                  disabled={!payment.plugin_enabled || paymentLoading}
+                  style={{width:18,height:18}}
+                />
+                <label style={{...styles.label,margin:0}}>Auto payment detection</label>
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <input
+                  type="checkbox"
+                  checked={payment.voice_enabled}
+                  onChange={e=>setPayment({...payment,voice_enabled:e.target.checked})}
+                  disabled={!payment.plugin_enabled || paymentLoading}
+                  style={{width:18,height:18}}
+                />
+                <label style={{...styles.label,margin:0}}>Voice payment announcement</label>
+              </div>
+
+              <div>
+                <label style={styles.label}>Voice Language</label>
+                <select
+                  value={payment.voice_language}
+                  onChange={e=>setPayment({...payment,voice_language:e.target.value})}
+                  style={styles.input}
+                  disabled={!payment.plugin_enabled || paymentLoading}
+                >
+                  <option value="hi-IN">Hindi</option>
+                  <option value="en-IN">English (India)</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={savePaymentAccount}
+              disabled={!payment.plugin_enabled || paymentSaving || paymentLoading}
+              style={{
+                ...styles.button,
+                opacity:(!payment.plugin_enabled || paymentSaving || paymentLoading) ? .55 : 1,
+                cursor:(!payment.plugin_enabled || paymentSaving || paymentLoading) ? "not-allowed" : "pointer"
+              }}
+            >
+              {paymentSaving ? "Saving Merchant Payment..." : "💾 Save Merchant Payment Settings"}
+            </button>
+          </section>
         </section>
       </div>
     </main>
