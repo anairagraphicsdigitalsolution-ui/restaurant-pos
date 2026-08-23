@@ -145,6 +145,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   const syncQueued = useRef(false)
   const queuedUser = useRef<any | null | undefined>(undefined)
+  const redirectingRef = useRef(false)
 
   const syncAuth = useCallback(async (knownUser: any = undefined) => {
     if (syncInFlight.current) {
@@ -183,7 +184,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       if (!currentUser) {
         setRole("")
         setRestaurantId(null)
-        if (isInternalPath(pathname)) router.replace("/login")
+        if (isInternalPath(pathname)) {
+          redirectingRef.current = true
+          router.replace("/login")
+        }
         return
       }
 
@@ -207,6 +211,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         setUser(null)
         setRole("")
         setRestaurantId(null)
+        redirectingRef.current = true
         router.replace("/login")
         return
       }
@@ -218,6 +223,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         setUser(null)
         setRole("")
         setRestaurantId(null)
+        redirectingRef.current = true
         router.replace(`/login?reason=${encodeURIComponent((profile as any).reason || "Restaurant access is inactive")}`)
         return
       }
@@ -226,6 +232,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       setRestaurantId(profile.restaurantId)
 
       if (pathname === "/login") {
+        // Keep the auth gate in its loading state until the role dashboard
+        // navigation completes. This prevents the login screen from flashing
+        // a second time after a successful sign-in.
+        redirectingRef.current = true
         router.replace(HOME_BY_ROLE[profile.role as Exclude<Role, "">])
         return
       }
@@ -261,6 +271,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         (profile as any).planFeatures?.[requiredFeature] !== true &&
         !pluginFeatureEnabled
       ) {
+        redirectingRef.current = true
         router.replace("/dashboard")
         return
       }
@@ -281,7 +292,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       bootstrapped.current = true
       syncInFlight.current = false
       syncingUserIdRef.current = undefined
-      setLoading(false)
+
+      // When a successful login is redirecting away from /login, keep the
+      // auth gate visible until Next.js completes the navigation. This avoids
+      // briefly rendering the login page a second time.
+      if (!(redirectingRef.current && pathname === "/login")) {
+        redirectingRef.current = false
+        setLoading(false)
+      }
 
       if (syncQueued.current) {
         const nextUser = queuedUser.current
