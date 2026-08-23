@@ -182,31 +182,6 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
 
   return (
     <>
-      {permission !== "granted" && (
-        <button
-          type="button"
-          onClick={requestPermission}
-          className="order-alert-enable"
-          aria-label="Enable order notifications and sound"
-          style={{
-            position: "fixed",
-            right: 18,
-            bottom: 18,
-            zIndex: 9999,
-            border: "1px solid rgba(var(--primary-rgb),.35)",
-            background: "var(--surface)",
-            color: "var(--text)",
-            borderRadius: 14,
-            padding: "10px 13px",
-            fontWeight: 800,
-            fontSize: 12,
-            boxShadow: "0 14px 36px rgba(0,0,0,.25)",
-            cursor: "pointer",
-          }}
-        >
-          🔔 Enable order alerts
-        </button>
-      )}
 
       {notice && (
         <button

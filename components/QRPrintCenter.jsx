@@ -217,7 +217,18 @@ export default function QRPrintCenter({ superAdmin = false }) {
       alert("No tables or rooms found for this restaurant.")
       return
     }
-    window.print()
+    const runPrint = async () => {
+      try {
+        if (document.fonts?.ready) await document.fonts.ready
+        const images = Array.from(document.images || [])
+        await Promise.all(images.map((img) => img.complete ? Promise.resolve() : new Promise((resolve) => {
+          img.addEventListener("load", resolve, { once: true })
+          img.addEventListener("error", resolve, { once: true })
+        })))
+      } catch {}
+      window.print()
+    }
+    window.setTimeout(runPrint, 120)
   }
 
   const total = tables.length + rooms.length

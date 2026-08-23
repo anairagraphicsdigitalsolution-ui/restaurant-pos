@@ -57,6 +57,8 @@ export default function DeliveryManagement() {
     active: true,
   })
   const [zoneEditorOpen, setZoneEditorOpen] = useState(false)
+  const [riderEditorOpen, setRiderEditorOpen] = useState(false)
+  const [riderForm, setRiderForm] = useState({ id: "", name: "", phone: "", vehicle: "", active: true })
 
   async function getAuthHeaders() {
     const { data, error } = await supabase.auth.getSession()
@@ -406,6 +408,50 @@ export default function DeliveryManagement() {
     setCollectionNote("")
   }
 
+  function openRiderEditor(rider = null) {
+    setRiderForm(rider
+      ? { id: rider.id || "", name: rider.name || "", phone: rider.phone || "", vehicle: rider.vehicle || "", active: rider.active !== false }
+      : { id: "", name: "", phone: "", vehicle: "", active: true }
+    )
+    setRiderEditorOpen(true)
+    setError("")
+  }
+
+  async function saveRider(e) {
+    e.preventDefault()
+    const name = String(riderForm.name || "").trim()
+    if (!name) { setError("Enter rider name."); return }
+    setBusy(true); setError(""); setNotice("")
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: riderForm.id ? "rider_update" : "rider_create", rider_id: riderForm.id || undefined, name, phone: riderForm.phone, vehicle: riderForm.vehicle, active: riderForm.active !== false })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not save rider")
+      setRiderEditorOpen(false)
+      setNotice(riderForm.id ? "Rider updated." : "Rider added.")
+      await load()
+    } catch (e) { setError(e?.message || "Could not save rider") }
+    finally { setBusy(false) }
+  }
+
+  async function deleteRider(rider) {
+    if (!rider?.id || !window.confirm(`Delete rider "${rider.name}"? Existing delivery records will remain unchanged.`)) return
+    setBusy(true); setError(""); setNotice("")
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", { method:"POST", headers:{...authHeaders,"Content-Type":"application/json"}, body:JSON.stringify({action:"rider_delete", rider_id:rider.id}) })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not delete rider")
+      setNotice("Rider deleted.")
+      await load()
+    } catch (e) { setError(e?.message || "Could not delete rider") }
+    finally { setBusy(false) }
+  }
+
   function openZoneEditor(zone = null) {
     if (zone) {
       setZoneForm({
@@ -554,6 +600,33 @@ export default function DeliveryManagement() {
         <Stat label="Settled" value={stats.settled} />
       </section>
 
+      <section className="ridersPanel panel">
+        <div className="zonesHeader">
+          <div>
+            <div className="eyebrow">DELIVERY TEAM</div>
+            <h2>Riders</h2>
+            <p>Save rider details once, then assign them instantly from any delivery slip.</p>
+          </div>
+          <button className="primaryBtn" type="button" onClick={() => openRiderEditor()} disabled={busy}>＋ Add Rider</button>
+        </div>
+        <div className="riderGrid">
+          {riders.length ? riders.map((rider) => (
+            <div className="riderCard" key={rider.id}>
+              <div className="riderAvatar">🛵</div>
+              <div className="riderInfo">
+                <strong>{rider.name}</strong>
+                <span>{rider.phone || "No phone"}{rider.vehicle ? ` · ${rider.vehicle}` : ""}</span>
+                <small className={rider.active === false ? "riderOff" : "riderOn"}>{rider.active === false ? "Inactive" : "Available for assignment"}</small>
+              </div>
+              <div className="riderActions">
+                <button type="button" className="zoneEditBtn" onClick={() => openRiderEditor(rider)} disabled={busy}>Edit</button>
+                <button type="button" className="zoneDeleteBtn" onClick={() => deleteRider(rider)} disabled={busy}>Delete</button>
+              </div>
+            </div>
+          )) : <div className="zonesEmpty"><div className="emptyIcon">🛵</div><strong>No riders saved</strong><span>Add rider details once and reuse them for every delivery.</span></div>}
+        </div>
+      </section>
+
       <section className="zonesPanel panel">
         <div className="zonesHeader">
           <div>
@@ -630,6 +703,21 @@ export default function DeliveryManagement() {
           )}
         </div>
       </section>
+
+      {riderEditorOpen ? (
+        <div className="zoneModalBackdrop" role="presentation">
+          <form className="zoneModal" onSubmit={saveRider}>
+            <div className="zoneModalHeader"><div><div className="eyebrow">DELIVERY TEAM</div><h2>{riderForm.id ? "Edit Rider" : "Add Rider"}</h2></div><button type="button" className="zoneCloseBtn" onClick={() => setRiderEditorOpen(false)}>×</button></div>
+            <label className="zoneField"><span>Rider name *</span><input value={riderForm.name} onChange={e => setRiderForm(v => ({...v,name:e.target.value}))} placeholder="e.g. Rahul Kumar" autoFocus /></label>
+            <div className="zoneFormGrid">
+              <label className="zoneField"><span>Mobile</span><input value={riderForm.phone} onChange={e => setRiderForm(v => ({...v,phone:e.target.value}))} inputMode="tel" placeholder="98765 43210" /></label>
+              <label className="zoneField"><span>Vehicle</span><input value={riderForm.vehicle} onChange={e => setRiderForm(v => ({...v,vehicle:e.target.value}))} placeholder="Bike · DL 01 AB 1234" /></label>
+            </div>
+            <label className="zoneToggle"><input type="checkbox" checked={riderForm.active} onChange={e => setRiderForm(v => ({...v,active:e.target.checked}))}/><span><strong>Active rider</strong><small>Only active riders appear in the assignment dropdown.</small></span></label>
+            <div className="zoneModalFooter"><button type="button" className="ghostBtn" onClick={() => setRiderEditorOpen(false)} disabled={busy}>Cancel</button><button className="primaryBtn" type="submit" disabled={busy}>{busy ? "Saving…" : riderForm.id ? "Save Rider" : "Add Rider"}</button></div>
+          </form>
+        </div>
+      ) : null}
 
       {zoneEditorOpen ? (
         <div className="zoneModalBackdrop" role="presentation">

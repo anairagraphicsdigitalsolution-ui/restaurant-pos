@@ -212,6 +212,61 @@ export const BRAND_THEMES: ThemeDefinition[] = [
     radius: "22px",
     mode: "dark",
   },
+  {
+    id: "saffron-heritage",
+    name: "Saffron Heritage",
+    description: "Warm Indian-inspired luxury with saffron, maroon and ivory.",
+    primary: "#f59e0b", secondary: "#2a0f0f", accent: "#dc2626", background: "#120707", surface: "#211010", surface2: "#301515", text: "#fffaf0", muted: "#d6b8a6", border: "#f59e0b", success: "#4ade80", danger: "#ef4444", warning: "#fbbf24", info: "#60a5fa", radius: "20px", mode: "dark",
+  },
+  {
+    id: "coastal-breeze",
+    name: "Coastal Breeze",
+    description: "Bright premium coastal palette with aqua, navy and pearl.",
+    primary: "#0891b2", secondary: "#062b36", accent: "#67e8f9", background: "#03141a", surface: "#082832", surface2: "#0d3540", text: "#f2fdff", muted: "#a9cbd2", border: "#22d3ee", success: "#34d399", danger: "#fb7185", warning: "#fbbf24", info: "#60a5fa", radius: "22px", mode: "dark",
+  },
+  {
+    id: "terracotta-table",
+    name: "Terracotta Table",
+    description: "Boutique dining look with terracotta, espresso and cream.",
+    primary: "#ea7c4b", secondary: "#241611", accent: "#f3c892", background: "#0f0907", surface: "#20130e", surface2: "#2c1b14", text: "#fff8ee", muted: "#cdb6a3", border: "#ea7c4b", success: "#65a30d", danger: "#dc2626", warning: "#f59e0b", info: "#60a5fa", radius: "18px", mode: "dark",
+  },
+  {
+    id: "sakura-dining",
+    name: "Sakura Dining",
+    description: "Refined rose, plum and soft champagne for modern dining.",
+    primary: "#f472b6", secondary: "#21101a", accent: "#f9a8d4", background: "#0e070c", surface: "#1d0f18", surface2: "#2a1422", text: "#fff7fb", muted: "#cdb2c2", border: "#ec4899", success: "#34d399", danger: "#fb7185", warning: "#fbbf24", info: "#93c5fd", radius: "22px", mode: "dark",
+  },
+  {
+    id: "copper-noir",
+    name: "Copper Noir",
+    description: "Moody black with copper metal accents for upscale restaurants.",
+    primary: "#c47f46", secondary: "#17110d", accent: "#f1b878", background: "#070605", surface: "#15100c", surface2: "#211711", text: "#fff9f1", muted: "#bfae9f", border: "#c47f46", success: "#4ade80", danger: "#f87171", warning: "#f59e0b", info: "#60a5fa", radius: "16px", mode: "dark",
+  },
+  {
+    id: "olive-modern",
+    name: "Olive Modern",
+    description: "Contemporary olive, cream and brass palette for all-day dining.",
+    primary: "#a3a63a", secondary: "#172015", accent: "#d4b85a", background: "#080d08", surface: "#121b12", surface2: "#1b2719", text: "#fbfff4", muted: "#b8c2ad", border: "#a3a63a", success: "#65a30d", danger: "#ef4444", warning: "#eab308", info: "#60a5fa", radius: "20px", mode: "dark",
+  },
+  {
+    id: "pearl-minimal",
+    name: "Pearl Minimal",
+    description: "Premium light theme with pearl white, graphite and champagne.",
+    primary: "#7c5f2a", secondary: "#ffffff", accent: "#d4af63", background: "#f7f6f2", surface: "#ffffff", surface2: "#f1efe8", text: "#1f2320", muted: "#626a63", border: "#d7c79f", success: "#15803d", danger: "#b91c1c", warning: "#a16207", info: "#1d4ed8", radius: "16px", mode: "light",
+  },
+  {
+    id: "royal-maroon",
+    name: "Royal Maroon",
+    description: "Classic Indian fine-dining palette with maroon and antique gold.",
+    primary: "#d4a24c", secondary: "#2b0c14", accent: "#8f1d36", background: "#0f0509", surface: "#210b12", surface2: "#32101a", text: "#fff8ed", muted: "#cdb0a8", border: "#d4a24c", success: "#4ade80", danger: "#ef4444", warning: "#fbbf24", info: "#60a5fa", radius: "20px", mode: "dark",
+  },
+  {
+    id: "matcha-luxe",
+    name: "Matcha Luxe",
+    description: "Calm matcha green with jade and warm ivory accents.",
+    primary: "#84a98c", secondary: "#0c1712", accent: "#cad2a2", background: "#050c08", surface: "#0e1b14", surface2: "#16271e", text: "#f8fff8", muted: "#afc0b3", border: "#84a98c", success: "#4ade80", danger: "#ef4444", warning: "#f59e0b", info: "#60a5fa", radius: "22px", mode: "dark",
+  },
+
 ]
 
 type ThemeContextValue = {

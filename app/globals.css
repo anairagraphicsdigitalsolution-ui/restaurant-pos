@@ -1936,3 +1936,35 @@ input, select, textarea, button {
     max-width: 100% !important;
   }
 }
+
+
+/* Unified print hardening: keep app chrome out of every print surface. */
+@media print {
+  header, nav, aside, .sidebar, .app-sidebar, .app-header,
+  .no-print, [data-no-print="true"] {
+    display: none !important;
+  }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  img, svg {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table, tr, td, th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+.riderGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding-top:18px}.riderCard{display:flex;align-items:center;gap:12px;padding:15px;border:1px solid var(--border);background:var(--surface);border-radius:18px;min-width:0}.riderAvatar{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--surface2);font-size:22px;flex:0 0 auto}.riderInfo{display:grid;gap:3px;min-width:0;flex:1}.riderInfo strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo small{font-size:11px}.riderOn{color:#22c55e}.riderOff{color:#ef4444}.riderActions{display:flex;gap:6px}.ridersPanel{margin-bottom:18px}@media(max-width:900px){.riderGrid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.riderGrid{grid-template-columns:1fr}.riderCard{align-items:flex-start}.riderActions{margin-left:auto;flex-direction:column}}

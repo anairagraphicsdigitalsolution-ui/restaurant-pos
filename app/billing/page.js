@@ -48,6 +48,7 @@ export default function BillingPage() {
   const [paymentReference, setPaymentReference] = useState("")
   const [finalizing, setFinalizing] = useState(false)
   const [finalizedBill, setFinalizedBill] = useState(null)
+  const [gstSaving, setGstSaving] = useState(false)
   const invoiceRef = useRef(null)
 
   useEffect(() => {
@@ -96,6 +97,20 @@ export default function BillingPage() {
     fetchRestaurant(restId)
     fetchOrders(restId)
     fetchOffers(restId)
+  }
+
+  async function saveGstSetting(patch) {
+    if (!restaurant?.id) return
+    setGstSaving(true)
+    const next = { ...restaurant, ...patch }
+    setRestaurant(next)
+    const { error } = await supabase.from("restaurants").update(patch).eq("id", restaurant.id)
+    if (error) {
+      console.error("GST setting save:", error)
+      setRestaurant(restaurant)
+      window.alert(error.message || "Unable to save GST setting")
+    }
+    setGstSaving(false)
   }
 
   async function fetchRestaurant(restId) {
@@ -1252,9 +1267,25 @@ export default function BillingPage() {
 
     win.document.close()
 
-    win.focus()
+    // Wait for the cloned invoice to finish rendering before opening the
+    // system print dialog. This is important on Android/iOS and for logos.
+    const doPrint = async () => {
+      try {
+        if (win.document.fonts?.ready) await win.document.fonts.ready
+        const images = Array.from(win.document.images || [])
+        await Promise.all(images.map((img) => {
+          if (img.complete) return Promise.resolve()
+          return new Promise((resolve) => {
+            img.addEventListener("load", resolve, { once: true })
+            img.addEventListener("error", resolve, { once: true })
+          })
+        }))
+      } catch {}
+      win.focus()
+      win.print()
+    }
 
-    win.print()
+    window.setTimeout(doPrint, 150)
   }
 
   return (
@@ -2080,17 +2111,10 @@ export default function BillingPage() {
               }}
             >
 
-              <div>
-                GST:
-                {" "}
-                <strong>
-                  {
-                    restaurant?.gst_enabled
-                      ? "Enabled"
-                      : "Disabled"
-                  }
-                </strong>
-              </div>
+              <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"10px 12px",border:"1px solid var(--border)",borderRadius:12,background:"var(--surface2)",cursor:"pointer"}}>
+                <span><strong>GST on bill</strong><br/><small style={{color:"var(--muted)"}}>{restaurant?.gst_enabled ? "GST will be calculated and printed." : "Bill will be generated without GST."}</small></span>
+                <input type="checkbox" checked={!!restaurant?.gst_enabled} disabled={gstSaving} onChange={e=>saveGstSetting({gst_enabled:e.target.checked})} style={{width:20,height:20,accentColor:"var(--primary)"}} />
+              </label>
 
               <div>
                 Rate:

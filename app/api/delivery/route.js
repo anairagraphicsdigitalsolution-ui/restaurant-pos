@@ -170,6 +170,44 @@ export async function POST(req) {
       return Response.json({ success:true, delivery })
     }
 
+    if (action === "rider_create" || action === "rider_update" || action === "rider_delete") {
+      const riderId = String(body?.rider_id || "").trim()
+
+      if (action === "rider_delete") {
+        if (!riderId) return Response.json({ success:false, error:"Rider is required" }, { status:400 })
+        const { data: existing, error: findError } = await supabaseAdmin
+          .from("delivery_riders").select("id,name").eq("id", riderId).eq("restaurant_id", restaurantId).maybeSingle()
+        if (findError) return Response.json({ success:false, error:findError.message }, { status:400 })
+        if (!existing) return Response.json({ success:false, error:"Rider not found" }, { status:404 })
+        const { error } = await supabaseAdmin.from("delivery_riders").delete().eq("id", riderId).eq("restaurant_id", restaurantId)
+        if (error) return Response.json({ success:false, error:error.message }, { status:400 })
+        return Response.json({ success:true })
+      }
+
+      const name = String(body?.name || "").trim()
+      const phone = String(body?.phone || "").trim() || null
+      const vehicle = String(body?.vehicle || "").trim() || null
+      const active = body?.active !== false
+      if (!name) return Response.json({ success:false, error:"Rider name is required" }, { status:400 })
+
+      if (action === "rider_update") {
+        if (!riderId) return Response.json({ success:false, error:"Rider is required" }, { status:400 })
+        const { data: rider, error } = await supabaseAdmin.from("delivery_riders")
+          .update({ name, phone, vehicle, active }).eq("id", riderId).eq("restaurant_id", restaurantId).select("*").single()
+        if (error) return Response.json({ success:false, error:error.message }, { status:400 })
+        return Response.json({ success:true, rider })
+      }
+
+      const { data: duplicate } = await supabaseAdmin.from("delivery_riders")
+        .select("id").eq("restaurant_id", restaurantId).ilike("name", name).eq("active", true).limit(1)
+      if (duplicate?.length) return Response.json({ success:false, error:"An active rider with this name already exists." }, { status:409 })
+
+      const { data: rider, error } = await supabaseAdmin.from("delivery_riders")
+        .insert([{ restaurant_id:restaurantId, name, phone, vehicle, active }]).select("*").single()
+      if (error) return Response.json({ success:false, error:error.message }, { status:400 })
+      return Response.json({ success:true, rider })
+    }
+
     if (action === "zone_create" || action === "zone_update" || action === "zone_delete") {
       const zoneId = String(body?.zone_id || "").trim()
 
