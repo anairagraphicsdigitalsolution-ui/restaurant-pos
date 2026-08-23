@@ -33,7 +33,7 @@ const tabPlugins = {
   crm: ["loyalty", "feedback-reviews"],
   staff: ["permissions"],
   enterprise: ["multi-branch", "branch-menu-control"],
-  devices: ["thermal-printing", "payment-settings"],
+  devices: ["thermal-printing", "payment-settings", "payment-accounts"],
   reports: ["analytics", "pos-audit"],
 }
 
