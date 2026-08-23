@@ -9,6 +9,7 @@ const PLUGINS = [
   { code: "billing", name: "Billing", description: "Billing and invoice module" },
   { code: "qr-menu", name: "QR Menu", description: "Table and room QR ordering" },
   { code: "razorpay", name: "Razorpay", description: "Online payment integration" }
+  { code: "payment-accounts", name: "Merchant Payments & Voice", description: "Merchant UPI account, payment confirmation, receipt attachment and voice payment announcement." }
 ]
 
 export default function PluginsPage() {

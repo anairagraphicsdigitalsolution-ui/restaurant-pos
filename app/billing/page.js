@@ -1047,6 +1047,52 @@ export default function BillingPage() {
   .billing-chart-card{padding:16px!important;min-width:0!important}
   .billing-chart-card > *{min-width:0!important;max-width:100%!important}
 }
+
+@media(max-width:700px){
+  .billing-bill-jump{
+    width:100%!important;
+    min-width:0!important;
+    margin:0!important;
+  }
+  .billing-bill-section{
+    width:100%!important;
+    max-width:100%!important;
+    scroll-margin-top:12px!important;
+  }
+  .billing-invoice-card{
+    width:100%!important;
+    max-width:100%!important;
+    overflow:hidden!important;
+  }
+  .billing-invoice-table{
+    width:100%!important;
+    min-width:0!important;
+    table-layout:fixed!important;
+    font-size:11px!important;
+  }
+  .billing-invoice-table th,
+  .billing-invoice-table td{
+    padding:7px 5px!important;
+    font-size:11px!important;
+  }
+  .billing-invoice-table th:nth-child(1),
+  .billing-invoice-table td:nth-child(1){width:44%!important}
+  .billing-invoice-table th:nth-child(2),
+  .billing-invoice-table td:nth-child(2){width:14%!important}
+  .billing-invoice-table th:nth-child(3),
+  .billing-invoice-table td:nth-child(3){width:19%!important}
+  .billing-invoice-table th:nth-child(4),
+  .billing-invoice-table td:nth-child(4){width:23%!important}
+  .billing-invoice-toolbar{
+    flex-direction:column!important;
+    align-items:stretch!important;
+    gap:10px!important;
+  }
+  .billing-edit-btn{
+    width:100%!important;
+    min-height:44px!important;
+  }
+}
 </style>
         </head>
         <body>
@@ -1111,6 +1157,19 @@ export default function BillingPage() {
       {/* TOP BAR */}
 
       <div className="billing-topbar" style={topBar}>
+
+        <button
+          type="button"
+          onClick={() => {
+            document
+              .getElementById("billing-bill-section")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }}
+          className="billing-action billing-bill-jump"
+          style={{ ...btnGreen, marginTop: 0, width: "auto", minWidth: 150 }}
+        >
+          🧾 Bill
+        </button>
 
         <button
           type="button"
@@ -1292,219 +1351,14 @@ export default function BillingPage() {
 
       <div className="billing-main-grid" style={mainGrid}>
 
-        {/* LEFT */}
-
-        <div className="billing-left-panel" style={leftPanel}>
-
-          {/* GST */}
-
-          <div className="billing-card" style={card}>
-
-            <h3
-              style={{
-                color:"var(--primary)",
-                marginBottom:15
-              }}
-            >
-              ⚙ GST Settings
-            </h3>
-
-            <div
-              style={{
-                color:"var(--text)",
-                lineHeight:1.7
-              }}
-            >
-
-              <div>
-                GST:
-                {" "}
-                <strong>
-                  {
-                    restaurant?.gst_enabled
-                      ? "Enabled"
-                      : "Disabled"
-                  }
-                </strong>
-              </div>
-
-              <div>
-                Rate:
-                {" "}
-                <strong>
-                  {Number(
-                    restaurant?.gst_rate ??
-                    0
-                  )}
-                  %
-                </strong>
-              </div>
-
-              <small
-                style={{
-                  color:"var(--muted)"
-                }}
-              >
-                Billing uses the
-                restaurant's
-                server-side GST
-                configuration.
-              </small>
-
-            </div>
-
-          </div>
-
-          {/* REPORT */}
-
-          <div
-            id="report-print"
-            style={{
-              ...card,
-              maxHeight:"850px",
-              overflowY:"auto"
-            }}
-          >
-
-            <h3
-              style={{
-                color:"var(--primary)",
-                marginBottom:15
-              }}
-            >
-              📊 Revenue Report
-            </h3>
-
-            <div
-              style={{
-                maxHeight:"230px",
-                overflowY:"auto",
-                marginTop:15,
-                borderRadius:18,
-                border:
-                  "1px solid rgba(var(--primary-rgb),.12)",
-                background:
-                  "rgba(255,255,255,.02)"
-              }}
-            >
-
-              <table className="billing-invoice-table" style={table}>
-
-                <thead>
-
-                  <tr>
-
-                    <th style={th}>
-                      Order
-                    </th>
-
-                    <th style={th}>
-                      Date
-                    </th>
-
-                    <th style={th}>
-                      Amount
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {filteredOrders.map(o => (
-
-                    <tr key={o.id}>
-
-                      <td style={td}>
-                        #{o.id.slice(0,5)}
-                      </td>
-
-                      <td style={td}>
-                        {formatDate(
-                          o.created_at
-                        )}
-                      </td>
-
-                      <td style={td}>
-                        ₹
-                        {Number(
-                          reportTotals[o.id] ||
-                          0
-                        ).toFixed(2)}
-                      </td>
-
-                    </tr>
-
-                  ))}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-            <div
-              style={{
-                marginTop:25,
-                padding:24,
-                borderRadius:24,
-
-                background:
-                  "linear-gradient(135deg,rgba(var(--primary-rgb),.08),rgba(var(--warning-rgb),.05))",
-
-                border:
-                  "1px solid rgba(var(--primary-rgb),.35)",
-
-                backdropFilter:
-                  "blur(20px)",
-
-                boxShadow:
-                  "0 15px 35px rgba(var(--primary-rgb),.12)"
-              }}
-            >
-
-              <h2
-                style={{
-                  color:"var(--primary)",
-                  margin:0
-                }}
-              >
-                ₹
-                {reportTotal.toFixed(2)}
-              </h2>
-
-              <p
-                style={{
-                  marginTop:8,
-                  color:"var(--muted)"
-                }}
-              >
-                Total Revenue
-              </p>
-
-            </div>
-
-            <button
-              onClick={() =>
-                printContent(
-                  "report-print"
-                )
-              }
-              className="billing-action" style={luxuryBtn}
-            >
-              🖨 Print Report
-            </button>
-
-          </div>
-
-        </div>
-
         {/* BILL */}
 
         <div
+          id="billing-bill-section"
+          className="billing-bill-section"
           style={{
-            overflowX:"auto"
+            overflowX:"auto",
+            scrollMarginTop: 20
           }}
         >
 
@@ -1916,7 +1770,219 @@ export default function BillingPage() {
 
       </div>
 
-    </div>
+        {/* LEFT */}
+
+        <div className="billing-left-panel" style={leftPanel}>
+
+          {/* GST */}
+
+          <div className="billing-card" style={card}>
+
+            <h3
+              style={{
+                color:"var(--primary)",
+                marginBottom:15
+              }}
+            >
+              ⚙ GST Settings
+            </h3>
+
+            <div
+              style={{
+                color:"var(--text)",
+                lineHeight:1.7
+              }}
+            >
+
+              <div>
+                GST:
+                {" "}
+                <strong>
+                  {
+                    restaurant?.gst_enabled
+                      ? "Enabled"
+                      : "Disabled"
+                  }
+                </strong>
+              </div>
+
+              <div>
+                Rate:
+                {" "}
+                <strong>
+                  {Number(
+                    restaurant?.gst_rate ??
+                    0
+                  )}
+                  %
+                </strong>
+              </div>
+
+              <small
+                style={{
+                  color:"var(--muted)"
+                }}
+              >
+                Billing uses the
+                restaurant's
+                server-side GST
+                configuration.
+              </small>
+
+            </div>
+
+          </div>
+
+          {/* REPORT */}
+
+          <div
+            id="report-print"
+            style={{
+              ...card,
+              maxHeight:"850px",
+              overflowY:"auto"
+            }}
+          >
+
+            <h3
+              style={{
+                color:"var(--primary)",
+                marginBottom:15
+              }}
+            >
+              📊 Revenue Report
+            </h3>
+
+            <div
+              style={{
+                maxHeight:"230px",
+                overflowY:"auto",
+                marginTop:15,
+                borderRadius:18,
+                border:
+                  "1px solid rgba(var(--primary-rgb),.12)",
+                background:
+                  "rgba(255,255,255,.02)"
+              }}
+            >
+
+              <table className="billing-invoice-table" style={table}>
+
+                <thead>
+
+                  <tr>
+
+                    <th style={th}>
+                      Order
+                    </th>
+
+                    <th style={th}>
+                      Date
+                    </th>
+
+                    <th style={th}>
+                      Amount
+                    </th>
+
+                  </tr>
+
+                </thead>
+
+                <tbody>
+
+                  {filteredOrders.map(o => (
+
+                    <tr key={o.id}>
+
+                      <td style={td}>
+                        #{o.id.slice(0,5)}
+                      </td>
+
+                      <td style={td}>
+                        {formatDate(
+                          o.created_at
+                        )}
+                      </td>
+
+                      <td style={td}>
+                        ₹
+                        {Number(
+                          reportTotals[o.id] ||
+                          0
+                        ).toFixed(2)}
+                      </td>
+
+                    </tr>
+
+                  ))}
+
+                </tbody>
+
+              </table>
+
+            </div>
+
+            <div
+              style={{
+                marginTop:25,
+                padding:24,
+                borderRadius:24,
+
+                background:
+                  "linear-gradient(135deg,rgba(var(--primary-rgb),.08),rgba(var(--warning-rgb),.05))",
+
+                border:
+                  "1px solid rgba(var(--primary-rgb),.35)",
+
+                backdropFilter:
+                  "blur(20px)",
+
+                boxShadow:
+                  "0 15px 35px rgba(var(--primary-rgb),.12)"
+              }}
+            >
+
+              <h2
+                style={{
+                  color:"var(--primary)",
+                  margin:0
+                }}
+              >
+                ₹
+                {reportTotal.toFixed(2)}
+              </h2>
+
+              <p
+                style={{
+                  marginTop:8,
+                  color:"var(--muted)"
+                }}
+              >
+                Total Revenue
+              </p>
+
+            </div>
+
+            <button
+              onClick={() =>
+                printContent(
+                  "report-print"
+                )
+              }
+              className="billing-action" style={luxuryBtn}
+            >
+              🖨 Print Report
+            </button>
+
+          </div>
+
+        </div>
+
+
+
+      </div>
+
+    
   )
 }
 
@@ -1963,7 +2029,7 @@ const topBar = {
 
 const mainGrid = {
   display:"grid",
-  gridTemplateColumns:"minmax(280px,420px) minmax(0,1fr)",
+  gridTemplateColumns:"minmax(0,1fr) minmax(280px,420px)",
   gap:20,
   alignItems:"start",
   width:"100%",
