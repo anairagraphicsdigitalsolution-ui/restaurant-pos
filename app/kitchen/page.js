@@ -27,12 +27,18 @@ const [restaurantId,setRestaurantId] = useState(null)
         .from("profiles")
         .select("restaurant_id,role")
         .eq("id", userData.user.id)
-        .single()
+        .maybeSingle()
 
-      if (!profile?.restaurant_id) return
+      // Older accounts can have restaurant_id only in auth metadata.
+      // Prefer the profile row, but fall back to the trusted server-created metadata
+      // value so KDS does not fail just because the legacy profile row was incomplete.
+      const metadataRestaurantId = userData.user.user_metadata?.restaurant_id || null
+      const resolvedRestaurantId = profile?.restaurant_id || metadataRestaurantId
 
-      setRestaurantId(profile.restaurant_id)
-      await fetchOrders(profile.restaurant_id)
+      if (!resolvedRestaurantId) return
+
+      setRestaurantId(resolvedRestaurantId)
+      await fetchOrders(resolvedRestaurantId)
 
       channel = supabase
         .channel(`kitchen-${profile.restaurant_id}`)

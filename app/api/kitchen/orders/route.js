@@ -9,18 +9,22 @@ export async function GET(req) {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("restaurant_id")
+      .select("restaurant_id,role")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
 
-    if (profileError || !profile?.restaurant_id) {
+    // Profiles created before the current Super Admin flow may not have
+    // restaurant_id populated even though the auth user has the restaurant
+    // metadata written at account creation time. Resolve both paths.
+    const metadataRestaurantId = user.user_metadata?.restaurant_id || null
+    const rid = profile?.restaurant_id || metadataRestaurantId
+
+    if (profileError || !rid) {
       return Response.json(
         { success: false, error: "Restaurant not found for user" },
         { status: 403 }
       )
     }
-
-    const rid = profile.restaurant_id
 
     const [
       { data: orders, error: ordersError },
