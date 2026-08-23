@@ -1968,3 +1968,76 @@ input, select, textarea, button {
   }
 }
 .riderGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding-top:18px}.riderCard{display:flex;align-items:center;gap:12px;padding:15px;border:1px solid var(--border);background:var(--surface);border-radius:18px;min-width:0}.riderAvatar{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--surface2);font-size:22px;flex:0 0 auto}.riderInfo{display:grid;gap:3px;min-width:0;flex:1}.riderInfo strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo small{font-size:11px}.riderOn{color:#22c55e}.riderOff{color:#ef4444}.riderActions{display:flex;gap:6px}.ridersPanel{margin-bottom:18px}@media(max-width:900px){.riderGrid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.riderGrid{grid-template-columns:1fr}.riderCard{align-items:flex-start}.riderActions{margin-left:auto;flex-direction:column}}
+
+
+/* =========================================================
+   ANAIRA LIGHT / CLEAN THEME POLISH
+   Keeps the existing dark presets intact while making the
+   new white presets feel like a true SaaS workspace.
+========================================================= */
+html[data-theme-mode="light"] {
+  color-scheme: light;
+}
+
+html[data-theme-mode="light"] body {
+  background: var(--background);
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .glass-pro {
+  background: rgba(255,255,255,.88);
+  border-color: var(--border);
+  box-shadow: 0 12px 36px rgba(16,24,40,.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+html[data-theme-mode="light"] .input-pro {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme-mode="light"] .btn-pro {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+}
+
+html[data-theme-mode="light"] .badge {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+html[data-theme-mode="light"] .mobile-menu-button {
+  background: rgba(255,255,255,.96);
+  color: var(--primary);
+  border-color: var(--border);
+  box-shadow: 0 10px 30px rgba(16,24,40,.12);
+}
+
+html[data-theme-mode="light"] .pos-sidebar {
+  box-shadow: 12px 0 40px rgba(16,24,40,.10);
+}
+
+html[data-theme-mode="light"] input[type="date"] {
+  color-scheme: light;
+}
+
+/* Common admin / super-admin surfaces that previously assumed dark glass. */
+html[data-theme-mode="light"] [style*="rgba(15,23,42"] {
+  background-color: var(--surface) !important;
+}
+
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.04)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.025)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.08)"] {
+  background-color: var(--surface-2) !important;
+  color: var(--text);
+}
+
+@media (max-width: 767px) {
+  html[data-theme-mode="light"] .mobile-sidebar-backdrop {
+    background: rgba(15,23,42,.22);
+  }
+}

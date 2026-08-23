@@ -537,8 +537,13 @@ export default function ThemeBrandingPage() {
                 <div style={themeName}>{item.name}</div>
                 <div style={themeDescription}>{item.description}</div>
 
-                <div style={radio}>
-                  {selected === item.id ? "✓ Selected" : "Use Theme"}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 10 }}>
+                  <span style={{ fontSize: 10, letterSpacing: 1.2, fontWeight: 900, color: item.mode === "light" ? "#475467" : "var(--muted)" }}>
+                    {item.mode === "light" ? "CLEAN LIGHT" : "DARK PREMIUM"}
+                  </span>
+                  <span style={radio}>
+                    {selected === item.id ? "✓ Selected" : "Use Theme"}
+                  </span>
                 </div>
               </button>
             ))}

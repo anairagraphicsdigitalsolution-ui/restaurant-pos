@@ -97,8 +97,13 @@ export default function SuperAdminThemePage() {
                     <i style={{ background: item.background }} />
                     <i style={{ background: item.surface }} />
                   </div>
-                  <div style={{ marginTop: 14, color: active ? item.primary : "var(--muted)", fontWeight: 900 }}>
-                    {active ? "✓ Selected" : "Use this theme →"}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 14 }}>
+                    <span style={{ fontSize: 10, letterSpacing: 1.4, fontWeight: 900, color: item.mode === "light" ? "#475467" : "#a7b0bf" }}>
+                      {item.mode === "light" ? "CLEAN LIGHT" : "DARK PREMIUM"}
+                    </span>
+                    <span style={{ color: active ? item.primary : "var(--muted)", fontWeight: 900 }}>
+                      {active ? "✓ Selected" : "Use this theme →"}
+                    </span>
                   </div>
                 </div>
               </button>
@@ -133,7 +138,7 @@ const hero = {
   flexWrap: "wrap",
   padding: "clamp(24px,4vw,42px)",
   borderRadius: 30,
-  background: "linear-gradient(135deg, rgba(var(--primary-rgb),.14), rgba(15,23,42,.86))",
+  background: "linear-gradient(135deg, rgba(var(--primary-rgb),.14), var(--surface))",
   border: "1px solid rgba(var(--primary-rgb),.2)",
   boxShadow: "0 30px 90px rgba(0,0,0,.25)",
 }
@@ -141,12 +146,12 @@ const eyebrow = { color: "var(--primary)", fontSize: 11, letterSpacing: 2.2, fon
 const title = { margin: "8px 0 10px", fontSize: "clamp(32px,5vw,56px)", lineHeight: 1, letterSpacing: "-.04em" }
 const subtitle = { margin: 0, maxWidth: 720, color: "var(--muted)", lineHeight: 1.7 }
 const note = { display: "inline-flex", marginTop: 16, padding: "8px 11px", borderRadius: 999, background: "rgba(var(--primary-rgb),.08)", color: "var(--primary)", fontSize: 12, fontWeight: 800 }
-const previewShell = { width: 220, minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 8, padding: 20, borderRadius: 24, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }
+const previewShell = { width: 220, minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 8, padding: 20, borderRadius: 24, background: "var(--surface-2)", border: "1px solid rgba(255,255,255,.08)" }
 const previewOrb = { width: 58, height: 58, borderRadius: 20, boxShadow: "0 0 50px rgba(var(--primary-rgb),.35)" }
-const section = { marginTop: 18, padding: "clamp(20px,3vw,30px)", borderRadius: 26, background: "rgba(15,23,42,.62)", border: "1px solid rgba(255,255,255,.07)" }
+const section = { marginTop: 18, padding: "clamp(20px,3vw,30px)", borderRadius: 26, background: "var(--surface)", border: "1px solid var(--border)" }
 const sectionHead = { display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }
 const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16 }
-const themeCard = { textAlign: "left", padding: 0, overflow: "hidden", border: "1px solid", borderRadius: 22, background: "rgba(255,255,255,.025)", color: "var(--text)", cursor: "pointer", transition: "all .2s ease" }
+const themeCard = { textAlign: "left", padding: 0, overflow: "hidden", border: "1px solid", borderRadius: 22, background: "var(--surface-2)", color: "var(--text)", cursor: "pointer", transition: "all .2s ease" }
 const swatch = { height: 120, display: "flex", alignItems: "flex-end", gap: 8, padding: 16, borderBottom: "1px solid" }
 const swatchDot = { width: 30, height: 30, borderRadius: 10, border: "1px solid rgba(255,255,255,.2)" }
 const cardBody = { padding: 18 }
