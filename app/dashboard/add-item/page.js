@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/components/AuthProvider"
 
 const inputStyle = {
   width: "100%",
@@ -18,11 +19,36 @@ const inputStyle = {
 }
 
 export default function AddItem() {
+  const { restaurantId, loading: authLoading } = useAuth()
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [category, setCategory] = useState("")
+  const [categories, setCategories] = useState([])
+  const [newCategory, setNewCategory] = useState("")
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    if (!restaurantId) return
+    let cancelled = false
+    async function loadCategories() {
+      const { data, error } = await supabase.from("menu_items").select("category").eq("restaurant_id", restaurantId).not("category", "is", null)
+      if (!error && !cancelled) {
+        const unique = [...new Set((data || []).map(row => String(row.category || "").trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b))
+        setCategories(unique)
+      }
+    }
+    loadCategories()
+    return () => { cancelled = true }
+  }, [restaurantId])
+
+  function addNewCategory() {
+    const value = newCategory.trim()
+    if (!value) return
+    setCategories(prev => prev.includes(value) ? prev : [...prev, value].sort((a,b) => a.localeCompare(b)))
+    setCategory(value)
+    setNewCategory("")
+  }
 
   async function addItem(e) {
     e.preventDefault()
@@ -31,12 +57,17 @@ export default function AddItem() {
       return
     }
 
+    if (!restaurantId) {
+      setMessage("Restaurant is not linked to this account.")
+      return
+    }
+
     setLoading(true)
     setMessage("")
 
     const { error } = await supabase
       .from("menu_items")
-      .insert([{ name: name.trim(), price: Number(price), category: category.trim() }])
+      .insert([{ name: name.trim(), price: Number(price), category: category.trim() || "Other", restaurant_id: restaurantId }])
 
     if (error) {
       console.error(error)
@@ -83,13 +114,21 @@ export default function AddItem() {
             </label>
 
             <label className="field">
-              <span>Category</span>
-              <input style={inputStyle} value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Pizza, Drinks, Starters" />
+              <span>Food category</span>
+              <select style={inputStyle} value={category} onChange={e => setCategory(e.target.value)} disabled={authLoading || !restaurantId}>
+                <option value="">Select a category</option>
+                {categories.map(item => <option key={item} value={item}>{item}</option>)}
+              </select>
             </label>
+
+            <div className="new-category-row">
+              <input style={inputStyle} value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="New category, e.g. Pizza" />
+              <button type="button" className="secondary" onClick={addNewCategory}>＋ Add category</button>
+            </div>
 
             {message && <div className={`message ${message.includes("successfully") ? "success" : "error"}`}>{message}</div>}
 
-            <button className="primary" type="submit" disabled={loading}>
+            <button className="primary" type="submit" disabled={loading || authLoading || !restaurantId}>
               {loading ? "Adding item…" : "＋ Add Menu Item"}
             </button>
           </form>
@@ -130,10 +169,10 @@ export default function AddItem() {
         .field input:focus{border-color:rgba(var(--primary-rgb),.48)!important;box-shadow:0 0 0 3px rgba(var(--primary-rgb),.08)}
         .primary{width:100%;height:48px;border:1px solid rgba(var(--primary-rgb),.35);border-radius:13px;background:linear-gradient(135deg,var(--primary),rgba(var(--primary-rgb),.78));color:#07100b;font-size:12px;font-weight:950;cursor:pointer;box-shadow:0 10px 28px rgba(var(--primary-rgb),.12)}
         .primary:disabled{opacity:.6;cursor:wait}
-        .message{margin:4px 0 14px;padding:11px 13px;border-radius:11px;font-size:11px;font-weight:750}.message.success{color:var(--success);background:rgba(var(--success-rgb),.08);border:1px solid rgba(var(--success-rgb),.16)}.message.error{color:var(--danger);background:rgba(var(--danger-rgb),.08);border:1px solid rgba(var(--danger-rgb),.16)}
+        .new-category-row{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:-6px;margin-bottom:4px}.secondary{height:48px;border:1px solid var(--border);border-radius:13px;background:var(--surface-2);color:var(--text);font-weight:850;padding:0 14px;white-space:nowrap}.message{margin:4px 0 14px;padding:11px 13px;border-radius:11px;font-size:11px;font-weight:750}.message.success{color:var(--success);background:rgba(var(--success-rgb),.08);border:1px solid rgba(var(--success-rgb),.16)}.message.error{color:var(--danger);background:rgba(var(--danger-rgb),.08);border:1px solid rgba(var(--danger-rgb),.16)}
         .info-icon{margin-bottom:18px}.info-card p{max-width:390px}.tips{display:grid;gap:8px;margin-top:20px}.tips div{display:flex;align-items:center;gap:10px;padding:11px;border-radius:12px;background:rgba(var(--primary-rgb),.045);border:1px solid rgba(var(--primary-rgb),.09)}.tips b{font-size:9px;color:var(--primary)}.tips span{font-size:10.5px;color:var(--muted);line-height:1.4}
         @media(max-width:850px){.content-grid{grid-template-columns:1fr}.info-card{position:static}.page-head{align-items:flex-start}}
-        @media(max-width:560px){.add-page{padding:20px 14px 40px}.form-card,.info-card{padding:18px;border-radius:18px}.page-head{margin-bottom:16px}.head-badge{display:none}}
+        @media(max-width:560px){.new-category-row{grid-template-columns:1fr}.add-page{padding:20px 14px 40px}.form-card,.info-card{padding:18px;border-radius:18px}.page-head{margin-bottom:16px}.head-badge{display:none}}
       `}</style>
     </main>
   )

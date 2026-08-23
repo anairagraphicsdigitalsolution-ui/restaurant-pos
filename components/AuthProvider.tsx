@@ -76,36 +76,57 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const profileCacheRef = useRef<{ userId: string; profile: any } | null>(null)
   const syncingUserIdRef = useRef<string | null | undefined>(undefined)
 
-  const getProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
+  const getProfile = useCallback(async (userId: string, authUser: any = null) => {
+    const { data } = await supabase
       .from("profiles")
       .select("role, restaurant_id")
       .eq("id", userId)
       .maybeSingle()
 
-    if (error || !data?.role) return null
     const allowedRoles: Role[] = ["staff", "admin", "super_admin"]
-    if (!allowedRoles.includes(data.role as Role)) return null
+    let resolvedRole: Role = allowedRoles.includes(data?.role as Role) ? (data?.role as Role) : ""
+    let resolvedRestaurantId: string | null = data?.restaurant_id || null
 
-    if (data.role !== "super_admin" && data.restaurant_id) {
-      // These two reads are independent, so fetch them together to reduce login latency.
-      const [{ data: restaurant }, { data: planData }] = await Promise.all([
-        supabase
+    // Legacy accounts may have the restaurant relation in auth metadata or
+    // through restaurants.owner_id instead of profiles.restaurant_id.
+    if (!resolvedRestaurantId && resolvedRole !== "super_admin") {
+      const metadataRestaurantId = authUser?.user_metadata?.restaurant_id || authUser?.app_metadata?.restaurant_id || null
+      if (metadataRestaurantId) {
+        const { data: restaurant } = await supabase
           .from("restaurants")
-          .select("status")
-          .eq("id", data.restaurant_id)
-          .maybeSingle(),
-        supabase.rpc("get_restaurant_plan", { p_restaurant_id: data.restaurant_id }),
+          .select("id")
+          .eq("id", metadataRestaurantId)
+          .maybeSingle()
+        if (restaurant?.id) {
+          resolvedRestaurantId = restaurant.id
+        }
+      }
+    }
+
+    if (!resolvedRestaurantId && resolvedRole !== "super_admin") {
+      const { data: ownedRestaurant } = await supabase
+        .from("restaurants")
+        .select("id")
+        .eq("owner_id", userId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (ownedRestaurant?.id) {
+        resolvedRestaurantId = ownedRestaurant.id
+        if (!resolvedRole) resolvedRole = "admin"
+      }
+    }
+
+    if (!resolvedRole) return null
+
+    if (resolvedRole !== "super_admin" && resolvedRestaurantId) {
+      const [{ data: restaurant }, { data: planData }] = await Promise.all([
+        supabase.from("restaurants").select("status").eq("id", resolvedRestaurantId).maybeSingle(),
+        supabase.rpc("get_restaurant_plan", { p_restaurant_id: resolvedRestaurantId }),
       ])
 
       if (restaurant?.status !== "active") {
-        return {
-          role: data.role as Role,
-          restaurantId: data.restaurant_id || null,
-          blocked: true,
-          reason: "Restaurant subscription is pending or inactive. Please contact the platform administrator.",
-          planFeatures: {}
-        } as any
+        return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: true, reason: "Restaurant subscription is pending or inactive. Please contact the platform administrator.", planFeatures: {} } as any
       }
 
       const plan = planData?.plan || null
@@ -120,28 +141,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
       const subscriptionLive = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
       if (!subscriptionLive || !plan) {
-        return {
-          role: data.role as Role,
-          restaurantId: data.restaurant_id || null,
-          blocked: true,
-          reason: "Your restaurant does not have an active subscription.",
-          planFeatures
-        } as any
+        return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: true, reason: "Your restaurant does not have an active subscription.", planFeatures } as any
       }
-      return {
-        role: data.role as Role,
-        restaurantId: data.restaurant_id || null,
-        blocked: false,
-        planFeatures
-      } as any
+      return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures } as any
     }
 
-    return {
-      role: data.role as Role,
-      restaurantId: data.restaurant_id || null,
-      blocked: false,
-      planFeatures: {}
-    } as any
+    return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures: {} } as any
   }, [])
 
   const syncQueued = useRef(false)
@@ -199,7 +204,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       if (!profile) {
-        profile = await getProfile(currentUser.id)
+        profile = await getProfile(currentUser.id, currentUser)
         if (profile) {
           profileCacheRef.current = { userId: currentUser.id, profile }
         }

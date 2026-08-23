@@ -17,9 +17,11 @@ export default function QRPage(){
   useEffect(()=>{ if(rid) load() },[rid])
 
   async function load(){
-    const {data:plugin,error}=await supabase.from("restaurant_plugins")
-      .select("enabled").eq("restaurant_id",rid).in("plugin_code",["qr-menu","qr-ordering-pro"]).eq("enabled",true).limit(1)
-    if(error||!plugin?.enabled){ setQrEnabled(false); return }
+    const {data:plugins,error}=await supabase.from("restaurant_plugins")
+      .select("enabled").eq("restaurant_id",rid)
+      .in("plugin_code",["qr-menu","qr-ordering-pro"])
+      .eq("enabled",true).limit(1)
+    if(error||!plugins?.length){ setQrEnabled(false); return }
     setQrEnabled(true)
     const [{data:t},{data:r}]=await Promise.all([
       supabase.from("tables").select("*").eq("restaurant_id",rid).order("table_number"),

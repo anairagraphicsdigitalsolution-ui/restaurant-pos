@@ -152,8 +152,8 @@ export default function Subscriptions() {
                     <small>{plan ? `${money(plan.monthly_price)}/month · ${plan.max_users == null ? "Unlimited users" : `${plan.max_users} users`} · ${plan.max_tables == null ? "Unlimited tables" : `${plan.max_tables} tables`}` : "Pending — choose a plan, then activate the restaurant"}</small>
                   </div>
                   <div className="actions">
-                    <button className="approve" disabled={busy || !selectedPlan[restaurant.id]} onClick={() => updateSubscription(restaurant.id, "approve")}>{busy === `${restaurant.id}:approve` ? "Activating…" : "✓ Activate / Approve"}</button>
-                    <button className="pending" disabled={!!busy} onClick={() => updateSubscription(restaurant.id, "pending")}>Pending</button>
+                    <button className="approve" disabled={busy || !selectedPlan[restaurant.id] || (restaurant.status === "active" && current?.status === "active")} onClick={() => updateSubscription(restaurant.id, "approve")}>{busy === `${restaurant.id}:approve` ? "Activating…" : (restaurant.status === "active" && current?.status === "active" ? "✓ Active" : "✓ Activate / Approve")}</button>
+                    <button className="pending" disabled={!!busy || (restaurant.status !== "active" && current?.status === "pending")} onClick={() => updateSubscription(restaurant.id, "pending")}>{restaurant.status !== "active" && current?.status === "pending" ? "Pending" : "Set Pending"}</button>
                     <button className="deactivate" disabled={!!busy} onClick={() => updateSubscription(restaurant.id, "deactivate")}>{busy === `${restaurant.id}:deactivate` ? "…" : "Deactivate"}</button>
                   </div>
                 </article>

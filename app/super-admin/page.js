@@ -731,18 +731,18 @@ async function updateRestaurantSubscription(restaurant, action) {
                 <button
                   type="button"
                   onClick={()=>updateRestaurantSubscription(r, "approve")}
-                  disabled={!r.subscription?.saas_plan_id || !!subscriptionBusy}
-                  style={{...subscriptionApprove, opacity: (!r.subscription?.saas_plan_id || subscriptionBusy) ? .55 : 1}}
+                  disabled={r.status === "active" && r.subscription?.status === "active" || !r.subscription?.saas_plan_id || !!subscriptionBusy}
+                  style={{...subscriptionApprove, opacity: (r.status === "active" && r.subscription?.status === "active") || !r.subscription?.saas_plan_id || subscriptionBusy ? .55 : 1}}
                 >
-                  {subscriptionBusy===`${r.id}:approve` ? "Activating…" : "✓ Activate"}
+                  {subscriptionBusy===`${r.id}:approve` ? "Activating…" : (r.status === "active" && r.subscription?.status === "active" ? "✓ Active" : "✓ Activate")}
                 </button>
                 <button
                   type="button"
                   onClick={()=>updateRestaurantSubscription(r, "pending")}
-                  disabled={!!subscriptionBusy}
-                  style={subscriptionPending}
+                  disabled={r.status !== "active" && r.subscription?.status === "pending" || !!subscriptionBusy}
+                  style={{...subscriptionPending, opacity: (r.status !== "active" && r.subscription?.status === "pending") || subscriptionBusy ? .55 : 1}}
                 >
-                  Pending
+                  {r.status !== "active" && r.subscription?.status === "pending" ? "Pending" : "Set Pending"}
                 </button>
               </div>
             </div>
@@ -776,7 +776,7 @@ async function updateRestaurantSubscription(restaurant, action) {
     e.currentTarget.style.background="transparent"
     e.currentTarget.style.boxShadow="0 10px 20px rgba(0,0,0,.18)"
   }}
->Toggle</button>
+>{r.status === "active" ? "Deactivate" : "Activate"}</button>
               <button
   onClick={()=>deleteRestaurant(r)}
   style={dangerBtn}

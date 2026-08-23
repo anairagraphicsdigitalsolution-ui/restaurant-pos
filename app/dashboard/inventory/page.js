@@ -70,18 +70,55 @@ async function loadRestaurant() {
     return
   }
 
-  const { data, error } = await supabase
-    .from("restaurants")
-    .select("*")
-    .eq("owner_id", userData.user.id)
-    .limit(1)
+  // Use the tenant link stored on the user's profile first.
+  // Some legacy restaurants have owner_id = NULL, so owner_id alone
+  // is not a reliable tenant resolver.
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("restaurant_id, role")
+    .eq("id", userData.user.id)
+    .maybeSingle()
 
-  if (error) {
-    console.log(error)
-    return
+  if (profileError) {
+    console.error("Unable to load profile:", profileError)
   }
 
-  const rest = data?.[0]
+  const metadataRestaurantId =
+    userData.user.user_metadata?.restaurant_id ||
+    userData.user.app_metadata?.restaurant_id ||
+    null
+
+  const resolvedRestaurantId =
+    profile?.restaurant_id || metadataRestaurantId || null
+
+  let rest = null
+
+  if (resolvedRestaurantId) {
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("id", resolvedRestaurantId)
+      .maybeSingle()
+
+    if (error) {
+      console.error("Unable to load restaurant:", error)
+    }
+    rest = data || null
+  }
+
+  // Legacy fallback.
+  if (!rest) {
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("owner_id", userData.user.id)
+      .limit(1)
+
+    if (error) {
+      console.error("Owner restaurant lookup failed:", error)
+    }
+    rest = data?.[0] || null
+  }
 
   if (!rest) {
     alert("Restaurant not linked")

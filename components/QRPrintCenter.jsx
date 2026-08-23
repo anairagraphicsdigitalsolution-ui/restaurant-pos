@@ -20,6 +20,8 @@ export default function QRPrintCenter({ superAdmin = false }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [pluginAccess, setPluginAccess] = useState(superAdmin ? true : null)
+  const [orderingEnabled, setOrderingEnabled] = useState(superAdmin)
+  const [printEnabled, setPrintEnabled] = useState(false)
   const printRef = useRef(null)
 
   useEffect(() => {
@@ -59,6 +61,8 @@ export default function QRPrintCenter({ superAdmin = false }) {
 
         if (cancelled) return
         setPluginAccess(payload.enabled === true)
+        setOrderingEnabled(payload.orderingEnabled === true)
+        setPrintEnabled(payload.printEnabled === true)
 
         if (payload.enabled === true) {
           await loadQRData(restaurantId)
@@ -160,6 +164,8 @@ export default function QRPrintCenter({ superAdmin = false }) {
       setRestaurant(payload.restaurant || null)
       setTables(payload.tables || [])
       setRooms(payload.rooms || [])
+      setOrderingEnabled(payload.orderingEnabled === true)
+      setPrintEnabled(payload.printEnabled === true)
     } catch (err) {
       console.error("QR DATA ERROR:", err)
       setError(err?.message || "Unable to load QR data")
@@ -184,6 +190,10 @@ export default function QRPrintCenter({ superAdmin = false }) {
   }
 
   function handlePrint() {
+    if (!printEnabled) {
+      alert("QR Print Center is disabled for this restaurant.")
+      return
+    }
     if (!tables.length && !rooms.length) {
       alert("No tables or rooms found for this restaurant.")
       return
@@ -197,11 +207,11 @@ export default function QRPrintCenter({ superAdmin = false }) {
     <div className="qr-print-center" style={page}>
       <div className="qr-toolbar" style={toolbar}>
         <div>
-          <div style={eyebrow}>ANAIRA QR PRINT CENTER</div>
-          <h1 style={heading}>Restaurant QR Codes</h1>
+          <div style={eyebrow}>{printEnabled ? "ANAIRA QR PRINT CENTER" : "ANAIRA QR MENU"}</div>
+          <h1 style={heading}>{printEnabled ? "Restaurant QR Codes" : "QR Menu & Ordering"}</h1>
           <p style={subtitle}>
-            Every active table and room gets its own QR automatically. Select a restaurant,
-            print the ready-to-use cards, and place them where guests can scan.
+            Every active table and room gets its own QR automatically. Guests can scan to browse
+            and order. QR printing is available only when the separate QR Print Center plugin is enabled.
           </p>
         </div>
 
@@ -224,13 +234,21 @@ export default function QRPrintCenter({ superAdmin = false }) {
           <button type="button" onClick={() => loadQRData(restaurantId)} style={secondaryButton}>
             ↻ Refresh
           </button>
-          <button type="button" onClick={handlePrint} style={primaryButton}>
-            🖨️ Print All / Save PDF
-          </button>
+          {printEnabled && (
+            <button type="button" onClick={handlePrint} style={primaryButton}>
+              🖨️ Print All / Save PDF
+            </button>
+          )}
         </div>
       </div>
 
       {error && <div className="qr-error-box" style={errorBox}>⚠️ {error}</div>}
+      {pluginAccess === true && orderingEnabled && !printEnabled && !superAdmin && (
+        <div style={infoBox}>
+          📱 <strong>Advanced QR Ordering is active.</strong> QR Menu and ordering are available.
+          QR generation/printing will appear when Super Admin enables <strong>QR Print Center</strong>.
+        </div>
+      )}
 
       {pluginAccess === null ? (
         <div style={emptyState}>
@@ -294,6 +312,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
                       label={`Table ${item.table_number ?? index + 1}`}
                       url={qrUrl("table", item.id)}
                       restaurant={selectedRestaurant}
+                      canPrint={printEnabled}
                     />
                   ))}
                 </div>
@@ -311,6 +330,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
                       label={`Room ${item.room_number ?? index + 1}`}
                       url={qrUrl("room", item.id)}
                       restaurant={selectedRestaurant}
+                      canPrint={printEnabled}
                     />
                   ))}
                 </div>
@@ -357,7 +377,7 @@ function PrintHeader({ restaurant }) {
   )
 }
 
-function QRCard({ type, label, url, restaurant }) {
+function QRCard({ type, label, url, restaurant, canPrint = false }) {
   const cardRef = useRef(null)
   const qrRef = useRef(null)
 
@@ -506,10 +526,12 @@ function QRCard({ type, label, url, restaurant }) {
         <span>Powered by Anaira Graphics</span>
       </div>
 
-      <div className="qr-card-actions" style={cardActions}>
-        <button type="button" onClick={downloadPNG} style={cardActionSecondary}>⬇ Download PNG</button>
-        <button type="button" onClick={printOne} style={cardActionPrimary}>🖨 Print</button>
-      </div>
+      {canPrint && (
+        <div className="qr-card-actions" style={cardActions}>
+          <button type="button" onClick={downloadPNG} style={cardActionSecondary}>⬇ Download PNG</button>
+          <button type="button" onClick={printOne} style={cardActionPrimary}>🖨 Print</button>
+        </div>
+      )}
     </article>
   )
 }
@@ -534,6 +556,7 @@ const actions = { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "cente
 const select = { minWidth: 220, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", outline: "none" }
 const primaryButton = { padding: "12px 18px", border: 0, borderRadius: 12, background: "var(--primary)", color: "#111", fontWeight: 800, cursor: "pointer" }
 const secondaryButton = { padding: "12px 18px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--surface)", color: "var(--text)", fontWeight: 700, cursor: "pointer" }
+const infoBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(var(--primary-rgb),.08)", border: "1px solid rgba(var(--primary-rgb),.22)", color: "var(--text)" }
 const errorBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(239,68,68,.12)", border: "1px solid rgba(239,68,68,.35)", color: "#fca5a5" }
 const emptyState = { padding: 50, borderRadius: 24, textAlign: "center", background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }
 const summaryCard = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, marginBottom: 24, padding: 22, borderRadius: 24, background: "linear-gradient(135deg,var(--surface),var(--surface-2))", border: "1px solid rgba(var(--primary-rgb),.2)" }

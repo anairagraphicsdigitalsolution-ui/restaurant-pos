@@ -226,6 +226,33 @@ export async function POST(request) {
       )
     }
 
+    // Automatically establish restaurant ownership for newly-created Admins.
+    // The profile.restaurant_id is the tenant link; restaurants.owner_id is
+    // kept in sync so legacy owner_id-based pages/RLS continue to work.
+    if (role === "admin") {
+      const { error: ownerLinkError } = await db
+        .from("restaurants")
+        .update({ owner_id: createdUserId })
+        .eq("id", restaurantId)
+        .is("owner_id", null)
+
+      if (ownerLinkError) {
+        console.error("RESTAURANT OWNER LINK ERROR:", ownerLinkError)
+
+        // Do not leave an Admin account that is only half-provisioned.
+        await db.from("profiles").delete().eq("id", createdUserId)
+        await db.auth.admin.deleteUser(createdUserId)
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `User was created but could not be linked as restaurant owner: ${ownerLinkError.message}`
+          },
+          { status: 400 }
+        )
+      }
+    }
+
     return NextResponse.json({
       success: true,
       user: {

@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/components/AuthProvider"
 
 export default function TablesPage() {
+  const { restaurantId: authRestaurantId, loading: authLoading } = useAuth()
   const [restaurantId, setRestaurantId] = useState(null)
   const [tables, setTables] = useState([])
   const [orders, setOrders] = useState([])
@@ -14,43 +16,38 @@ export default function TablesPage() {
     let timer
 
     async function init() {
-      const { data: userData } = await supabase.auth.getUser()
-      if (!userData?.user) return
+      if (authLoading) return
+      if (!authRestaurantId) {
+        setLoading(false)
+        return
+      }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("restaurant_id,role")
-        .eq("id", userData.user.id)
-        .single()
-
-      if (!profile?.restaurant_id) return
-      setRestaurantId(profile.restaurant_id)
-      await load(profile.restaurant_id)
+      setRestaurantId(authRestaurantId)
+      await load(authRestaurantId)
 
       channel = supabase
-        .channel(`tables-${profile.restaurant_id}`)
+        .channel(`tables-${authRestaurantId}`)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${profile.restaurant_id}` },
-          () => load(profile.restaurant_id)
+          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${authRestaurantId}` },
+          () => load(authRestaurantId)
         )
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "tables", filter: `restaurant_id=eq.${profile.restaurant_id}` },
-          () => load(profile.restaurant_id)
+          { event: "*", schema: "public", table: "tables", filter: `restaurant_id=eq.${authRestaurantId}` },
+          () => load(authRestaurantId)
         )
         .subscribe()
 
-      timer = setInterval(() => load(profile.restaurant_id), 15000)
+      timer = setInterval(() => load(authRestaurantId), 15000)
     }
-
     init()
 
     return () => {
       if (timer) clearInterval(timer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [])
+  }, [authLoading, authRestaurantId])
 
   async function load(rid = restaurantId) {
     if (!rid) return

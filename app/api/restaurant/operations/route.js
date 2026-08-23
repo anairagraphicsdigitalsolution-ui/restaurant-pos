@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
-async function restaurantForUser(userId){
-  const { data, error } = await supabaseAdmin.from("profiles").select("restaurant_id,role").eq("id",userId).single()
-  if(error || !data?.restaurant_id) throw new Error("Restaurant profile not found")
-  return data
+async function restaurantForUser(user) {
+  const resolved = await resolveRestaurantForUser(user)
+  if (!resolved.restaurantId) throw new Error("Restaurant profile not found")
+  return { restaurant_id: resolved.restaurantId, role: resolved.role }
 }
 
 export async function POST(req){
   try{
     const user=await requireApiUser(req)
-    const profile=await restaurantForUser(user.id)
+    const profile=await restaurantForUser(user)
     const body=await req.json()
     const action=String(body.action||"").trim()
     const rid=profile.restaurant_id

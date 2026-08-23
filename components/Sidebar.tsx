@@ -111,6 +111,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
       const aliases: Record<string,string[]> = {
         qr: ["qr-ordering-pro","qr-menu"],
+        "qr-print-center": ["qr-print-center"],
         loyalty: ["loyalty"],
         offers: ["offers"],
         analytics: ["analytics"],
@@ -296,13 +297,13 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       ]
     },
     {
-      name: "QR & Printing",
+      name: "QR & Ordering",
       icon: "📱",
       path: "/dashboard/qr",
-      feature: "qr",
+      anyFeature: ["qr", "qr-print-center"],
       children: [
-        { name: "QR Print Center", path: "/dashboard/qr", feature: "qr" },
         { name: "QR Menu", path: "/dashboard/qr", feature: "qr" },
+        { name: "QR Print Center", path: "/dashboard/qr?view=print", feature: "qr-print-center" },
       ]
     },
     {
@@ -380,6 +381,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
   function renderAdminMenu(item: any, i: number) {
     const visible = (!item.feature || planFeatures[item.feature] === true) &&
+      (!item.anyFeature || item.anyFeature.some((feature: string) => planFeatures[feature] === true)) &&
       (!item.hubPlugin || hubPlugins[item.hubPlugin] === true)
     if (!visible) return null
 

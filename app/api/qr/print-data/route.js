@@ -33,32 +33,29 @@ export async function GET(req) {
       return Response.json({ success: false, error: "Restaurant access denied" }, { status: 403 })
     }
 
-    if (!isSuperAdmin) {
-      const { data: planEnabled, error: planError } = await supabaseAdmin.rpc("has_restaurant_plan_feature", {
-        p_restaurant_id: restaurantId,
-        p_plugin_code: "qr-menu"
-      })
+    const { data: pluginRows, error: pluginError } = await supabaseAdmin
+      .from("restaurant_plugins")
+      .select("plugin_code,enabled")
+      .eq("restaurant_id", restaurantId)
+      .in("plugin_code", ["qr-menu", "qr-ordering-pro", "qr-print-center"])
 
-      if (planError) {
-        return Response.json({ success: false, error: "Unable to verify QR Menu plan" }, { status: 500 })
-      }
-
-      if (planEnabled !== true) {
-        return Response.json({ success: false, error: "QR Menu is not available on this restaurant plan" }, { status: 403 })
-      }
-
-      const { data: plugin } = await supabaseAdmin
-        .from("restaurant_plugins")
-        .select("enabled")
-        .eq("restaurant_id", restaurantId)
-        .in("plugin_code", ["qr-menu", "qr-ordering-pro"])
-        .eq("enabled", true)
-        .limit(1)
-
-      if (!plugin?.length) {
-        return Response.json({ success: false, error: "QR Menu plugin is disabled" }, { status: 403 })
-      }
+    if (pluginError) {
+      return Response.json({ success: false, error: "Unable to verify QR plugin access" }, { status: 500 })
     }
+
+    const pluginState = Object.fromEntries(
+      (pluginRows || []).map(row => [row.plugin_code, row.enabled === true])
+    )
+
+    const orderingEnabled = pluginState["qr-ordering-pro"] === true || pluginState["qr-menu"] === true
+    const printEnabled = pluginState["qr-print-center"] === true
+
+    if (!isSuperAdmin && !orderingEnabled && !printEnabled) {
+      return Response.json({ success: false, error: "QR Ordering and QR Print Center are both disabled for this restaurant" }, { status: 403 })
+    }
+
+    // Restaurant Admin may load QR data when ordering is enabled, but print controls
+    // are exposed only when the independent QR Print Center plugin is enabled.
 
     const [{ data: restaurant, error: restaurantError }, { data: tables }, { data: rooms }] = await Promise.all([
       supabaseAdmin
@@ -93,7 +90,9 @@ export async function GET(req) {
       success: true,
       restaurant,
       tables: tables || [],
-      rooms: rooms || []
+      rooms: rooms || [],
+      orderingEnabled,
+      printEnabled
     }, {
       headers: {
         "Cache-Control": "private, max-age=0, no-store"

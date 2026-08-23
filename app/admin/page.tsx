@@ -19,6 +19,8 @@ export default function AdminPage(){
   const [itemName,setItemName] = useState("")
   const [price,setPrice] = useState("")
   const [category,setCategory] = useState("")
+  const [newCategory,setNewCategory] = useState("")
+  const [categoryMode,setCategoryMode] = useState<"select" | "new">("select")
   const [description,setDescription] = useState("")
   const [editingId,setEditingId] = useState<string | null>(null)
 
@@ -57,13 +59,55 @@ useState<string | null>(null)
       return
     }
 
-    const { data } = await supabase
-      .from("restaurants")
-      .select("*")
-      .eq("owner_id", userData.user.id)
-      .limit(1)
+    // Resolve the restaurant from the authenticated profile first.
+    // Legacy accounts may have restaurants.owner_id unset, while
+    // profiles.restaurant_id is the authoritative tenant link.
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("restaurant_id, role")
+      .eq("id", userData.user.id)
+      .maybeSingle()
 
-    const rest = data?.[0]
+    if (profileError) {
+      console.error("Unable to load profile:", profileError)
+    }
+
+    const metadataRestaurantId =
+      userData.user.user_metadata?.restaurant_id ||
+      userData.user.app_metadata?.restaurant_id ||
+      null
+
+    const resolvedRestaurantId =
+      profile?.restaurant_id || metadataRestaurantId || null
+
+    let rest = null
+
+    if (resolvedRestaurantId) {
+      const { data, error } = await supabase
+        .from("restaurants")
+        .select("*")
+        .eq("id", resolvedRestaurantId)
+        .maybeSingle()
+
+      if (error) {
+        console.error("Unable to load restaurant:", error)
+      }
+      rest = data || null
+    }
+
+    // Final legacy fallback: owner_id.
+    if (!rest) {
+      const { data, error } = await supabase
+        .from("restaurants")
+        .select("*")
+        .eq("owner_id", userData.user.id)
+        .limit(1)
+
+      if (error) {
+        console.error("Owner restaurant lookup failed:", error)
+      }
+      rest = data?.[0] || null
+    }
 
     if(!rest){
       alert("Restaurant not linked")
@@ -98,7 +142,7 @@ setRestaurantDescription(rest.description || "")
 
   async function addItem(){
 
-    if(!itemName || !price || !restaurantId){
+    if(!itemName || !price || !effectiveCategory || !restaurantId){
       alert("Fill all fields")
       return
     }
@@ -137,7 +181,7 @@ name:itemName,
 
 price:Number(price),
 
-category,
+category: effectiveCategory,
 
 description,
 
@@ -155,7 +199,7 @@ name:itemName,
 
 price:Number(price),
 
-category,
+category: effectiveCategory,
 
 description,
 
@@ -170,6 +214,8 @@ restaurant_id:restaurantId
     setItemName("")
     setPrice("")
     setCategory("")
+    setNewCategory("")
+    setCategoryMode("select")
     setDescription("")
     setEditingId(null)
     setItemImageFile(null)
@@ -367,6 +413,26 @@ if (insertError) {
 }
 
 
+  const foodCategories = Array.from(new Set([
+    ...menu.map((item) => (item.category || "").trim()).filter(Boolean),
+    ...(category.trim() ? [category.trim()] : []),
+  ])).sort((a, b) => a.localeCompare(b))
+
+  const selectedCategoryValue = categoryMode === "new" ? "__new__" : category
+
+  function handleCategoryChange(value: string) {
+    if (value === "__new__") {
+      setCategoryMode("new")
+      setCategory("")
+      return
+    }
+    setCategoryMode("select")
+    setCategory(value)
+    setNewCategory("")
+  }
+
+  const effectiveCategory = categoryMode === "new" ? newCategory.trim() : category.trim()
+
   const groupedMenu = menu.reduce<Record<string, MenuItem[]>>((acc,item)=>{
     const cat=item.category||"Other"
     if(!acc[cat]) acc[cat]=[]
@@ -451,7 +517,30 @@ if (insertError) {
           
           <Input value={itemName} set={setItemName} placeholder="Item Name"/>
           <Input value={price} set={setPrice} placeholder="Price"/>
-          <Input value={category} set={setCategory} placeholder="Category"/>
+          <div style={{marginBottom:12}}>
+            <label style={{display:"block",fontSize:12,fontWeight:800,color:"var(--muted)",marginBottom:7}}>Food Category</label>
+            <select
+              value={selectedCategoryValue}
+              onChange={(e)=>handleCategoryChange(e.target.value)}
+              style={{width:"100%",padding:12,borderRadius:12,background:"var(--surface-2)",color:"#fff",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
+            >
+              <option value="">Select category</option>
+              {foodCategories.map((cat)=><option key={cat} value={cat}>{cat}</option>)}
+              <option value="__new__">＋ Create new category</option>
+            </select>
+            {categoryMode === "new" && (
+              <input
+                value={newCategory}
+                onChange={(e)=>setNewCategory(e.target.value)}
+                placeholder="Enter new food category"
+                autoFocus
+                style={{width:"100%",padding:12,borderRadius:12,marginTop:8,background:"var(--surface-2)",color:"#fff",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
+              />
+            )}
+            {!!foodCategories.length && categoryMode !== "new" && (
+              <small style={{display:"block",marginTop:6,color:"var(--muted)"}}>Existing categories are saved from your menu and can be selected again.</small>
+            )}
+          </div>
           <textarea
 
 value={description}

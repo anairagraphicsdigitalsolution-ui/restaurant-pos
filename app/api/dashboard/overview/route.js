@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
 export const runtime = "nodejs"
 
@@ -23,29 +24,9 @@ export async function GET(req) {
   try {
     const user = await requireApiUser(req)
 
-    // Admin accounts in this project are linked to the restaurant through
-    // restaurants.owner_id, while staff accounts are linked through profiles.
-    // Resolve both paths so the dashboard never silently falls back to zeros.
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("restaurant_id,role")
-      .eq("id", user.id)
-      .maybeSingle()
-
-    let rid = profile?.restaurant_id || null
-    let resolvedRole = profile?.role || ""
-
-    if (!rid) {
-      const { data: ownedRestaurant } = await supabaseAdmin
-        .from("restaurants")
-        .select("id")
-        .eq("owner_id", user.id)
-        .limit(1)
-        .maybeSingle()
-
-      rid = ownedRestaurant?.id || null
-      if (rid && !resolvedRole) resolvedRole = "admin"
-    }
+    const resolved = await resolveRestaurantForUser(user)
+    const rid = resolved.restaurantId
+    const resolvedRole = resolved.role
 
     if (!rid) {
       return Response.json(

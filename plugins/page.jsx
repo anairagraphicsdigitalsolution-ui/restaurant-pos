@@ -8,7 +8,8 @@ const PLUGINS = [
   { code: "whatsapp", name: "WhatsApp", description: "Restaurant WhatsApp configuration" },
   { code: "billing", name: "Billing", description: "Billing and invoice module" },
   { code: "qr-menu", name: "QR Menu", description: "Table and room QR ordering" },
-  { code: "razorpay", name: "Razorpay", description: "Online payment integration" }
+  { code: "razorpay", name: "Razorpay", description: "Online payment integration" },
+  { code: "qr-print-center", name: "QR Print Center", description: "Generate, preview, download and print restaurant QR cards." },
   { code: "payment-accounts", name: "Merchant Payments & Voice", description: "Merchant UPI account, payment confirmation, receipt attachment and voice payment announcement." }
 ]
 
