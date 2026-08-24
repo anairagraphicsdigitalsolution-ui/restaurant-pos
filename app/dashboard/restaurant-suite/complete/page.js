@@ -15,7 +15,7 @@ export default function CompleteSuite(){
  const [brand,setBrand]=useState({name:"",code:"",active:true});
  const [shift,setShift]=useState({staff_id:"",shift_date:new Date().toISOString().slice(0,10),start_at:"",end_at:"",break_minutes:0});
  const [approval,setApproval]=useState({request_type:"discount",reason:"",payload:"{}"});
- const getRid=useCallback(async()=>{const {data:u}=await supabase.auth.getUser();if(!u?.user)throw new Error("Please sign in again.");const {data,error}=await supabase.from("restaurant_users").select("restaurant_id").eq("user_id",u.user.id).limit(1).maybeSingle();if(error)throw error;if(!data?.restaurant_id)throw new Error("No restaurant linked with this account.");return data.restaurant_id},[]);
+ const getRid=useCallback(async()=>{const {data:u}=await supabase.auth.getUser();if(!u?.user)throw new Error("Please sign in again.");const {data,error}=await supabase.from("profiles").select("restaurant_id").eq("id",u.user.id).maybeSingle();if(error)throw error;if(!data?.restaurant_id)throw new Error("No restaurant linked with this account.");return data.restaurant_id},[]);
  const load=useCallback(async()=>{try{setLoading(true);const r=rid||await getRid();setRid(r);const q=await Promise.all([
   supabase.from("restaurant_channels").select("*").eq("restaurant_id",r).order("display_name"),
   supabase.from("restaurant_terminals").select("*").eq("restaurant_id",r).order("terminal_name"),

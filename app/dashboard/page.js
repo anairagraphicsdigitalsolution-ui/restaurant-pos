@@ -271,7 +271,7 @@ export default function Dashboard() {
 
         <section className="statsGrid">
           <StatCard icon="₹" label="Today's Sales" value={money(todaySales)} note={`${todayOrders.length} orders today`} />
-          <StatCard icon="🧾" label="Today's Orders" value={todayOrders.length} note={`${pendingOrders} pending`} />
+          <StatCard icon="🧾" label="Today's Orders" value={summary?.todayOrderCount ?? todayOrders.length} note={`${pendingOrders} pending`} />
           <StatCard icon="◉" label="Average Bill" value={money(averageBill)} note="Per order today" />
           <StatCard icon="👥" label="Customers" value={summary?.customerCount ?? customers.length} note={`${summary?.todayReservationCount ?? todayReservations.length} reservations today`} />
           <StatCard icon="🎁" label="Active Offers" value={activeOffers.length} note="Currently available" />
@@ -352,7 +352,7 @@ export default function Dashboard() {
               <QuickAction icon="🛵" label="Delivery" onClick={() => router.push("/dashboard/delivery")} />
               <QuickAction icon="🪑" label="Tables" onClick={() => router.push("/dashboard/tables")} />
               <QuickAction icon="🎁" label="Offers" onClick={() => router.push("/dashboard/offers")} />
-              <QuickAction icon="👥" label="Customers" onClick={() => router.push("/dashboard/business")} />
+              <QuickAction icon="👥" label="Customers" onClick={() => router.push("/dashboard/customers")} />
               <QuickAction icon="📱" label="QR Center" onClick={() => router.push("/dashboard/qr")} />
               <QuickAction icon="🎨" label="Branding" onClick={() => router.push("/dashboard/theme")} />
             </div>

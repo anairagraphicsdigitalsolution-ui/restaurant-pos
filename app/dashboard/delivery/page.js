@@ -1,660 +1,2156 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import QRCode from "react-qr-code"
 import { supabase } from "@/lib/supabase"
 
-const BRAND_LOGO = "/anaira-branding.png"
-const PUBLIC_BASE = "https://anairapos.in"
+const money = (v) =>
+  `₹${Number(v || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  })}`
 
-export default function QRPrintCenter() {
-  const superAdmin = false
-  const searchParams = useSearchParams()
-  const initialRestaurantId = searchParams.get("rid") || ""
+const statusLabel = (s) =>
+  ({
+    pending: "Pending",
+    assigned: "Assigned",
+    out_for_delivery: "Out for delivery",
+    delivered: "Delivered",
+    ready_for_pickup: "Ready for pickup",
+    picked_up: "Picked up",
+    cancelled: "Cancelled",
+  }[s] || s || "Pending")
 
-  const [restaurants, setRestaurants] = useState([])
-  const [restaurantId, setRestaurantId] = useState("")
-  const [restaurant, setRestaurant] = useState(null)
-  const [tables, setTables] = useState([])
-  const [rooms, setRooms] = useState([])
+const collectionLabel = (s) =>
+  ({
+    pending_collection: "COD — collect on delivery",
+    pending_settlement: "Payment with rider / owner",
+    settled: "Settled",
+    not_required: "Prepaid / no collection",
+  }[s] || "Collection pending")
+
+export default function DeliveryManagement() {
+  const search = useSearchParams()
+
+  const [deliveries, setDeliveries] = useState([])
+  const [riders, setRiders] = useState([])
+  const [zones, setZones] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [personType, setPersonType] = useState("rider")
+  const [riderId, setRiderId] = useState("")
+  const [ownerName, setOwnerName] = useState("Restaurant Owner")
+  const [ownerPhone, setOwnerPhone] = useState("")
+  const [cash, setCash] = useState("")
+  const [upi, setUpi] = useState("")
+  const [card, setCard] = useState("")
+  const [collectionNote, setCollectionNote] = useState("")
+  const [filter, setFilter] = useState("active")
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
-  const [pluginAccess, setPluginAccess] = useState(superAdmin ? true : null)
-  const [orderingEnabled, setOrderingEnabled] = useState(superAdmin)
-  const [printEnabled, setPrintEnabled] = useState(false)
-  const printRef = useRef(null)
 
-  useEffect(() => {
-    loadRestaurants()
-  }, [superAdmin, initialRestaurantId])
+  const [zoneForm, setZoneForm] = useState({
+    id: "",
+    name: "",
+    charge: "",
+    min_order: "",
+    active: true,
+  })
+  const [zoneEditorOpen, setZoneEditorOpen] = useState(false)
+  const [riderEditorOpen, setRiderEditorOpen] = useState(false)
+  const [riderForm, setRiderForm] = useState({ id: "", name: "", phone: "", vehicle: "", active: true })
 
-  useEffect(() => {
-    if (!restaurantId) return
+  async function getAuthHeaders() {
+    const { data, error } = await supabase.auth.getSession()
 
-    if (superAdmin) {
-      setPluginAccess(true)
-      loadQRData(restaurantId)
-      const timer = setInterval(() => loadQRData(restaurantId, true), 15000)
-      return () => clearInterval(timer)
+    if (error || !data?.session?.access_token) {
+      throw new Error("Authentication required. Please login again.")
     }
 
-    let cancelled = false
-
-    async function verifyAccess() {
-      try {
-        setPluginAccess(null)
-        const { data: sessionData } = await supabase.auth.getSession()
-        const token = sessionData?.session?.access_token
-        if (!token) throw new Error("Session expired. Please login again.")
-
-        const response = await fetch(
-          `/api/qr-menu/access?restaurant_id=${encodeURIComponent(restaurantId)}`,
-          {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-            cache: "no-store",
-          }
-        )
-        const payload = await response.json()
-        if (!response.ok || !payload?.success) {
-          throw new Error(payload?.error || "Unable to verify QR Menu access")
-        }
-
-        if (cancelled) return
-        setPluginAccess(payload.enabled === true)
-        setOrderingEnabled(payload.orderingEnabled === true)
-        setPrintEnabled(payload.printEnabled === true)
-
-        if (payload.enabled === true) {
-          await loadQRData(restaurantId)
-        } else {
-          setRestaurant(null)
-          setTables([])
-          setRooms([])
-        }
-      } catch (err) {
-        if (cancelled) return
-        console.error("QR MENU ACCESS ERROR:", err)
-        setPluginAccess(false)
-        setError(err?.message || "QR Menu is not available")
-      }
+    return {
+      Authorization: `Bearer ${data.session.access_token}`,
     }
+  }
 
-    verifyAccess()
+  async function load() {
+    setLoading(true)
+    setError("")
 
-    const timer = setInterval(() => {
-      verifyAccess()
-    }, 15000)
-
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [restaurantId, superAdmin])
-
-  async function loadRestaurants() {
     try {
-      setLoading(true)
-      setError("")
+      const headers = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        cache: "no-store",
+        headers,
+      })
+      const data = await res.json()
 
-      if (superAdmin) {
-        const { data, error: restError } = await supabase
-          .from("restaurants")
-          .select("id,name,slug,logo,address,phone,description,cuisine")
-          .order("name")
-
-        if (restError) throw new Error(restError.message)
-
-        const list = data || []
-        setRestaurants(list)
-        if (list.length && !restaurantId) {
-          const preferred = list.find((item) => item.id === initialRestaurantId)
-          setRestaurantId(preferred?.id || list[0].id)
-        }
-        return
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Delivery data unavailable")
       }
 
-      const { data: userData } = await supabase.auth.getUser()
-      if (!userData?.user) throw new Error("Please login again")
+      const rows = data.deliveries || []
+      setDeliveries(rows)
+      setRiders(data.riders || [])
+      setZones(data.zones || [])
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("restaurant_id,role")
-        .eq("id", userData.user.id)
-        .maybeSingle()
-
-      if (profileError) throw new Error("Unable to load restaurant profile")
-
-      const metadataRestaurantId =
-        userData.user.user_metadata?.restaurant_id ||
-        userData.user.app_metadata?.restaurant_id ||
-        null
-
-      let resolvedRestaurantId = profile?.restaurant_id || metadataRestaurantId || null
-
-      if (!resolvedRestaurantId) {
-        const { data: ownedRestaurant } = await supabase
-          .from("restaurants")
-          .select("id")
-          .eq("owner_id", userData.user.id)
-          .limit(1)
-          .maybeSingle()
-        resolvedRestaurantId = ownedRestaurant?.id || null
+      const slip = search.get("slip")
+      const orderId = search.get("order_id")
+      if (orderId) {
+        const match = rows.find((x) => x.order_id === orderId)
+        if (match) selectDelivery(match)
+      } else if (slip) {
+        const match = rows.find((x) => x.slip_no === slip)
+        if (match) selectDelivery(match)
+      } else if (selected) {
+        const refreshed = rows.find((x) => x.id === selected.id)
+        if (refreshed) selectDelivery(refreshed, false)
       }
-
-      if (!resolvedRestaurantId) {
-        throw new Error("Restaurant not linked to this account")
-      }
-
-      setRestaurantId(resolvedRestaurantId)
-    } catch (err) {
-      console.error("QR RESTAURANT LOAD ERROR:", err)
-      setError(err?.message || "Unable to load restaurants")
+    } catch (e) {
+      setError(e?.message || "Delivery data unavailable")
     } finally {
       setLoading(false)
     }
   }
 
-  async function loadQRData(rid, silent = false) {
+  useEffect(() => {
+    load()
+  }, [])
+
+  function selectDelivery(delivery, resetCollection = true) {
+    setSelected(delivery)
+    setPersonType(delivery.delivery_person_type || (delivery.rider_id ? "rider" : "owner"))
+    setRiderId(delivery.rider_id || "")
+    setOwnerName(delivery.delivery_person_name || "Restaurant Owner")
+    setOwnerPhone(delivery.delivery_person_phone || "")
+    if (resetCollection) {
+      setCash("")
+      setUpi("")
+      setCard("")
+      setCollectionNote("")
+    }
+  }
+
+  async function action(body) {
+    setBusy(true)
+    setError("")
+    setNotice("")
+
     try {
-      if (!silent) setLoading(true)
-      setError("")
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      })
 
-      const { data: sessionData } = await supabase.auth.getSession()
-      const token = sessionData?.session?.access_token
+      const data = await res.json()
 
-      if (!token) throw new Error("Session expired. Please login again.")
-
-      const response = await fetch(
-        `/api/qr/print-data?restaurant_id=${encodeURIComponent(rid)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        }
-      )
-
-      const payload = await response.json()
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || "Unable to load QR data")
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Operation failed")
       }
 
-      setRestaurant(payload.restaurant || null)
-      setTables(payload.tables || [])
-      setRooms(payload.rooms || [])
-      setOrderingEnabled(payload.orderingEnabled === true)
-      setPrintEnabled(payload.printEnabled === true)
-    } catch (err) {
-      console.error("QR DATA ERROR:", err)
-      setError(err?.message || "Unable to load QR data")
-      setTables([])
-      setRooms([])
+      await load()
+
+      if (data.delivery) {
+        selectDelivery(data.delivery)
+      }
+
+      if (data.settlement_result) {
+        setNotice(
+          data.settlement_result === "settled"
+            ? "Payment settled successfully."
+            : `Payment settled with ${data.settlement_result} difference.`
+        )
+      } else {
+        setNotice("Updated successfully.")
+      }
+
+      return data.delivery
+    } catch (e) {
+      setError(e?.message || "Operation failed")
+      return null
     } finally {
-      if (!silent) setLoading(false)
+      setBusy(false)
     }
   }
 
-  const selectedRestaurant = useMemo(() => {
-    return restaurant || restaurants.find((item) => item.id === restaurantId) || null
-  }, [restaurant, restaurants, restaurantId])
+  const filtered = useMemo(
+    () =>
+      deliveries.filter((d) => {
+        if (filter === "active") {
+          return (
+            d.status !== "cancelled" &&
+            d.settlement_status !== "settled"
+          )
+        }
 
-  function qrUrl(type, id) {
-    const base = typeof window !== "undefined"
-      ? window.location.origin
-      : PUBLIC_BASE
-    const slug = selectedRestaurant?.slug
-    if (!slug) return ""
-    return `${base}/${encodeURIComponent(slug)}/order/${type}/${encodeURIComponent(id)}`
-  }
+        if (filter === "out") {
+          return d.status === "out_for_delivery"
+        }
 
-  function handlePrint() {
-    if (!printEnabled) {
-      alert("QR Print Center is disabled for this restaurant.")
+        if (filter === "delivered") {
+          return (
+            d.status === "delivered" &&
+            d.settlement_status !== "settled"
+          )
+        }
+
+        if (filter === "settlement") {
+          return (
+            ["delivered", "picked_up"].includes(d.status) &&
+            d.settlement_status !== "settled"
+          )
+        }
+
+        if (filter === "settled") {
+          return d.settlement_status === "settled"
+        }
+
+        return true
+      }),
+    [deliveries, filter]
+  )
+
+  const stats = useMemo(
+    () => ({
+      active: deliveries.filter(
+        (d) =>
+          d.status !== "cancelled" &&
+          d.settlement_status !== "settled"
+      ).length,
+      out: deliveries.filter((d) => d.status === "out_for_delivery").length,
+      delivered: deliveries.filter(
+        (d) =>
+          ["delivered", "picked_up"].includes(d.status) &&
+          d.settlement_status !== "settled"
+      ).length,
+      settlement: deliveries.filter(
+        (d) =>
+          ["delivered", "picked_up"].includes(d.status) &&
+          d.settlement_status !== "settled"
+      ).length,
+      settled: deliveries.filter(
+        (d) => d.settlement_status === "settled"
+      ).length,
+    }),
+    [deliveries]
+  )
+
+  function printSlip(delivery) {
+    if (!delivery) return
+
+    const title =
+      delivery.order_mode === "takeaway"
+        ? "TAKEAWAY SLIP"
+        : "DELIVERY SLIP"
+
+    const person =
+      delivery.delivery_person_name ||
+      delivery.rider_name ||
+      "Not assigned"
+
+    const collection =
+      delivery.settlement_status === "settled"
+        ? "SETTLED"
+        : ["cash", "cod"].includes(
+            String(delivery.payment_method || "cash").toLowerCase()
+          )
+          ? "PAYMENT TO BE COLLECTED"
+          : "PREPAID"
+
+    const w = window.open("", "_blank", "width=420,height=720")
+
+    if (!w) {
+      setError("Please allow pop-ups to print the slip.")
       return
     }
-    if (!tables.length && !rooms.length) {
-      alert("No tables or rooms found for this restaurant.")
-      return
-    }
-    const runPrint = async () => {
-      try {
-        if (document.fonts?.ready) await document.fonts.ready
-        const images = Array.from(document.images || [])
-        await Promise.all(images.map((img) => img.complete ? Promise.resolve() : new Promise((resolve) => {
-          img.addEventListener("load", resolve, { once: true })
-          img.addEventListener("error", resolve, { once: true })
-        })))
-      } catch {}
-      window.print()
-    }
-    window.setTimeout(runPrint, 120)
+
+    w.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${delivery.slip_no || "Delivery Slip"}</title>
+          <style>
+            body{font-family:Arial,sans-serif;padding:18px;color:#111}
+            h2{margin:0 0 4px}
+            .muted{color:#666;font-size:12px}
+            .line{border-top:1px dashed #777;margin:12px 0}
+            .row{display:flex;justify-content:space-between;gap:10px;margin:6px 0}
+            .big{font-size:20px;font-weight:800}
+            .hold{padding:10px;border:2px solid #111;border-radius:7px;margin:12px 0;font-weight:800;text-align:center}
+            .note{background:#f5f5f5;padding:8px;border-radius:6px;font-size:12px}
+            @media print{button{display:none}}
+          </style>
+        </head>
+        <body>
+          <h2>ANAIRA</h2>
+          <div><b>${title}</b></div>
+          <div class="muted">${delivery.slip_no || ""}</div>
+          <div class="line"></div>
+
+          <div><b>${delivery.customer_name || "Customer"}</b></div>
+          <div>${delivery.phone || ""}</div>
+          <div>${delivery.address || "Counter pickup"}</div>
+          <div>${delivery.zone || ""}</div>
+
+          <div class="line"></div>
+
+          <div class="row">
+            <span>Order</span>
+            <b>#${String(delivery.order_id || "").slice(0, 8)}</b>
+          </div>
+
+          <div class="row">
+            <span>Amount</span>
+            <b class="big">${money(delivery.expected_amount)}</b>
+          </div>
+
+          <div class="row">
+            <span>Payment</span>
+            <b>${String(delivery.payment_method || "cash").toUpperCase()}</b>
+          </div>
+
+          <div class="row">
+            <span>Delivered by</span>
+            <b>${person}</b>
+          </div>
+
+          <div class="hold">${collection}</div>
+
+          ${
+            delivery.customer_notes
+              ? `<div class="note">Customer note: ${delivery.customer_notes}</div>`
+              : ""
+          }
+
+          <div class="line"></div>
+          <div class="muted">
+            Generated ${new Date().toLocaleString("en-IN")}
+          </div>
+
+          <script>
+            window.onload = () => window.print()
+          </script>
+        </body>
+      </html>
+    `)
+
+    w.document.close()
   }
 
-  const total = tables.length + rooms.length
+  async function assignDeliveryPerson() {
+    if (!selected) return
+
+    if (personType === "rider" && !riderId) {
+      setError("Select a rider.")
+      return
+    }
+
+    await action({
+      action: "assign",
+      delivery_id: selected.id,
+      delivery_person_type: personType,
+      rider_id: personType === "rider" ? riderId : null,
+      delivery_person_name:
+        personType === "owner" ? ownerName : undefined,
+      delivery_person_phone:
+        personType === "owner" ? ownerPhone : undefined,
+    })
+  }
+
+  async function markDelivered() {
+    if (!selected) return
+
+    if (
+      selected.status !== "out_for_delivery" &&
+      selected.status !== "assigned"
+    ) {
+      setError("Send the delivery out first.")
+      return
+    }
+
+    await action({
+      action: "status",
+      delivery_id: selected.id,
+      status: "delivered",
+    })
+  }
+
+  async function settle() {
+    if (!selected) return
+
+    if (!["delivered", "picked_up"].includes(selected.status)) {
+      setError("Mark the delivery as delivered before settling payment.")
+      return
+    }
+
+    const total =
+      Number(cash || 0) +
+      Number(upi || 0) +
+      Number(card || 0)
+
+    if (total <= 0 && Number(selected.expected_amount || 0) > 0) {
+      setError("Enter the amount actually received.")
+      return
+    }
+
+    await action({
+      action: "settle",
+      delivery_id: selected.id,
+      cash_collected: Number(cash || 0),
+      upi_collected: Number(upi || 0),
+      card_collected: Number(card || 0),
+      collection_notes: collectionNote,
+    })
+
+    setCash("")
+    setUpi("")
+    setCard("")
+    setCollectionNote("")
+  }
+
+  function openRiderEditor(rider = null) {
+    setRiderForm(rider
+      ? { id: rider.id || "", name: rider.name || "", phone: rider.phone || "", vehicle: rider.vehicle || "", active: rider.active !== false }
+      : { id: "", name: "", phone: "", vehicle: "", active: true }
+    )
+    setRiderEditorOpen(true)
+    setError("")
+  }
+
+  async function saveRider(e) {
+    e.preventDefault()
+    const name = String(riderForm.name || "").trim()
+    if (!name) { setError("Enter rider name."); return }
+    setBusy(true); setError(""); setNotice("")
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: riderForm.id ? "rider_update" : "rider_create", rider_id: riderForm.id || undefined, name, phone: riderForm.phone, vehicle: riderForm.vehicle, active: riderForm.active !== false })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not save rider")
+      setRiderEditorOpen(false)
+      setNotice(riderForm.id ? "Rider updated." : "Rider added.")
+      await load()
+    } catch (e) { setError(e?.message || "Could not save rider") }
+    finally { setBusy(false) }
+  }
+
+  async function deleteRider(rider) {
+    if (!rider?.id || !window.confirm(`Delete rider "${rider.name}"? Existing delivery records will remain unchanged.`)) return
+    setBusy(true); setError(""); setNotice("")
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", { method:"POST", headers:{...authHeaders,"Content-Type":"application/json"}, body:JSON.stringify({action:"rider_delete", rider_id:rider.id}) })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not delete rider")
+      setNotice("Rider deleted.")
+      await load()
+    } catch (e) { setError(e?.message || "Could not delete rider") }
+    finally { setBusy(false) }
+  }
+
+  function openZoneEditor(zone = null) {
+    if (zone) {
+      setZoneForm({
+        id: zone.id || "",
+        name: zone.name || "",
+        charge: zone.charge ?? "",
+        min_order: zone.min_order ?? "",
+        active: zone.active !== false,
+      })
+    } else {
+      setZoneForm({
+        id: "",
+        name: "",
+        charge: "",
+        min_order: "",
+        active: true,
+      })
+    }
+    setZoneEditorOpen(true)
+    setError("")
+  }
+
+  async function saveZone(e) {
+    e.preventDefault()
+
+    const name = String(zoneForm.name || "").trim()
+    if (!name) {
+      setError("Enter a delivery zone name.")
+      return
+    }
+
+    setBusy(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: zoneForm.id ? "zone_update" : "zone_create",
+          zone_id: zoneForm.id || undefined,
+          name,
+          charge: Number(zoneForm.charge || 0),
+          min_order: Number(zoneForm.min_order || 0),
+          active: zoneForm.active !== false,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not save delivery zone")
+      }
+
+      setZoneEditorOpen(false)
+      setNotice(zoneForm.id ? "Delivery zone updated." : "Delivery zone added.")
+      await load()
+    } catch (e) {
+      setError(e?.message || "Could not save delivery zone")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteZone(zone) {
+    if (!zone?.id) return
+
+    const ok = window.confirm(
+      `Delete "${zone.name}"? Existing orders will not be changed.`
+    )
+    if (!ok) return
+
+    setBusy(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/delivery", {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "zone_delete",
+          zone_id: zone.id,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not delete delivery zone")
+      }
+
+      if (zoneEditorOpen && zoneForm.id === zone.id) {
+        setZoneEditorOpen(false)
+      }
+
+      setNotice("Delivery zone deleted.")
+      await load()
+    } catch (e) {
+      setError(e?.message || "Could not delete delivery zone")
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <div className="qr-print-center" style={page}>
-      <div className="qr-toolbar" style={toolbar}>
+    <main className="deliveryPage">
+      <section className="deliveryHero">
         <div>
-          <div style={eyebrow}>{printEnabled ? "ANAIRA QR PRINT CENTER" : "ANAIRA QR MENU"}</div>
-          <h1 style={heading}>{printEnabled ? "Restaurant QR Codes" : "QR Menu & Ordering"}</h1>
-          <p style={subtitle}>
-            Every active table and room gets its own QR automatically. Guests can scan to browse
-            and order. QR printing is available only when the separate QR Print Center plugin is enabled.
+          <div className="eyebrow">DELIVERY COLLECTION CONTROL</div>
+          <h1>Delivery & Takeaway</h1>
+          <p>
+            Print a delivery slip, send it with a rider or restaurant owner,
+            keep COD payment on hold, and settle it only when the money returns
+            to the restaurant.
           </p>
         </div>
 
-        <div style={actions}>
-          {superAdmin && (
-            <select
-              value={restaurantId}
-              onChange={(e) => setRestaurantId(e.target.value)}
-              style={select}
-            >
-              <option value="">Select restaurant</option>
-              {restaurants.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <button type="button" onClick={() => loadQRData(restaurantId)} style={secondaryButton}>
+        <div className="heroActions">
+          <button className="ghostBtn" onClick={load} disabled={busy}>
             ↻ Refresh
           </button>
-          {printEnabled && (
-            <button type="button" onClick={handlePrint} style={primaryButton}>
-              🖨️ Print All / Save PDF
-            </button>
+
+          <a className="primaryBtn" href="/order">
+            ＋ New Order
+          </a>
+        </div>
+      </section>
+
+      {error ? <div className="message error">{error}</div> : null}
+      {notice ? <div className="message success">{notice}</div> : null}
+
+      <section className="deliveryStats">
+        <Stat label="Active" value={stats.active} />
+        <Stat label="Out for delivery" value={stats.out} />
+        <Stat label="Payment to settle" value={stats.settlement} />
+        <Stat label="Settled" value={stats.settled} />
+      </section>
+
+      <section className="ridersPanel panel">
+        <div className="zonesHeader">
+          <div>
+            <div className="eyebrow">DELIVERY TEAM</div>
+            <h2>Riders</h2>
+            <p>Save rider details once, then assign them instantly from any delivery slip.</p>
+          </div>
+          <button className="primaryBtn" type="button" onClick={() => openRiderEditor()} disabled={busy}>＋ Add Rider</button>
+        </div>
+        <div className="riderGrid">
+          {riders.length ? riders.map((rider) => (
+            <div className="riderCard" key={rider.id}>
+              <div className="riderAvatar">🛵</div>
+              <div className="riderInfo">
+                <strong>{rider.name}</strong>
+                <span>{rider.phone || "No phone"}{rider.vehicle ? ` · ${rider.vehicle}` : ""}</span>
+                <small className={rider.active === false ? "riderOff" : "riderOn"}>{rider.active === false ? "Inactive" : "Available for assignment"}</small>
+              </div>
+              <div className="riderActions">
+                <button type="button" className="zoneEditBtn" onClick={() => openRiderEditor(rider)} disabled={busy}>Edit</button>
+                <button type="button" className="zoneDeleteBtn" onClick={() => deleteRider(rider)} disabled={busy}>Delete</button>
+              </div>
+            </div>
+          )) : <div className="zonesEmpty"><div className="emptyIcon">🛵</div><strong>No riders saved</strong><span>Add rider details once and reuse them for every delivery.</span></div>}
+        </div>
+      </section>
+
+      <section className="zonesPanel panel">
+        <div className="zonesHeader">
+          <div>
+            <div className="eyebrow">DELIVERY SETTINGS</div>
+            <h2>Delivery Zones</h2>
+            <p>Set the delivery charge and minimum order for each area.</p>
+          </div>
+
+          <button
+            className="primaryBtn"
+            type="button"
+            onClick={() => openZoneEditor()}
+            disabled={busy}
+          >
+            ＋ Add Delivery Zone
+          </button>
+        </div>
+
+        <div className="zonesTableWrap">
+          {zones.length ? (
+            <table className="zonesTable">
+              <thead>
+                <tr>
+                  <th>Zone</th>
+                  <th>Minimum order</th>
+                  <th>Delivery charge</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {zones.map((zone) => (
+                  <tr key={zone.id}>
+                    <td>
+                      <strong>{zone.name}</strong>
+                    </td>
+                    <td>{money(zone.min_order)}</td>
+                    <td>{money(zone.charge)}</td>
+                    <td>
+                      <span className={`zoneStatus ${zone.active ? "on" : "off"}`}>
+                        {zone.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="zoneActions">
+                        <button
+                          type="button"
+                          className="zoneEditBtn"
+                          onClick={() => openZoneEditor(zone)}
+                          disabled={busy}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="zoneDeleteBtn"
+                          onClick={() => deleteZone(zone)}
+                          disabled={busy}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="zonesEmpty">
+              <div className="emptyIcon">📍</div>
+              <strong>No delivery zones yet</strong>
+              <span>Add your first zone to make it available in the Order page.</span>
+            </div>
           )}
         </div>
-      </div>
+      </section>
 
-      {error && <div className="qr-error-box" style={errorBox}>⚠️ {error}</div>}
+      {riderEditorOpen ? (
+        <div className="zoneModalBackdrop" role="presentation">
+          <form className="zoneModal" onSubmit={saveRider}>
+            <div className="zoneModalHeader"><div><div className="eyebrow">DELIVERY TEAM</div><h2>{riderForm.id ? "Edit Rider" : "Add Rider"}</h2></div><button type="button" className="zoneCloseBtn" onClick={() => setRiderEditorOpen(false)}>×</button></div>
+            <label className="zoneField"><span>Rider name *</span><input value={riderForm.name} onChange={e => setRiderForm(v => ({...v,name:e.target.value}))} placeholder="e.g. Rahul Kumar" autoFocus /></label>
+            <div className="zoneFormGrid">
+              <label className="zoneField"><span>Mobile</span><input value={riderForm.phone} onChange={e => setRiderForm(v => ({...v,phone:e.target.value}))} inputMode="tel" placeholder="98765 43210" /></label>
+              <label className="zoneField"><span>Vehicle</span><input value={riderForm.vehicle} onChange={e => setRiderForm(v => ({...v,vehicle:e.target.value}))} placeholder="Bike · DL 01 AB 1234" /></label>
+            </div>
+            <label className="zoneToggle"><input type="checkbox" checked={riderForm.active} onChange={e => setRiderForm(v => ({...v,active:e.target.checked}))}/><span><strong>Active rider</strong><small>Only active riders appear in the assignment dropdown.</small></span></label>
+            <div className="zoneModalFooter"><button type="button" className="ghostBtn" onClick={() => setRiderEditorOpen(false)} disabled={busy}>Cancel</button><button className="primaryBtn" type="submit" disabled={busy}>{busy ? "Saving…" : riderForm.id ? "Save Rider" : "Add Rider"}</button></div>
+          </form>
+        </div>
+      ) : null}
 
-      {pluginAccess === null ? (
-        <div style={emptyState}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>🔐</div>
-          <h3 style={{ margin: "0 0 8px" }}>Checking QR Menu access…</h3>
-          <p style={{ color: "var(--muted)", margin: 0 }}>
-            Verifying the restaurant plugin status.
-          </p>
-        </div>
-      ) : pluginAccess === false ? (
-        <div style={emptyState}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
-          <h2 style={{ margin: "0 0 8px" }}>QR Menu is locked</h2>
-          <p style={{ color: "var(--muted)", maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
-            Super Admin must activate the separate <strong>QR Print Center</strong> plugin for this restaurant.
-            Advanced QR Ordering remains independent and controls the public customer ordering runtime.
-          </p>
-        </div>
-      ) : loading && !selectedRestaurant ? (
-        <div style={emptyState}>Loading QR Print Center…</div>
-      ) : !selectedRestaurant ? (
-        <div style={emptyState}>Select a restaurant to generate QR cards.</div>
-      ) : (
-        <>
-          <div className="qr-summary" style={summaryCard}>
-            <div style={restaurantIdentity}>
-              <div style={restaurantLogoWrap}>
-                {selectedRestaurant.logo ? (
-                  <img src={selectedRestaurant.logo} alt="" style={restaurantLogo} />
-                ) : (
-                  <div style={restaurantLogoFallback}>🍽️</div>
-                )}
-              </div>
+      {zoneEditorOpen ? (
+        <div className="zoneModalBackdrop" role="presentation">
+          <form className="zoneModal" onSubmit={saveZone}>
+            <div className="zoneModalHeader">
               <div>
-                <div style={eyebrow}>READY TO PRINT</div>
-                <h2 style={restaurantName}>{selectedRestaurant.name}</h2>
-                <p style={restaurantMeta}>
-                  {selectedRestaurant.address || selectedRestaurant.cuisine || "Restaurant QR Ordering"}
-                </p>
+                <div className="eyebrow">DELIVERY ZONE</div>
+                <h2>{zoneForm.id ? "Edit Delivery Zone" : "Add Delivery Zone"}</h2>
               </div>
+
+              <button
+                type="button"
+                className="zoneCloseBtn"
+                onClick={() => setZoneEditorOpen(false)}
+              >
+                ×
+              </button>
             </div>
 
-            <div style={countGrid}>
-              <div style={countBox}><strong>{tables.length}</strong><span>Tables</span></div>
-              <div style={countBox}><strong>{rooms.length}</strong><span>Rooms</span></div>
-              <div style={countBox}><strong>{total}</strong><span>Total QR</span></div>
+            <label className="zoneField">
+              <span>Zone name *</span>
+              <input
+                value={zoneForm.name}
+                onChange={(e) =>
+                  setZoneForm((v) => ({ ...v, name: e.target.value }))
+                }
+                placeholder="e.g. 0-3 KM"
+                autoFocus
+              />
+            </label>
+
+            <div className="zoneFormGrid">
+              <label className="zoneField">
+                <span>Delivery charge</span>
+                <input
+                  value={zoneForm.charge}
+                  onChange={(e) =>
+                    setZoneForm((v) => ({ ...v, charge: e.target.value }))
+                  }
+                  inputMode="decimal"
+                  min="0"
+                  type="number"
+                  placeholder="30"
+                />
+              </label>
+
+              <label className="zoneField">
+                <span>Minimum order</span>
+                <input
+                  value={zoneForm.min_order}
+                  onChange={(e) =>
+                    setZoneForm((v) => ({ ...v, min_order: e.target.value }))
+                  }
+                  inputMode="decimal"
+                  min="0"
+                  type="number"
+                  placeholder="0"
+                />
+              </label>
+            </div>
+
+            <label className="zoneToggle">
+              <input
+                type="checkbox"
+                checked={zoneForm.active}
+                onChange={(e) =>
+                  setZoneForm((v) => ({ ...v, active: e.target.checked }))
+                }
+              />
+              <span>
+                <strong>Active</strong>
+                <small>Show this zone in the customer/order delivery list.</small>
+              </span>
+            </label>
+
+            <div className="zoneModalFooter">
+              <button
+                type="button"
+                className="ghostBtn"
+                onClick={() => setZoneEditorOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button className="primaryBtn" type="submit" disabled={busy}>
+                {busy ? "Saving..." : zoneForm.id ? "Save Changes" : "Save Zone"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      <section className="deliveryLayout">
+        <div className="panel deliveryListPanel">
+          <div className="panelHeader">
+            <div>
+              <h2>Delivery Slips</h2>
+              <span>{filtered.length} records</span>
+            </div>
+
+            <div className="filters">
+              {[
+                ["active", "Active"],
+                ["out", "Out"],
+                ["delivered", "Delivered"],
+                ["settlement", "Settle"],
+                ["settled", "Settled"],
+                ["all", "All"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => setFilter(value)}
+                  className={
+                    filter === value ? "filter active" : "filter"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div ref={printRef} className="qr-print-sheet" style={printSheet}>
-            <PrintHeader restaurant={selectedRestaurant} />
+          {loading ? (
+            <div className="empty">Loading delivery queue…</div>
+          ) : !filtered.length ? (
+            <div className="empty">
+              <div className="emptyIcon">🧾</div>
+              <strong>No slips in this view</strong>
+              <span>Delivery and takeaway orders will appear here.</span>
+            </div>
+          ) : (
+            <div className="queue">
+              {filtered.map((delivery) => (
+                <button
+                  key={delivery.id}
+                  className={`deliveryRow ${
+                    selected?.id === delivery.id ? "selected" : ""
+                  }`}
+                  onClick={() => selectDelivery(delivery)}
+                >
+                  <div className="slip">
+                    <b>{delivery.slip_no || "DELIVERY"}</b>
 
-            {tables.length > 0 && (
-              <section style={section}>
-                <div className="print-section-title" style={sectionTitle}>🍽️ TABLE QR CODES</div>
-                <div className="qr-grid" style={qrGrid}>
-                  {tables.map((item, index) => (
-                    <QRCard
-                      key={item.id}
-                      type="table"
-                      label={`Table ${item.table_number ?? index + 1}`}
-                      url={qrUrl("table", item.id)}
-                      restaurant={selectedRestaurant}
-                      canPrint={printEnabled}
-                    />
-                  ))}
+                    <small>
+                      {delivery.customer_name || "Customer"} •{" "}
+                      {delivery.phone || "No phone"}
+                    </small>
+
+                    <small>
+                      {delivery.delivery_person_name ||
+                        delivery.rider_name ||
+                        "No delivery person"}
+                    </small>
+                  </div>
+
+                  <div className="rowRight">
+                    <strong>{money(delivery.expected_amount)}</strong>
+
+                    <span className={`status ${delivery.status}`}>
+                      {statusLabel(delivery.status)}
+                    </span>
+
+                    <small
+                      className={
+                        delivery.settlement_status === "settled"
+                          ? "settledText"
+                          : "pendingText"
+                      }
+                    >
+                      {delivery.settlement_status === "settled"
+                        ? "✓ Payment settled"
+                        : delivery.collection_status === "pending_settlement"
+                          ? "💰 Money to settle"
+                          : collectionLabel(
+                              delivery.collection_status
+                            )}
+                    </small>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="panel detailPanel">
+          {!selected ? (
+            <div className="empty bigEmpty">
+              <div className="emptyIcon">🛵</div>
+              <h2>Select a delivery</h2>
+              <p>
+                The slip remains linked to the order until delivery payment
+                is settled.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="detailHeader">
+                <div>
+                  <div className="eyebrow">
+                    {selected.order_mode === "takeaway"
+                      ? "TAKEAWAY"
+                      : "DELIVERY"}
+                  </div>
+
+                  <h2>{selected.slip_no || "Delivery"}</h2>
+
+                  <p>
+                    {selected.customer_name} •{" "}
+                    {selected.phone || "No phone"}
+                  </p>
                 </div>
-              </section>
-            )}
 
-            {rooms.length > 0 && (
-              <section style={section} className="print-break-before">
-                <div className="print-section-title" style={sectionTitle}>🏨 ROOM QR CODES</div>
-                <div className="qr-grid" style={qrGrid}>
-                  {rooms.map((item, index) => (
-                    <QRCard
-                      key={item.id}
-                      type="room"
-                      label={`Room ${item.room_number ?? index + 1}`}
-                      url={qrUrl("room", item.id)}
-                      restaurant={selectedRestaurant}
-                      canPrint={printEnabled}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {!tables.length && !rooms.length && (
-              <div style={emptyPrint}>
-                <div style={{ fontSize: 42 }}>📱</div>
-                <h3>No QR codes yet</h3>
-                <p>Add tables or rooms to this restaurant. The QR Print Center will generate the cards automatically.</p>
+                <button
+                  className="printBtn"
+                  onClick={() => printSlip(selected)}
+                >
+                  🖨 Print Slip
+                </button>
               </div>
-            )}
-          </div>
-        </>
-      )}
 
-      <p className="qr-footer-note" style={footerNote}>
-        Powered by Anaira Graphics • Smart QR Ordering • Scan, Browse &amp; Order with Ease
-      </p>
+              <div className="collectionBanner">
+                <div>
+                  <strong>
+                    {selected.settlement_status === "settled"
+                      ? "✓ Payment settled"
+                      : selected.collection_status === "pending_settlement"
+                        ? "💰 Payment is with rider / owner"
+                        : selected.collection_status === "pending_collection"
+                          ? "💰 Collect payment from customer"
+                          : "✓ No cash collection required"}
+                  </strong>
+
+                  <span>
+                    Expected collection:{" "}
+                    <b>{money(selected.expected_amount)}</b>
+                  </span>
+                </div>
+
+                <div className="collectionAmount">
+                  {money(
+                    selected.collection_received ||
+                      selected.cash_collected +
+                        selected.upi_collected +
+                        selected.card_collected
+                  )}
+                </div>
+              </div>
+
+              <div className="customerCard">
+                <b>Customer / Delivery</b>
+                <span>
+                  {selected.address || "Counter pickup"}
+                </span>
+
+                {selected.zone ? (
+                  <small>Zone: {selected.zone}</small>
+                ) : null}
+
+                {selected.customer_notes ? (
+                  <small>
+                    Note: {selected.customer_notes}
+                  </small>
+                ) : null}
+              </div>
+
+              <div className="detailGrid">
+                <div>
+                  <label>Delivery person</label>
+
+                  {selected.order_mode === "takeaway" ? (
+                    <>
+                      <strong>Counter pickup</strong>
+                      <small>No rider required.</small>
+                    </>
+                  ) : (
+                    <>
+                      <div className="personTabs">
+                        <button
+                          className={
+                            personType === "rider"
+                              ? "personTab active"
+                              : "personTab"
+                          }
+                          onClick={() => setPersonType("rider")}
+                        >
+                          🛵 Rider
+                        </button>
+
+                        <button
+                          className={
+                            personType === "owner"
+                              ? "personTab active"
+                              : "personTab"
+                          }
+                          onClick={() => setPersonType("owner")}
+                        >
+                          👤 Owner
+                        </button>
+                      </div>
+
+                      {personType === "rider" ? (
+                        <select
+                          value={riderId}
+                          onChange={(e) => setRiderId(e.target.value)}
+                        >
+                          <option value="">Select rider</option>
+
+                          {riders
+                            .filter((r) => r.active !== false)
+                            .map((rider) => (
+                              <option
+                                key={rider.id}
+                                value={rider.id}
+                              >
+                                {rider.name}
+                                {rider.phone
+                                  ? ` • ${rider.phone}`
+                                  : ""}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            value={ownerName}
+                            onChange={(e) =>
+                              setOwnerName(e.target.value)
+                            }
+                            placeholder="Owner name"
+                          />
+
+                          <input
+                            value={ownerPhone}
+                            onChange={(e) =>
+                              setOwnerPhone(e.target.value)
+                            }
+                            placeholder="Owner phone"
+                          />
+                        </>
+                      )}
+
+                      <button
+                        disabled={busy}
+                        onClick={assignDeliveryPerson}
+                      >
+                        {personType === "owner"
+                          ? "Assign Owner"
+                          : "Assign Rider"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div>
+                  <label>Payment</label>
+
+                  <strong className="amountBig">
+                    {money(selected.expected_amount)}
+                  </strong>
+
+                  <small>
+                    {String(
+                      selected.payment_method || "cash"
+                    ).toUpperCase()}
+                    {" • "}
+                    {selected.settlement_status === "settled"
+                      ? "Settled"
+                      : selected.collection_status ===
+                          "pending_settlement"
+                        ? "Settlement pending"
+                        : "Collection pending"}
+                  </small>
+                </div>
+              </div>
+
+              <div className="statusActions">
+                {selected.order_mode === "takeaway" ? (
+                  <>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "ready_for_pickup",
+                        })
+                      }
+                    >
+                      📦 Ready for Pickup
+                    </button>
+
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "picked_up",
+                        })
+                      }
+                    >
+                      ✓ Picked Up
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      disabled={
+                        busy ||
+                        selected.status === "out_for_delivery"
+                      }
+                      onClick={() =>
+                        action({
+                          action: "status",
+                          delivery_id: selected.id,
+                          status: "out_for_delivery",
+                        })
+                      }
+                    >
+                      🛵 Out for Delivery
+                    </button>
+
+                    <button
+                      disabled={
+                        busy ||
+                        !["assigned", "out_for_delivery"].includes(
+                          selected.status
+                        )
+                      }
+                      onClick={markDelivered}
+                    >
+                      ✓ Delivered
+                    </button>
+                  </>
+                )}
+
+                <button
+                  disabled={
+                    busy ||
+                    selected.status === "cancelled" ||
+                    selected.settlement_status === "settled"
+                  }
+                  onClick={() =>
+                    action({
+                      action: "status",
+                      delivery_id: selected.id,
+                      status: "cancelled",
+                    })
+                  }
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="settlement">
+                <div>
+                  <div className="eyebrow">
+                    DELIVERY PAYMENT SETTLEMENT
+                  </div>
+
+                  <h3>
+                    {selected.settlement_status === "settled"
+                      ? "Settlement complete"
+                      : "Settle money returned to restaurant"}
+                  </h3>
+
+                  <p>
+                    COD payment stays pending while the rider or owner is
+                    outside. Enter the actual money received only after the
+                    delivery has been completed.
+                  </p>
+                </div>
+
+                <div className="settleGrid">
+                  <MoneyInput
+                    label="Cash"
+                    value={cash}
+                    setValue={setCash}
+                  />
+
+                  <MoneyInput
+                    label="UPI"
+                    value={upi}
+                    setValue={setUpi}
+                  />
+
+                  <MoneyInput
+                    label="Card"
+                    value={card}
+                    setValue={setCard}
+                  />
+                </div>
+
+                <textarea
+                  value={collectionNote}
+                  onChange={(e) =>
+                    setCollectionNote(e.target.value)
+                  }
+                  placeholder="Settlement note (optional)"
+                  rows={2}
+                />
+
+                <div className="settleFooter">
+                  <div>
+                    <strong>
+                      Received:{" "}
+                      {money(
+                        Number(cash || 0) +
+                          Number(upi || 0) +
+                          Number(card || 0)
+                      )}
+                    </strong>
+
+                    <span>
+                      Expected: {money(selected.expected_amount)}
+                    </span>
+                  </div>
+
+                  <button
+                    disabled={
+                      busy ||
+                      selected.settlement_status === "settled" ||
+                      !["delivered", "picked_up"].includes(
+                        selected.status
+                      )
+                    }
+                    onClick={settle}
+                  >
+                    ✓ Settle Payment
+                  </button>
+                </div>
+              </div>
+
+              <div className="timeline">
+                <b>Delivery lifecycle</b>
+
+                <div>
+                  <span className="done">
+                    1. Slip issued —{" "}
+                    {selected.slip_no || "pending"}
+                  </span>
+
+                  <span
+                    className={
+                      ["assigned", "out_for_delivery", "delivered"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    2. Rider / owner assigned
+                  </span>
+
+                  <span
+                    className={
+                      ["out_for_delivery", "delivered"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    3. Out for delivery
+                  </span>
+
+                  <span
+                    className={
+                      ["delivered", "picked_up"].includes(
+                        selected.status
+                      )
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    4. Delivered / picked up
+                  </span>
+
+                  <span
+                    className={
+                      selected.settlement_status === "settled"
+                        ? "done"
+                        : ""
+                    }
+                  >
+                    5. Money returned & settled
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <style jsx>{`
+        .deliveryPage {
+          min-height: 100vh;
+          padding: 22px;
+          background:
+            radial-gradient(
+              circle at top right,
+              rgba(var(--primary-rgb), 0.09),
+              transparent 34%
+            ),
+            linear-gradient(
+              135deg,
+              var(--background),
+              var(--surface-2),
+              var(--background)
+            );
+          color: #fff;
+        }
+
+        .deliveryHero,
+        .panel,
+        .deliveryStats > div {
+          background: rgba(var(--surface-2-rgb), 0.82);
+          border: 1px solid rgba(var(--primary-rgb), 0.15);
+          border-radius: 24px;
+          box-shadow: 0 20px 55px rgba(0, 0, 0, 0.3);
+          backdrop-filter: blur(18px);
+        }
+
+        .deliveryHero {
+          padding: 24px;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: center;
+        }
+
+        .deliveryHero h1 {
+          margin: 4px 0;
+          font-size: 34px;
+        }
+
+        .deliveryHero p {
+          margin: 0;
+          color: var(--muted);
+          max-width: 760px;
+          line-height: 1.5;
+        }
+
+        .eyebrow {
+          color: var(--primary);
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 1.7px;
+        }
+
+        .heroActions,
+        .statusActions {
+          display: flex;
+          gap: 9px;
+        }
+
+        .primaryBtn,
+        .ghostBtn,
+        .printBtn,
+        .settleFooter button,
+        .statusActions button,
+        .detailGrid button {
+          border-radius: 12px;
+          padding: 11px 14px;
+          border: 1px solid rgba(var(--primary-rgb), 0.22);
+          background: rgba(var(--primary-rgb), 0.1);
+          color: #fff;
+          font-weight: 800;
+          cursor: pointer;
+          text-decoration: none;
+        }
+
+        .primaryBtn {
+          background: var(--primary);
+          color: #111;
+        }
+
+        button:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .message {
+          margin: 12px 0;
+          padding: 13px 15px;
+          border-radius: 13px;
+          font-weight: 700;
+        }
+
+        .message.error {
+          border: 1px solid rgba(248, 113, 113, 0.35);
+          background: rgba(248, 113, 113, 0.09);
+          color: #fecaca;
+        }
+
+        .message.success {
+          border: 1px solid rgba(74, 222, 128, 0.35);
+          background: rgba(74, 222, 128, 0.09);
+          color: #bbf7d0;
+        }
+
+        .deliveryStats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin: 14px 0;
+        }
+
+        .deliveryStats > div {
+          padding: 16px;
+        }
+
+        .deliveryStats span {
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .deliveryStats strong {
+          display: block;
+          font-size: 25px;
+          margin-top: 4px;
+        }
+
+        .deliveryLayout {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(390px, 0.9fr);
+          gap: 14px;
+        }
+
+        .panel {
+          padding: 18px;
+        }
+
+        .panelHeader,
+        .detailHeader,
+        .settleFooter {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+        }
+
+        .panelHeader h2,
+        .detailHeader h2 {
+          margin: 0;
+        }
+
+        .panelHeader span,
+        .detailHeader p {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .filters {
+          display: flex;
+          gap: 5px;
+          overflow: auto;
+        }
+
+        .filter {
+          border: 0;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--muted);
+          padding: 7px 9px;
+          border-radius: 9px;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+
+        .filter.active {
+          background: rgba(var(--primary-rgb), 0.14);
+          color: var(--primary);
+        }
+
+        .queue {
+          display: grid;
+          gap: 7px;
+          margin-top: 14px;
+          max-height: 720px;
+          overflow: auto;
+        }
+
+        .deliveryRow {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          text-align: left;
+          padding: 13px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.025);
+          color: #fff;
+          cursor: pointer;
+        }
+
+        .deliveryRow.selected {
+          border-color: var(--primary);
+          background: rgba(var(--primary-rgb), 0.08);
+        }
+
+        .slip {
+          min-width: 0;
+        }
+
+        .slip b,
+        .slip small,
+        .rowRight small {
+          display: block;
+        }
+
+        .slip small {
+          color: var(--muted);
+          margin-top: 4px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 330px;
+        }
+
+        .rowRight {
+          text-align: right;
+          display: grid;
+          justify-items: end;
+          gap: 4px;
+        }
+
+        .status {
+          font-size: 10px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.07);
+        }
+
+        .status.out_for_delivery {
+          color: #facc15;
+        }
+
+        .status.delivered {
+          color: #4ade80;
+        }
+
+        .status.cancelled {
+          color: #f87171;
+        }
+
+        .settledText {
+          color: #4ade80 !important;
+        }
+
+        .pendingText {
+          color: #facc15 !important;
+        }
+
+        .empty {
+          text-align: center;
+          padding: 50px 20px;
+          color: var(--muted);
+        }
+
+        .empty strong {
+          display: block;
+          color: #fff;
+          margin-bottom: 5px;
+        }
+
+        .emptyIcon {
+          font-size: 42px;
+          margin-bottom: 8px;
+        }
+
+        .customerCard {
+          margin-top: 15px;
+          padding: 13px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.035);
+          display: grid;
+          gap: 5px;
+        }
+
+        .customerCard span {
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .customerCard small {
+          color: var(--muted);
+        }
+
+        .collectionBanner {
+          margin-top: 14px;
+          padding: 14px;
+          border: 1px solid rgba(var(--primary-rgb), 0.22);
+          border-radius: 16px;
+          background: rgba(var(--primary-rgb), 0.07);
+          display: flex;
+          justify-content: space-between;
+          gap: 15px;
+          align-items: center;
+        }
+
+        .collectionBanner strong,
+        .collectionBanner span {
+          display: block;
+        }
+
+        .collectionBanner span {
+          margin-top: 4px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .collectionAmount {
+          font-size: 24px;
+          font-weight: 900;
+          color: var(--primary);
+        }
+
+        .detailGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .detailGrid > div {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.03);
+          display: grid;
+          gap: 7px;
+        }
+
+        .detailGrid label {
+          font-size: 10px;
+          color: var(--muted);
+          text-transform: uppercase;
+        }
+
+        .detailGrid select,
+        .detailGrid input,
+        .settleGrid input,
+        .settlement textarea {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 10px;
+          border-radius: 10px;
+          background: #10241c;
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .personTabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+        }
+
+        .personTab {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 10px;
+          padding: 9px;
+          color: var(--muted);
+          background: rgba(255, 255, 255, 0.03);
+          cursor: pointer;
+        }
+
+        .personTab.active {
+          border-color: var(--primary);
+          color: var(--primary);
+          background: rgba(var(--primary-rgb), 0.08);
+        }
+
+        .amountBig {
+          font-size: 25px;
+        }
+
+        .statusActions {
+          margin-top: 10px;
+        }
+
+        .statusActions button {
+          flex: 1;
+        }
+
+        .settlement {
+          margin-top: 14px;
+          padding: 15px;
+          border-radius: 17px;
+          border: 1px solid rgba(var(--primary-rgb), 0.16);
+          background: rgba(var(--primary-rgb), 0.05);
+        }
+
+        .settlement h3 {
+          margin: 3px 0;
+        }
+
+        .settlement p {
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .settleGrid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .settleGrid label {
+          display: block;
+          color: var(--muted);
+          font-size: 10px;
+          margin-bottom: 4px;
+        }
+
+        .settlement textarea {
+          margin-top: 9px;
+          resize: vertical;
+        }
+
+        .settleFooter {
+          margin-top: 12px;
+        }
+
+        .settleFooter > div {
+          display: grid;
+          gap: 3px;
+        }
+
+        .settleFooter span {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .timeline {
+          margin-top: 14px;
+          padding: 13px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.025);
+        }
+
+        .timeline > div {
+          display: grid;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .timeline span {
+          font-size: 12px;
+          color: var(--muted);
+        }
+
+        .timeline span.done {
+          color: #4ade80;
+        }
+
+        .timeline span.done:before {
+          content: "✓ ";
+          color: #4ade80;
+        }
+
+        .zonesPanel {
+          margin-bottom: 12px;
+        }
+
+        .zonesHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: center;
+        }
+
+        .zonesHeader h2 {
+          margin: 3px 0 2px;
+        }
+
+        .zonesHeader p {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .zonesTableWrap {
+          margin-top: 14px;
+          overflow-x: auto;
+        }
+
+        .zonesTable {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0 6px;
+          min-width: 650px;
+        }
+
+        .zonesTable th {
+          padding: 4px 10px 7px;
+          text-align: left;
+          color: var(--muted);
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: .04em;
+        }
+
+        .zonesTable td {
+          padding: 11px 10px;
+          background: rgba(255,255,255,.03);
+          border-top: 1px solid rgba(255,255,255,.05);
+          border-bottom: 1px solid rgba(255,255,255,.05);
+          font-size: 12px;
+        }
+
+        .zonesTable td:first-child {
+          border-left: 1px solid rgba(255,255,255,.05);
+          border-radius: 11px 0 0 11px;
+        }
+
+        .zonesTable td:last-child {
+          border-right: 1px solid rgba(255,255,255,.05);
+          border-radius: 0 11px 11px 0;
+        }
+
+        .zoneStatus {
+          display: inline-flex;
+          align-items: center;
+          padding: 5px 9px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .zoneStatus.on {
+          color: #4ade80;
+          background: rgba(74,222,128,.1);
+        }
+
+        .zoneStatus.off {
+          color: var(--muted);
+          background: rgba(255,255,255,.06);
+        }
+
+        .zoneActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+
+        .zoneEditBtn,
+        .zoneDeleteBtn {
+          border: 1px solid rgba(255,255,255,.1);
+          border-radius: 8px;
+          padding: 6px 9px;
+          background: rgba(255,255,255,.04);
+          color: #fff;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .zoneEditBtn:hover {
+          border-color: var(--primary);
+          color: var(--primary);
+        }
+
+        .zoneDeleteBtn {
+          color: #fca5a5;
+        }
+
+        .zoneDeleteBtn:hover {
+          border-color: #f87171;
+          color: #f87171;
+        }
+
+        .zonesEmpty {
+          margin-top: 14px;
+          padding: 28px 18px;
+          text-align: center;
+          border-radius: 14px;
+          background: rgba(255,255,255,.025);
+          color: var(--muted);
+          display: grid;
+          gap: 5px;
+        }
+
+        .zonesEmpty strong {
+          color: #fff;
+        }
+
+        .zonesEmpty .emptyIcon {
+          font-size: 28px;
+          margin: 0;
+        }
+
+        .zoneModalBackdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: grid;
+          place-items: center;
+          padding: 18px;
+          background: rgba(0,0,0,.62);
+          backdrop-filter: blur(8px);
+        }
+
+        .zoneModal {
+          width: min(520px, 100%);
+          padding: 20px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,.1);
+          background:
+            linear-gradient(180deg, rgba(20,42,60,.98), rgba(9,25,39,.98));
+          box-shadow: 0 30px 90px rgba(0,0,0,.55);
+        }
+
+        .zoneModalHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .zoneModalHeader h2 {
+          margin: 3px 0 0;
+          font-size: 20px;
+        }
+
+        .zoneCloseBtn {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid rgba(255,255,255,.1);
+          background: rgba(255,255,255,.04);
+          color: #fff;
+          font-size: 22px;
+          cursor: pointer;
+        }
+
+        .zoneField {
+          display: grid;
+          gap: 6px;
+          margin-top: 11px;
+        }
+
+        .zoneField span {
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .zoneField input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 11px 12px;
+          border-radius: 11px;
+          border: 1px solid rgba(255,255,255,.1);
+          background: rgba(255,255,255,.045);
+          color: #fff;
+          outline: none;
+          font-size: 13px;
+        }
+
+        .zoneField input:focus {
+          border-color: var(--primary);
+          box-shadow: 0 0 0 3px rgba(var(--primary-rgb),.1);
+        }
+
+        .zoneFormGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .zoneToggle {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 15px;
+          padding: 11px 12px;
+          border-radius: 12px;
+          background: rgba(255,255,255,.035);
+        }
+
+        .zoneToggle input {
+          width: 18px;
+          height: 18px;
+          accent-color: var(--primary);
+        }
+
+        .zoneToggle span {
+          display: grid;
+          gap: 2px;
+        }
+
+        .zoneToggle small {
+          color: var(--muted);
+          font-size: 10px;
+        }
+
+        .zoneModalFooter {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          margin-top: 18px;
+        }
+
+        @media (max-width: 900px) {
+          .deliveryPage {
+            padding: 12px;
+          }
+
+          .deliveryHero {
+            display: block;
+          }
+
+          .heroActions {
+            margin-top: 12px;
+          }
+
+          .deliveryStats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .deliveryLayout {
+            grid-template-columns: 1fr;
+          }
+
+          .detailPanel {
+            order: -1;
+          }
+
+          .deliveryHero h1 {
+            font-size: 27px;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .zonesHeader {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+        }
+
+        @media (max-width: 560px) {
+          .deliveryStats {
+            gap: 7px;
+          }
+
+          .deliveryStats > div {
+            padding: 12px;
+          }
+
+          .deliveryStats strong {
+            font-size: 21px;
+          }
+
+          .deliveryHero {
+            padding: 17px;
+          }
+
+          .panel {
+            padding: 13px;
+          }
+
+          .detailGrid,
+          .settleGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .statusActions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .settleFooter {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .filters {
+            max-width: 100%;
+          }
+
+          .collectionBanner {
+            align-items: flex-start;
+          }
+
+          .zoneFormGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .zoneModal {
+            padding: 15px;
+          }
+
+          .zoneModalFooter {
+            flex-direction: column-reverse;
+          }
+
+          .zoneModalFooter button {
+            width: 100%;
+          }
+        }
+      `}</style>
+    </main>
+  )
+}
+
+function Stat({ label, value }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   )
 }
 
-function PrintHeader({ restaurant }) {
+function MoneyInput({ label, value, setValue }) {
   return (
-    <header className="qr-print-header" style={printHeader}>
-      <div style={printHeaderBrand}>
-        {restaurant.logo ? (
-          <img src={restaurant.logo} alt="" style={printRestaurantLogo} />
-        ) : (
-          <div style={printRestaurantFallback}>🍽️</div>
-        )}
-        <div>
-          <div style={printEyebrow}>WELCOME TO</div>
-          <h2 style={printRestaurantName}>{restaurant.name}</h2>
-          <p style={printTagline}>
-            Scan • Explore our menu • Order from your table or room
-          </p>
-        </div>
-      </div>
-      <img src={BRAND_LOGO} alt="Anaira Graphics" style={anairaLogo} />
-    </header>
+    <label>
+      <span>{label}</span>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        inputMode="decimal"
+        placeholder="₹0"
+      />
+    </label>
   )
 }
-
-function QRCard({ type, label, url, restaurant, canPrint = false }) {
-  const cardRef = useRef(null)
-  const qrRef = useRef(null)
-
-  function safeFileName(value) {
-    return String(value || "qr")
-      .trim()
-      .replace(/[^a-z0-9_-]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase() || "qr"
-  }
-
-  function downloadPNG() {
-    const svg = qrRef.current?.querySelector("svg")
-    if (!svg || !url) {
-      alert("QR code is not ready yet.")
-      return
-    }
-
-    const serializer = new XMLSerializer()
-    const cloned = svg.cloneNode(true)
-    cloned.setAttribute("xmlns", "http://www.w3.org/2000/svg")
-    cloned.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink")
-    const svgText = serializer.serializeToString(cloned)
-    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
-    const objectUrl = URL.createObjectURL(blob)
-    const image = new Image()
-
-    image.onload = () => {
-      const scale = 4
-      const canvas = document.createElement("canvas")
-      canvas.width = image.width * scale
-      canvas.height = image.height * scale
-      const ctx = canvas.getContext("2d")
-      ctx.fillStyle = "#ffffff"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(objectUrl)
-
-      canvas.toBlob((pngBlob) => {
-        if (!pngBlob) return
-        const downloadUrl = URL.createObjectURL(pngBlob)
-        const a = document.createElement("a")
-        a.href = downloadUrl
-        a.download = `${safeFileName(restaurant?.name)}-${safeFileName(label)}-qr.png`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
-      }, "image/png")
-    }
-
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl)
-      alert("Unable to download this QR code.")
-    }
-
-    image.src = objectUrl
-  }
-
-  function printOne() {
-    if (!cardRef.current || !url) {
-      alert("QR code is not ready yet.")
-      return
-    }
-
-    const popup = window.open("", "_blank", "width=800,height=900")
-    if (!popup) {
-      alert("Please allow pop-ups to print a QR card.")
-      return
-    }
-
-    const cardHtml = cardRef.current.outerHTML
-    popup.document.write(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>${label} QR</title>
-<style>
-  @page { size: A4 portrait; margin: 12mm; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #fff; font-family: Arial, sans-serif; color: #122017; }
-  .qr-card { width: 90mm; margin: 20mm auto; border: 1px solid #cbd5cf; border-radius: 5mm; padding: 6mm; text-align: center; }
-  .qr-card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-  .qr-pill { font-size:10px; letter-spacing:1px; font-weight:800; color:#8b5d00; }
-  .qr-brand { font-size:10px; font-weight:800; color:#789184; }
-  .qr-card-logo-line { display:flex; justify-content:center; align-items:center; gap:8px; min-height:36px; }
-  .qr-card-logo-line img { width:30px; height:30px; object-fit:contain; border-radius:7px; }
-  .qr-label { font-size:18px; }
-  .qr-code-wrap { display:flex; justify-content:center; padding:12px; margin:12px auto 10px; background:#fff; border-radius:12px; width:fit-content; }
-  .qr-code-wrap svg { width:190px; height:190px; }
-  .scan-title { margin:4px 0; font-size:18px; color:#0a1d15; }
-  .scan-text { margin:0 auto; max-width:250px; font-size:11px; line-height:1.45; color:#5b6b60; }
-  .card-divider { height:1px; background:#e5ebe6; margin:12px 0 9px; }
-  .card-branding { display:flex; justify-content:center; align-items:center; gap:6px; font-size:9px; color:#738177; font-weight:700; }
-  .card-branding img { width:25px; height:25px; object-fit:contain; }
-  .qr-card-actions { display:none !important; }
-</style>
-</head>
-<body>${cardHtml}</body>
-</html>`)
-    popup.document.close()
-    const print = () => {
-      popup.focus()
-      popup.print()
-      popup.close()
-    }
-    if (popup.document.readyState === "complete") {
-      setTimeout(print, 250)
-    } else {
-      popup.onload = () => setTimeout(print, 250)
-    }
-  }
-
-  return (
-    <article ref={cardRef} className="qr-card" style={qrCard}>
-      <div style={qrCardTop}>
-        <span style={qrPill}>{type === "table" ? "TABLE ORDER" : "ROOM ORDER"}</span>
-        <span style={qrBrand}>{restaurant?.name || "Restaurant"}</span>
-      </div>
-
-      <div style={qrCardLogoLine}>
-        {restaurant.logo ? (
-          <img src={restaurant.logo} alt="" style={miniRestaurantLogo} />
-        ) : (
-          <div style={miniRestaurantFallback}>🍽️</div>
-        )}
-        <strong style={qrLabel}>{label}</strong>
-      </div>
-
-      <div ref={qrRef} className="qr-code-wrap" style={qrCodeWrap}>
-        {url ? (
-          <QRCode value={url} size={148} bgColor="#ffffff" fgColor="#0a1d15" />
-        ) : (
-          <div style={invalidQr}>Restaurant slug missing</div>
-        )}
-      </div>
-
-      <h3 style={scanTitle}>Scan to Order</h3>
-      <p style={scanText}>
-        Browse the menu, choose your favourites and place your order directly from here.
-      </p>
-
-      <div style={cardDivider} />
-      <div style={cardBranding}>
-        <img src={BRAND_LOGO} alt="Anaira Graphics" style={cardBrandLogo} />
-        <span>Powered by Anaira Graphics</span>
-      </div>
-
-      {canPrint && (
-        <div className="qr-card-actions" style={cardActions}>
-          <button type="button" onClick={downloadPNG} style={cardActionSecondary}>⬇ Download PNG</button>
-          <button type="button" onClick={printOne} style={cardActionPrimary}>🖨 Print</button>
-        </div>
-      )}
-    </article>
-  )
-}
-
-const page = {
-  minHeight: "100vh",
-  padding: "28px",
-  background: "radial-gradient(circle at top, rgba(var(--primary-rgb),.10), transparent 32%), var(--background)",
-  color: "var(--text)",
-}
-const toolbar = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-end",
-  gap: 20,
-  marginBottom: 22,
-}
-const eyebrow = { fontSize: 11, letterSpacing: 2.2, color: "var(--primary)", fontWeight: 800 }
-const heading = { margin: "6px 0 8px", fontSize: "clamp(28px,4vw,44px)", lineHeight: 1.05 }
-const subtitle = { margin: 0, color: "var(--muted)", maxWidth: 760, lineHeight: 1.6 }
-const actions = { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "flex-end" }
-const select = { minWidth: 220, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", outline: "none" }
-const primaryButton = { padding: "12px 18px", border: 0, borderRadius: 12, background: "var(--primary)", color: "#111", fontWeight: 800, cursor: "pointer" }
-const secondaryButton = { padding: "12px 18px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--surface)", color: "var(--text)", fontWeight: 700, cursor: "pointer" }
-const infoBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(var(--primary-rgb),.08)", border: "1px solid rgba(var(--primary-rgb),.22)", color: "var(--text)" }
-const errorBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(239,68,68,.12)", border: "1px solid rgba(239,68,68,.35)", color: "#fca5a5" }
-const emptyState = { padding: 50, borderRadius: 24, textAlign: "center", background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }
-const summaryCard = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, marginBottom: 24, padding: 22, borderRadius: 24, background: "linear-gradient(135deg,var(--surface),var(--surface-2))", border: "1px solid rgba(var(--primary-rgb),.2)" }
-const restaurantIdentity = { display: "flex", alignItems: "center", gap: 15, minWidth: 0 }
-const restaurantLogoWrap = { width: 64, height: 64, borderRadius: 16, display: "grid", placeItems: "center", background: "#fff", overflow: "hidden", flex: "0 0 auto" }
-const restaurantLogo = { width: "100%", height: "100%", objectFit: "contain" }
-const restaurantLogoFallback = { fontSize: 28 }
-const restaurantName = { margin: "4px 0", fontSize: 24 }
-const restaurantMeta = { margin: 0, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 620 }
-const countGrid = { display: "grid", gridTemplateColumns: "repeat(3, minmax(70px,1fr))", gap: 10 }
-const countBox = { padding: "10px 14px", borderRadius: 14, background: "rgba(var(--primary-rgb),.06)", border: "1px solid rgba(var(--primary-rgb),.16)", textAlign: "center" }
-const printSheet = { background: "var(--surface)", borderRadius: 28, padding: 28, border: "1px solid rgba(var(--primary-rgb),.16)" }
-const printHeader = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, paddingBottom: 22, marginBottom: 24, borderBottom: "2px solid rgba(var(--primary-rgb),.22)" }
-const printHeaderBrand = { display: "flex", alignItems: "center", gap: 14 }
-const printRestaurantLogo = { width: 68, height: 68, objectFit: "contain", borderRadius: 14, background: "#fff" }
-const printRestaurantFallback = { width: 68, height: 68, display: "grid", placeItems: "center", borderRadius: 14, background: "#fff", fontSize: 30 }
-const printEyebrow = { fontSize: 10, letterSpacing: 2, color: "var(--primary)", fontWeight: 800 }
-const printRestaurantName = { margin: "3px 0 4px", fontSize: 26 }
-const printTagline = { margin: 0, color: "var(--muted)", fontSize: 12 }
-const anairaLogo = { width: 88, height: 88, objectFit: "contain" }
-const section = { marginBottom: 28 }
-const sectionTitle = { fontSize: 14, letterSpacing: 1.8, color: "var(--primary)", fontWeight: 900, marginBottom: 14 }
-const qrGrid = { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 16 }
-const qrCard = { background: "#fff", color: "#122017", border: "1px solid #d7dfd8", borderRadius: 18, padding: 16, textAlign: "center", boxShadow: "0 10px 24px rgba(0,0,0,.08)", breakInside: "avoid" }
-const qrCardTop = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
-const qrPill = { fontSize: 9, letterSpacing: 1.2, fontWeight: 900, color: "#8b5d00" }
-const qrBrand = { fontSize: 9, fontWeight: 900, color: "#789184", letterSpacing: 1 }
-const qrCardLogoLine = { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 36 }
-const miniRestaurantLogo = { width: 30, height: 30, objectFit: "contain", borderRadius: 7, background: "#fff" }
-const miniRestaurantFallback = { fontSize: 22 }
-const qrLabel = { fontSize: 18 }
-const qrCodeWrap = { display: "flex", justifyContent: "center", padding: 12, margin: "12px auto 10px", background: "#fff", borderRadius: 12, width: "fit-content" }
-const invalidQr = { width: 148, height: 148, display: "grid", placeItems: "center", fontSize: 12, color: "#b91c1c", background: "#fee2e2" }
-const scanTitle = { margin: "4px 0", fontSize: 18, color: "#0a1d15" }
-const scanText = { margin: "0 auto", maxWidth: 250, fontSize: 11, lineHeight: 1.45, color: "#5b6b60" }
-const cardDivider = { height: 1, background: "#e5ebe6", margin: "12px 0 9px" }
-const cardBranding = { display: "flex", justifyContent: "center", alignItems: "center", gap: 6, fontSize: 9, color: "#738177", fontWeight: 700 }
-const cardBrandLogo = { width: 25, height: 25, objectFit: "contain" }
-const cardActions = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }
-const cardActionSecondary = { padding: "9px 8px", borderRadius: 9, border: "1px solid #cbd5cf", background: "#f8faf9", color: "#183126", fontWeight: 800, fontSize: 11, cursor: "pointer" }
-const cardActionPrimary = { padding: "9px 8px", borderRadius: 9, border: "1px solid #183126", background: "#183126", color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer" }
-const emptyPrint = { padding: 60, textAlign: "center", border: "1px dashed rgba(var(--primary-rgb),.3)", borderRadius: 20, color: "var(--muted)" }
-const footerNote = { margin: "20px 0 0", textAlign: "center", color: "var(--muted)", fontSize: 11 }
-
-const qrPrintResponsiveStyles = `
-@media (max-width: 900px) {
-  .qr-toolbar { flex-direction: column; align-items: stretch !important; }
-  .qr-toolbar > div:last-child { justify-content: flex-start !important; }
-  .qr-summary { flex-direction: column; align-items: stretch !important; }
-  .qr-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
-}
-@media (max-width: 560px) {
-  .qr-print-center { padding: 14px !important; }
-  .qr-grid { grid-template-columns: 1fr !important; }
-  .qr-print-sheet { padding: 14px !important; border-radius: 18px !important; }
-  .qr-print-header { align-items: flex-start !important; }
-  .qr-print-header img { width: 62px !important; height: 62px !important; }
-  .qr-summary { padding: 16px !important; }
-  .qr-summary select { width: 100%; }
-}
-@media print {
-  @page { size: A4 portrait; margin: 8mm; }
-  html, body { background: #fff !important; color: #122017 !important; }
-  body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  .qr-print-center { padding: 0 !important; background: #fff !important; color: #122017 !important; }
-  .qr-toolbar, .qr-summary, .qr-print-center > .qr-error-box, .qr-print-center > .qr-footer-note { display: none !important; }
-  .qr-print-sheet { display: block !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: #fff !important; }
-  .qr-print-header { margin-bottom: 10mm !important; padding-bottom: 5mm !important; }
-  .qr-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap: 6mm !important; }
-  .qr-card { border: 1px solid #cbd5cf !important; box-shadow: none !important; border-radius: 4mm !important; padding: 4mm !important; }
-  .qr-card-actions { display: none !important; }
-  .print-break-before { break-before: page; page-break-before: always; }
-  .print-section-title { margin-top: 2mm; }
-  .qr-card:nth-child(4n+1) { break-before: auto; }
-}
-`

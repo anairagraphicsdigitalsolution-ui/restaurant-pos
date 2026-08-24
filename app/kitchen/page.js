@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
@@ -21,6 +21,9 @@ useState([])
 const [restaurantId,setRestaurantId] = useState(null)
 const [restaurant,setRestaurant] = useState(null)
 const [kotSize, setKotSize] = useState("80mm")
+
+  // Prevent an older background refresh from overwriting a newer KDS action.
+  const fetchSequenceRef = useRef(0)
 
   useEffect(() => {
     let channel
@@ -79,6 +82,8 @@ const [kotSize, setKotSize] = useState("80mm")
   }, [])
 
   async function fetchOrders(rid = restaurantId) {
+    const requestSequence = ++fetchSequenceRef.current
+
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
@@ -93,6 +98,11 @@ const [kotSize, setKotSize] = useState("80mm")
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || "Unable to load kitchen orders")
+      }
+
+      // Ignore an older response if a newer refresh has already started.
+      if (requestSequence !== fetchSequenceRef.current) {
+        return
       }
 
       const final = result.orders || []
@@ -196,6 +206,8 @@ const [kotSize, setKotSize] = useState("80mm")
   async function updateStatus(id, status) {
     if (updatingOrderId) return
 
+    const currentOrder = orders.find(order => order.id === id)
+
     setUpdatingOrderId(id)
     setUpdatingStatus(status)
 
@@ -210,7 +222,8 @@ const [kotSize, setKotSize] = useState("80mm")
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ order_id: id, status })
+        body: JSON.stringify({ order_id: id, status }),
+        cache: "no-store"
       })
 
       const result = await response.json()
@@ -218,17 +231,54 @@ const [kotSize, setKotSize] = useState("80mm")
         throw new Error(result.error || "Unable to update order")
       }
 
-      await fetchOrders()
+      // Realtime already refreshes orders. Do not issue another GET here.
+      // Invalidate older in-flight refreshes so stale data cannot restore
+      // a completed/cancelled order to the Live list.
+      const updatedOrder = {
+        ...(currentOrder || {}),
+        ...(result.order || {}),
+        id,
+        status
+      }
 
-      if (status === "done") {
-        const finished = orders.find(order => order.id === id)
-        if (finished?.source_type === "delivery") {
-          router.push(`/dashboard/delivery?order_id=${encodeURIComponent(id)}`)
+      fetchSequenceRef.current += 1
+
+      if (status === "done" || status === "cancelled") {
+        setOrders(prev =>
+          prev.filter(order => order.id !== id)
+        )
+
+        setOldOrders(prev => [
+          updatedOrder,
+          ...prev.filter(order => order.id !== id)
+        ])
+
+        if (
+          status === "done" &&
+          currentOrder?.source_type === "delivery"
+        ) {
+          router.push(
+            `/dashboard/delivery?order_id=${encodeURIComponent(id)}`
+          )
         }
+      } else {
+        setOrders(prev => {
+          const exists = prev.some(order => order.id === id)
+
+          if (!exists) {
+            return [updatedOrder, ...prev]
+          }
+
+          return prev.map(order =>
+            order.id === id
+              ? { ...order, ...updatedOrder }
+              : order
+          )
+        })
       }
     } catch (error) {
       console.error(error)
-      alert(error.message || "Unable to update order")
+      alert(error instanceof Error ? error.message : "Unable to update order")
     } finally {
       setUpdatingOrderId(null)
       setUpdatingStatus(null)
@@ -238,9 +288,194 @@ const [kotSize, setKotSize] = useState("80mm")
   return (
     <>
     <style jsx global>{`
-.kds-actions button{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;line-height:1.15!important;text-align:center!important;padding-left:8px!important;padding-right:8px!important}.kds-actions button:disabled{opacity:.62!important;cursor:wait!important;transform:none!important;box-shadow:none!important}
-@media(max-width:1050px){.kds-history-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.kds-actions{grid-template-columns:1fr 1fr!important}}
-@media(max-width:700px){.kds-page{padding:12px!important}.kds-hero{padding:18px!important;margin-bottom:16px!important}.kds-history-grid{grid-template-columns:1fr!important;padding:10px 0!important;gap:12px!important}.kds-card{min-height:0!important;padding:18px!important}.kds-actions{grid-template-columns:1fr!important}.kds-history-card{width:100%!important;height:auto!important;padding:18px!important}.kds-items{max-height:none!important}}
+  .kitchen-page{font-family:var(--font-sans,Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+  .kitchen-page button,.kitchen-page select{font:inherit}
+  .kitchen-page .kds-hero{position:relative;overflow:hidden}
+  .kitchen-page .kds-hero:after{
+    content:"";position:absolute;inset:auto -10% -70% 40%;height:220px;
+    background:radial-gradient(circle,rgba(var(--primary-rgb),.12),transparent 65%);
+    pointer-events:none
+  }
+  .kitchen-page .kds-action-btn:hover:not(:disabled){
+    transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.10)
+  }
+  .kitchen-page .kds-action-btn:active:not(:disabled){transform:translateY(0)}
+  .kitchen-page .kds-action-btn:disabled{
+    opacity:.62!important;cursor:wait!important;transform:none!important;box-shadow:none!important
+  }
+  .kitchen-page .kds-items::-webkit-scrollbar,
+  .kitchen-page .kds-history-grid::-webkit-scrollbar{width:7px}
+  .kitchen-page .kds-items::-webkit-scrollbar-thumb,
+  .kitchen-page .kds-history-grid::-webkit-scrollbar-thumb{
+    background:rgba(var(--primary-rgb),.22);border-radius:999px
+  }
+  .kitchen-page .kds-items::-webkit-scrollbar-track,
+  .kitchen-page .kds-history-grid::-webkit-scrollbar-track{background:transparent}
+  .kitchen-page .kds-card{
+    position:relative;
+    overflow:hidden;
+  }
+  .kitchen-page .kds-card:before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:0;
+    bottom:0;
+    width:4px;
+    border-radius:22px 0 0 22px;
+    background:var(--primary);
+    opacity:.72;
+    pointer-events:none;
+  }
+  .kitchen-page .kds-card > *{position:relative;z-index:1}
+  .kitchen-page .kds-card h3{
+    margin:0;
+    line-height:1.2;
+    letter-spacing:-.2px;
+  }
+  .kitchen-page .kds-card .kds-items{
+    margin-left:0;
+    margin-right:0;
+  }
+  .kitchen-page .kds-card .kds-actions{
+    align-items:stretch;
+  }
+  .kitchen-page .kds-card .kds-actions button{
+    min-width:0;
+    width:100%;
+  }
+  .kitchen-page .kds-card .kds-action-btn{
+    min-height:48px;
+    height:48px;
+    width:100%;
+    padding:8px 6px;
+    border-radius:12px;
+    font-size:12px;
+    line-height:1;
+    letter-spacing:.1px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+  }
+  .kitchen-page .kds-card .kds-actions{
+    display:grid!important;
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:8px!important;
+    width:100%!important;
+    align-items:stretch!important;
+  }
+  .kitchen-page .kds-card .kds-actions > button{
+    min-width:0!important;
+    width:100%!important;
+    margin:0!important;
+  }
+  .kitchen-page .kds-card .kds-order-meta{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:8px;
+  }
+  .kitchen-page .kds-card .kds-order-meta > *{
+    min-width:0;
+  }
+  .kitchen-page .kds-card .kds-new-order{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    padding:6px 9px;
+    border-radius:999px;
+    background:rgba(var(--primary-rgb),.10);
+    border:1px solid rgba(var(--primary-rgb),.22);
+    color:var(--primary);
+    font-size:10px;
+    font-weight:900;
+    letter-spacing:.45px;
+    text-transform:uppercase;
+  }
+  .kitchen-page .kds-card .kds-new-order-dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:var(--primary);
+    box-shadow:0 0 0 4px rgba(var(--primary-rgb),.10);
+  }
+  .kitchen-page .kds-card .kds-order-title{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    min-width:0;
+  }
+  .kitchen-page .kds-card .kds-order-title > *{
+    min-width:0;
+  }
+  .kitchen-page .kds-card .kds-order-title h3,
+  .kitchen-page .kds-card .kds-order-title strong{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .kitchen-page .kds-card .kds-status-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+  .kitchen-page .kds-card .kds-status-row .kds-time{
+    margin-left:auto;
+    font-size:11px;
+    opacity:.58;
+    white-space:nowrap;
+  }
+  .kitchen-page .kds-history-card{transition:transform .2s ease,box-shadow .2s ease}
+  .kitchen-page .kds-history-card:hover{
+    transform:translateY(-2px);box-shadow:0 16px 38px rgba(0,0,0,.12)!important
+  }
+  .kitchen-page select:focus,.kitchen-page button:focus-visible{
+    outline:2px solid rgba(var(--primary-rgb),.45);outline-offset:2px
+  }
+  @media(max-width:1050px){
+    .kds-actions{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+    .kds-history-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  }
+  @media(min-width:1051px){
+    .kitchen-page .kds-card:hover{
+      transform:translateY(-2px);
+      box-shadow:0 18px 42px rgba(0,0,0,.13);
+    }
+  }
+  @media(max-width:700px){
+    .kds-page,.kitchen-page{padding:12px!important}
+    .kds-hero{padding:18px!important;margin-bottom:16px!important;border-radius:20px!important}
+    .kds-hero h1{font-size:30px!important}
+    .kds-history-grid{grid-template-columns:1fr!important;padding:6px 0!important;gap:12px!important}
+    .kds-card{min-height:0!important;padding:16px!important}
+    .kds-actions{
+      grid-template-columns:repeat(3,minmax(0,1fr))!important;
+      gap:7px!important;
+    }
+    .kds-actions .kds-action-btn{
+      min-height:44px!important;
+      height:44px!important;
+      font-size:11px!important;
+      padding:0 4px!important;
+      white-space:nowrap!important;
+    }
+    .kitchen-page .kds-card .kds-actions{
+      grid-template-columns:repeat(3,minmax(0,1fr))!important;
+      gap:7px!important;
+    }
+    .kds-history-card{width:100%!important;height:auto!important;min-height:280px!important;padding:18px!important}
+    .kds-items{max-height:none!important}
+  }
 `}</style>
 
       <div style={container} className="kitchen-page">
@@ -413,65 +648,30 @@ const [kotSize, setKotSize] = useState("80mm")
             {/* ACTION */}
             <div className="kds-actions" style={actions}>
               <button
-  style={btnBlue}
-  onMouseEnter={(e)=>{
-    e.currentTarget.style.transform="translateY(-4px)"
-    e.currentTarget.style.boxShadow="0 15px 35px rgb(0, 41, 65)"
-    e.currentTarget.style.background="rgb(0, 0, 0)"
-  }}
-  onMouseLeave={(e)=>{
-    e.currentTarget.style.transform="translateY(0)"
-    e.currentTarget.style.boxShadow="none"
-    e.currentTarget.style.background="transparent"
-  }}
-  onClick={() => updateStatus(order.id, "preparing")}
-  disabled={updatingOrderId === order.id}
->
-                {updatingOrderId === order.id && updatingStatus === "preparing"
-                  ? "Saving…"
-                  : "Start Preparing"}
+                className="kds-action-btn"
+                style={btnBlue}
+                onClick={() => updateStatus(order.id, "preparing")}
+                disabled={updatingOrderId === order.id}
+              >
+                {updatingOrderId === order.id && updatingStatus === "preparing" ? "Saving…" : "Start Preparing"}
               </button>
 
               <button
-  style={btnGreen}
-  onMouseEnter={(e)=>{
-    e.currentTarget.style.transform="translateY(-4px)"
-    e.currentTarget.style.boxShadow="0 15px 35px rgba(133, 102, 3, 0.45)"
-    e.currentTarget.style.background="rgb(0, 0, 0)"
-  }}
-  onMouseLeave={(e)=>{
-    e.currentTarget.style.transform="translateY(0)"
-    e.currentTarget.style.boxShadow="none"
-    e.currentTarget.style.background="transparent"
-  }}
+                className="kds-action-btn"
+                style={btnGreen}
                 onClick={() => updateStatus(order.id, "done")}
                 disabled={updatingOrderId === order.id}
               >
-                {updatingOrderId === order.id && updatingStatus === "done"
-                  ? "Saving…"
-                  : "Mark Done"}
+                {updatingOrderId === order.id && updatingStatus === "done" ? "Saving…" : "Mark Done"}
               </button>
               <button
-  style={btnRed}
-  onMouseEnter={(e)=>{
-    e.currentTarget.style.transform="translateY(-4px)"
-    e.currentTarget.style.boxShadow="0 15px 35px rgba(110, 0, 0, 0.4)"
-    e.currentTarget.style.background="rgb(0, 0, 0)"
-  }}
-  onMouseLeave={(e)=>{
-    e.currentTarget.style.transform="translateY(0)"
-    e.currentTarget.style.boxShadow="none"
-    e.currentTarget.style.background="transparent"
-  }}
-  onClick={() =>
-    updateStatus(
-      order.id,
-      "cancelled"
-    )
-  }
->
-  Cancel
-</button>
+                className="kds-action-btn"
+                style={btnRed}
+                onClick={() => updateStatus(order.id, "cancelled")}
+                disabled={updatingOrderId === order.id}
+              >
+                Cancel
+              </button>
             </div>
             
 
@@ -582,412 +782,294 @@ const [kotSize, setKotSize] = useState("80mm")
 }
 
 //
-// 🎨 NEON UI STYLES
-//
+// 🎨 PRO THEME-BASED UI STYLES
+// NOTE: This section contains styling only. All application logic above remains unchanged.
 
 const emptyState = {
-  maxWidth:520,
-  margin:"30px auto",
-  padding:"32px 22px",
-  textAlign:"center",
-  borderRadius:22,
-  background:"var(--surface)",
-  border:"1px solid var(--border)",
-  color:"var(--text)",
-  boxShadow:"0 12px 35px rgba(0,0,0,.08)"
+  maxWidth: 560,
+  margin: "32px auto",
+  padding: "38px 24px",
+  textAlign: "center",
+  borderRadius: 22,
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  color: "var(--text)",
+  boxShadow: "0 14px 40px rgba(0,0,0,.08)"
 }
 
 const container = {
-  padding: 25,
+  padding: "clamp(14px, 2.2vw, 30px)",
   minHeight: "100vh",
-  background: "radial-gradient(circle at top,var(--background),#000)",
-  color: "#fff"
+  background: "var(--background)",
+  color: "var(--text)",
+  transition: "background .25s ease,color .25s ease"
 }
 
 const title = {
   textAlign: "center",
   fontSize: 30,
   marginBottom: 20,
-  background: "linear-gradient(90deg,var(--success),var(--info),var(--accent))",
-  WebkitBackgroundClip: "text",
-  color: "transparent"
+  color: "var(--text)"
 }
 
 const grid = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))",
-  gap: 20
+  gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))",
+  gap: 18
 }
 
 const card = (status) => ({
-
-  padding:20,
-
-  borderRadius:26,
-
-  background:
-    "linear-gradient(145deg,var(--surface-2),var(--surface-2))",
-
+  padding: "clamp(16px,1.5vw,22px)",
+  borderRadius: 22,
+  background: "var(--surface)",
   border:
-    "1px solid rgba(var(--primary-rgb),.15)",
-    cursor:"pointer",
-
-  backdropFilter:"blur(20px)",
-
-  minHeight:280,
-
-  boxShadow:
-
-    status==="pending"
-
-      ? `
-        0 15px 35px rgba(0,0,0,.45),
-        0 0 25px rgba(var(--primary-rgb),.25)
-      `
-
-    : status==="preparing"
-
-      ? `
-        0 15px 35px rgba(0,0,0,.45),
-        0 0 25px rgba(var(--info-rgb),.25)
-      `
-
-    : status==="done"
-
-      ? `
-        0 15px 35px rgba(0,0,0,.45),
-        0 0 25px rgba(var(--success-rgb),.25)
-      `
-
-    : `
-        0 15px 35px rgba(0,0,0,.45),
-        0 0 25px rgba(var(--danger-rgb),.25)
-      `,
-
-  transition:"all .3s ease"
+    status === "pending"
+      ? "1px solid rgba(var(--primary-rgb),.34)"
+      : status === "preparing"
+      ? "1px solid rgba(var(--info-rgb),.34)"
+      : status === "done"
+      ? "1px solid rgba(var(--success-rgb),.28)"
+      : "1px solid rgba(var(--danger-rgb),.28)",
+  cursor: "default",
+  backdropFilter: "blur(18px)",
+  minHeight: 280,
+  boxShadow: "0 12px 35px rgba(0,0,0,.10),0 2px 8px rgba(0,0,0,.05)",
+  transition: "transform .2s ease,box-shadow .2s ease,border-color .2s ease"
 })
+
 const topRow = {
   display: "flex",
   justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
   marginBottom: 10
 }
 
 const time = {
   fontSize: 12,
-  opacity: 0.6
+  opacity: 0.62,
+  whiteSpace: "nowrap"
 }
 
 const itemsBox = {
-
-  background:
-    "rgba(255,255,255,.025)",
-
-  border:
-    "1px solid rgba(255,255,255,.06)",
-
-  borderRadius:18,
-
-  padding:14,
-
-  marginTop:14,
-
-  marginBottom:14,
-
-  maxHeight:110,
-
-  overflowY:"auto"
-  
+  background: "var(--surface-2)",
+  border: "1px solid var(--border)",
+  borderRadius: 16,
+  padding: 10,
+  marginTop: 14,
+  marginBottom: 14,
+  maxHeight: 145,
+  overflowY: "auto"
 }
+
 const itemRow = {
-
-  display:"flex",
-
-  justifyContent:"space-between",
-
-  alignItems:"center",
-
-  padding:"8px 10px",
-
-  marginBottom:8,
-
-  borderRadius:10,
-
-  background:
-    "rgba(255,255,255,.03)"
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  padding: "10px 11px",
+  marginBottom: 7,
+  borderRadius: 12,
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  color: "var(--text)"
 }
+
 const cookingNote = {
-
-  marginTop:4,
-
-  marginBottom:8,
-
-  padding:"8px 10px",
-
-  borderRadius:10,
-
-  background:
-    "rgba(var(--primary-rgb),.08)",
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.2)",
-
-  color:"var(--primary)",
-
-  fontSize:12,
-
-  lineHeight:1.4
+  marginTop: 4,
+  marginBottom: 8,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(var(--primary-rgb),.08)",
+  border: "1px solid rgba(var(--primary-rgb),.20)",
+  color: "var(--primary)",
+  fontSize: 12,
+  lineHeight: 1.45
 }
+
 const orderNote = {
-
-  marginTop:10,
-
-  padding:"10px 12px",
-
-  borderRadius:12,
-
-  background:
-    "rgba(var(--info-rgb),.08)",
-
-  border:
-    "1px solid rgba(var(--info-rgb),.2)",
-
-  color:"#93c5fd",
-
-  fontSize:13
+  marginTop: 10,
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(var(--info-rgb),.08)",
+  border: "1px solid rgba(var(--info-rgb),.20)",
+  color: "var(--info)",
+  fontSize: 13,
+  lineHeight: 1.45
 }
 
 const status = (s) => ({
-
-  display:"inline-flex",
-  alignItems:"center",
-  justifyContent:"center",
-  alignSelf:"flex-start",
-  maxWidth:"100%",
-  minWidth:0,
-  padding:"8px 14px",
-
-  borderRadius:999,
-
-  fontSize:12,
-
-  fontWeight:800,
-
-  textTransform:"uppercase",
-
-  
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  alignSelf: "flex-start",
+  maxWidth: "100%",
+  minWidth: 0,
+  padding: "7px 12px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 850,
+  textTransform: "uppercase",
+  letterSpacing: ".5px",
   color:
-    s==="pending"
+    s === "pending"
       ? "var(--primary)"
-    : s==="preparing"
+      : s === "preparing"
       ? "var(--info)"
-    : s==="done"
-      ? "var(--primary)"
-      : "#fb7185",
-
-  
+      : s === "done"
+      ? "var(--success)"
+      : "var(--danger)",
+  background:
+    s === "pending"
+      ? "rgba(var(--primary-rgb),.10)"
+      : s === "preparing"
+      ? "rgba(var(--info-rgb),.10)"
+      : s === "done"
+      ? "rgba(var(--success-rgb),.10)"
+      : "rgba(var(--danger-rgb),.10)",
+  border:
+    s === "pending"
+      ? "1px solid rgba(var(--primary-rgb),.20)"
+      : s === "preparing"
+      ? "1px solid rgba(var(--info-rgb),.20)"
+      : s === "done"
+      ? "1px solid rgba(var(--success-rgb),.20)"
+      : "1px solid rgba(var(--danger-rgb),.20)"
 })
 
 const actions = {
-
-  display:"grid",
-
-  gridTemplateColumns:
-    "repeat(3,1fr)",
-
-  gap:8,
-
-  marginTop:16
+  display: "grid",
+  gridTemplateColumns: "repeat(3,minmax(0,1fr))",
+  gap: 9,
+  marginTop: 16
 }
 
 const btnBlue = {
-
-  flex:1,
-
-  minHeight:44,
-  height:"auto",
-  padding:"10px 8px",
-  minWidth:0,
-
-  borderRadius:14,
-
-  border:
-    "2px solid rgba(95, 153, 245, 0.4)",
-
-  background:"transparent",
-
-  color:"#69aafa",
-
-  fontWeight:800,
-  fontSize:13,
-  lineHeight:1.15,
-  whiteSpace:"normal",
-  overflowWrap:"anywhere",
-  textAlign:"center",
-
-  cursor:"pointer",
-
-  transition:"all .25s ease"
+  flex: 1,
+  minHeight: 46,
+  height: "auto",
+  padding: "0 8px",
+  minWidth: 0,
+  width: "100%",
+  height: 48,
+  borderRadius: 12,
+  border: "1px solid rgba(var(--info-rgb),.40)",
+  background: "rgba(var(--info-rgb),.07)",
+  color: "var(--info)",
+  fontWeight: 800,
+  fontSize: 12.5,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  wordBreak: "normal",
+  overflowWrap: "normal",
+  textAlign: "center",
+  cursor: "pointer",
+  transition: "transform .18s ease,box-shadow .18s ease,background .18s ease"
 }
+
 const btnGreen = {
-
-  flex:1,
-
-  minHeight:44,
-  height:"auto",
-  padding:"10px 8px",
-  minWidth:0,
-
-  borderRadius:14,
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.4)",
-
-  background:"transparent",
-
-  color:"var(--primary)",
-
-  fontWeight:800,
-  fontSize:13,
-  lineHeight:1.15,
-  whiteSpace:"normal",
-  overflowWrap:"anywhere",
-  textAlign:"center",
-
-  cursor:"pointer",
-
-  transition:"all .25s ease"
+  flex: 1,
+  minHeight: 46,
+  height: "auto",
+  padding: "0 8px",
+  minWidth: 0,
+  width: "100%",
+  height: 48,
+  borderRadius: 12,
+  border: "1px solid rgba(var(--primary-rgb),.42)",
+  background: "rgba(var(--primary-rgb),.08)",
+  color: "var(--primary)",
+  fontWeight: 800,
+  fontSize: 12.5,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  wordBreak: "normal",
+  overflowWrap: "normal",
+  textAlign: "center",
+  cursor: "pointer",
+  transition: "transform .18s ease,box-shadow .18s ease,background .18s ease"
 }
-const hero = {
 
-  marginBottom:30,
-
-  padding:30,
-
-  borderRadius:30,
-
-  background:
-    "linear-gradient(135deg,var(--surface),var(--surface-2))",
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.25)",
-
-  boxShadow:
-    "0 25px 60px rgba(0,0,0,.45)",
-
-  display:"flex",
-
-  justifyContent:"space-between",
-
-  alignItems:"center",
-
-  flexWrap:"wrap"
-}
-const historyBtn = {
-
-  padding:"14px 28px",
-
-  borderRadius:16,
-
-  border:
-    "1px solid rgba(var(--primary-rgb),.35)",
-
-  background:
-    "linear-gradient(135deg,rgba(var(--primary-rgb),.12),rgba(var(--warning-rgb),.12))",
-
-  color:"var(--primary)",
-
-  fontWeight:700,
-
-  cursor:"pointer",
-
-  boxShadow:
-    "0 10px 30px rgba(var(--primary-rgb),.15)"
-}
 const btnRed = {
-
-  flex:1,
-
-  minHeight:44,
-  height:"auto",
-  padding:"10px 8px",
-  minWidth:0,
-
-  borderRadius:14,
-
-  border:
-    "1px solid rgba(var(--danger-rgb),.4)",
-
-  background:"transparent",
-
-  color:"var(--danger)",
-
-  fontWeight:800,
-  fontSize:13,
-  lineHeight:1.15,
-  whiteSpace:"normal",
-  overflowWrap:"anywhere",
-  textAlign:"center",
-
-  cursor:"pointer",
-
-  transition:"all .25s ease"
+  flex: 1,
+  minHeight: 46,
+  height: "auto",
+  padding: "0 8px",
+  minWidth: 0,
+  width: "100%",
+  height: 48,
+  borderRadius: 12,
+  border: "1px solid rgba(var(--danger-rgb),.38)",
+  background: "rgba(var(--danger-rgb),.07)",
+  color: "var(--danger)",
+  fontWeight: 800,
+  fontSize: 12.5,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  wordBreak: "normal",
+  overflowWrap: "normal",
+  textAlign: "center",
+  cursor: "pointer",
+  transition: "transform .18s ease,box-shadow .18s ease,background .18s ease"
 }
+
+const hero = {
+  marginBottom: 24,
+  padding: "clamp(20px,2.5vw,30px)",
+  borderRadius: 24,
+  background: "linear-gradient(135deg,var(--surface),var(--surface-2))",
+  border: "1px solid var(--border)",
+  boxShadow: "0 16px 45px rgba(0,0,0,.10)",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 18,
+  flexWrap: "wrap"
+}
+
+const historyBtn = {
+  padding: "11px 17px",
+  borderRadius: 11,
+  border: "1px solid var(--border)",
+  background: "transparent",
+  color: "var(--text)",
+  fontWeight: 800,
+  fontSize: 13,
+  cursor: "pointer",
+  transition: "all .18s ease"
+}
+
 const historyGrid = {
-
-  display:"grid",
-
-  gridTemplateColumns:
-    "repeat(auto-fill,minmax(280px,1fr))",
-
-  justifyContent:"space-between",
-
-  columnGap:30,
-
-  rowGap:30,
-
-  padding:"20px 30px",
-
-  maxHeight:"700px",
-
-  overflowY:"auto",
-
-  overflowX:"hidden",
-
-  marginTop:20
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))",
+  justifyContent: "space-between",
+  columnGap: 18,
+  rowGap: 18,
+  padding: "8px 0",
+  maxHeight: "700px",
+  overflowY: "auto",
+  overflowX: "hidden",
+  marginTop: 16
 }
+
 const historyCard = (status) => ({
-
-  width:"100%",
-
-  height:300,
-
-  padding:26,
-
-  borderRadius:30,
-
-  overflow:"hidden",
-
-  position:"relative",
-
-  background:
-    "linear-gradient(145deg,var(--surface-2),var(--surface-2))",
-    
-
+  width: "100%",
+  height: 300,
+  padding: 20,
+  borderRadius: 22,
+  overflow: "hidden",
+  position: "relative",
+  background: "var(--surface)",
   border:
     status === "done"
-      ? "1px solid rgba(212,175,55,.35)"
-      : "1px solid rgba(var(--danger-rgb),.25)",
-
-  boxShadow:
-    status === "done"
-      ? `
-        0 20px 50px rgba(0,0,0,.55),
-        0 0 30px rgba(212,175,55,.18)
-      `
-      : `
-        0 20px 50px rgba(0,0,0,.55),
-        0 0 25px rgba(var(--danger-rgb),.15)
-      `,
-
-  backdropFilter:"blur(24px)"
+      ? "1px solid rgba(var(--success-rgb),.28)"
+      : "1px solid rgba(var(--danger-rgb),.24)",
+  boxShadow: "0 12px 34px rgba(0,0,0,.09)",
+  backdropFilter: "blur(18px)"
 })

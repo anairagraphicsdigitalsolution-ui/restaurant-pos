@@ -4,22 +4,42 @@ import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
-function cleanMethod(value) {
-  const method = String(value || "cash").trim().toLowerCase()
 
-  return ["cash", "card", "upi", "online"].includes(method)
+function cleanMethod(value) {
+  const method = String(value || "cash")
+    .trim()
+    .toLowerCase()
+
+  return [
+    "cash",
+    "card",
+    "upi",
+    "online"
+  ].includes(method)
     ? method
     : "cash"
 }
 
+
 export async function POST(req) {
+
   try {
+
+    // ==========================================================
+    // AUTH
+    // ==========================================================
+
     const user = await requireApiUser(req)
+
     const body = await req.json()
 
-    const orderId = String(body?.order_id || "").trim()
+    const orderId =
+      String(body?.order_id || "")
+        .trim()
+
 
     if (!orderId) {
+
       return Response.json(
         {
           success: false,
@@ -27,11 +47,25 @@ export async function POST(req) {
         },
         { status: 400 }
       )
+
     }
 
-    const paidAmount = Number(body?.paid_amount || 0)
 
-    if (!Number.isFinite(paidAmount) || paidAmount < 0) {
+    // ==========================================================
+    // PAYMENT AMOUNT
+    // ==========================================================
+
+    const paidAmount =
+      Number(
+        body?.paid_amount || 0
+      )
+
+
+    if (
+      !Number.isFinite(paidAmount) ||
+      paidAmount < 0
+    ) {
+
       return Response.json(
         {
           success: false,
@@ -39,26 +73,39 @@ export async function POST(req) {
         },
         { status: 400 }
       )
+
     }
 
-    /*
-     * ============================================================
-     * GET ORDER RESTAURANT
-     * ============================================================
-     *
-     * We get the restaurant_id from the order itself.
-     * This prevents a user from finalizing an order belonging
-     * to another restaurant.
-     */
 
-    const { data: order, error: orderError } = await supabaseAdmin
+    // ==========================================================
+    // GET ORDER
+    // ==========================================================
+
+    const {
+      data: order,
+      error: orderError
+    } = await supabaseAdmin
+
       .from("orders")
-      .select("id, restaurant_id")
-      .eq("id", orderId)
+
+      .select(
+        "id,restaurant_id,invoice_no,payment_status"
+      )
+
+      .eq(
+        "id",
+        orderId
+      )
+
       .maybeSingle()
 
+
     if (orderError) {
-      console.error("BILLING ORDER LOOKUP ERROR:", orderError)
+
+      console.error(
+        "BILLING ORDER LOOKUP ERROR:",
+        orderError
+      )
 
       return Response.json(
         {
@@ -67,9 +114,12 @@ export async function POST(req) {
         },
         { status: 400 }
       )
+
     }
 
+
     if (!order) {
+
       return Response.json(
         {
           success: false,
@@ -77,9 +127,12 @@ export async function POST(req) {
         },
         { status: 404 }
       )
+
     }
 
+
     if (!order.restaurant_id) {
+
       return Response.json(
         {
           success: false,
@@ -87,47 +140,317 @@ export async function POST(req) {
         },
         { status: 400 }
       )
+
     }
 
-    /*
-     * ============================================================
-     * BILLING PLAN FEATURE CHECK
-     * ============================================================
-     *
-     * Billing is controlled by the restaurant's active plan.
-     *
-     * IMPORTANT:
-     * We use the restaurant-specific function instead of
-     * has_plan_feature(), because this API uses supabaseAdmin.
-     */
+
+    // ==========================================================
+    // FEATURE CHECK
+    // ==========================================================
 
     try {
-      await requireFeature(order.restaurant_id, "payments")
+
+      await requireFeature(
+        order.restaurant_id,
+        "payments"
+      )
+
     } catch (featureError) {
+
       return Response.json(
-        { success: false, error: featureError.message },
+        {
+          success: false,
+          error:
+            featureError.message ||
+            "Payments feature is not enabled"
+        },
         { status: 403 }
       )
+
     }
 
-    /*
-     * ============================================================
-     * FINALIZE ORDER
-     * ============================================================
-     */
 
-    const { data, error } = await supabaseAdmin.rpc(
+    // ==========================================================
+    // CUSTOMER
+    // ==========================================================
+
+    const customerName =
+      String(
+        body?.customer_name || ""
+      )
+        .trim()
+        .slice(0, 120)
+
+
+    const customerPhone =
+      String(
+        body?.customer_phone || ""
+      )
+        .replace(/\D/g, "")
+        .slice(0, 20)
+
+
+    const customerEmail =
+      String(
+        body?.customer_email || ""
+      )
+        .trim()
+        .slice(0, 160)
+
+
+    let customerId = null
+
+
+    if (customerPhone) {
+
+      // --------------------------------------------------------
+      // Existing customer
+      // --------------------------------------------------------
+
+      const {
+        data: existingCustomer,
+        error: customerLookupError
+      } = await supabaseAdmin
+
+        .from("customers")
+
+        .select(
+          "id,name,phone,email"
+        )
+
+        .eq(
+          "restaurant_id",
+          order.restaurant_id
+        )
+
+        .eq(
+          "phone",
+          customerPhone
+        )
+
+        .maybeSingle()
+
+
+      if (customerLookupError) {
+
+        console.error(
+          "BILLING CUSTOMER LOOKUP ERROR:",
+          customerLookupError
+        )
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              customerLookupError.message ||
+              "Unable to find customer"
+          },
+          { status: 400 }
+        )
+
+      }
+
+
+      if (existingCustomer?.id) {
+
+        customerId =
+          existingCustomer.id
+
+
+        const customerPatch = {}
+
+
+        if (customerName) {
+          customerPatch.name =
+            customerName
+        }
+
+
+        if (customerEmail) {
+          customerPatch.email =
+            customerEmail
+        }
+
+
+        if (
+          Object.keys(customerPatch).length
+        ) {
+
+          const {
+            error: customerUpdateError
+          } = await supabaseAdmin
+
+            .from("customers")
+
+            .update({
+              ...customerPatch,
+              updated_at:
+                new Date().toISOString()
+            })
+
+            .eq(
+              "id",
+              customerId
+            )
+
+            .eq(
+              "restaurant_id",
+              order.restaurant_id
+            )
+
+
+          if (customerUpdateError) {
+
+            console.error(
+              "BILLING CUSTOMER UPDATE ERROR:",
+              customerUpdateError
+            )
+
+          }
+
+        }
+
+      } else {
+
+        // ------------------------------------------------------
+        // Create customer
+        // ------------------------------------------------------
+
+        const {
+          data: createdCustomer,
+          error: customerCreateError
+        } = await supabaseAdmin
+
+          .from("customers")
+
+          .insert({
+            restaurant_id:
+              order.restaurant_id,
+
+            name:
+              customerName ||
+              "Walk-in Customer",
+
+            phone:
+              customerPhone,
+
+            email:
+              customerEmail ||
+              null
+          })
+
+          .select("id")
+
+          .single()
+
+
+        if (customerCreateError) {
+
+          console.error(
+            "BILLING CUSTOMER CREATE ERROR:",
+            customerCreateError
+          )
+
+          return Response.json(
+            {
+              success: false,
+              error:
+                customerCreateError.message ||
+                "Unable to create customer"
+            },
+            { status: 400 }
+          )
+
+        }
+
+
+        customerId =
+          createdCustomer.id
+
+      }
+
+
+      // --------------------------------------------------------
+      // Link customer to order
+      // --------------------------------------------------------
+
+      const {
+        error: customerLinkError
+      } = await supabaseAdmin
+
+        .from("orders")
+
+        .update({
+          customer_id:
+            customerId
+        })
+
+        .eq(
+          "id",
+          orderId
+        )
+
+        .eq(
+          "restaurant_id",
+          order.restaurant_id
+        )
+
+
+      if (customerLinkError) {
+
+        console.error(
+          "BILLING CUSTOMER LINK ERROR:",
+          customerLinkError
+        )
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              customerLinkError.message ||
+              "Unable to link customer"
+          },
+          { status: 400 }
+        )
+
+      }
+
+    }
+
+
+    // ==========================================================
+    // FINALIZE ORDER
+    // ==========================================================
+
+    const {
+      data,
+      error
+    } = await supabaseAdmin.rpc(
       "stage3_finalize_order",
       {
-        p_actor_id: user.id,
-        p_order_id: orderId,
-        p_payment_method: cleanMethod(body?.payment_method),
-        p_paid_amount: paidAmount,
-        p_offer_id: body?.offer_id || null
+        p_actor_id:
+          user.id,
+
+        p_order_id:
+          orderId,
+
+        p_payment_method:
+          cleanMethod(
+            body?.payment_method
+          ),
+
+        p_paid_amount:
+          paidAmount,
+
+        p_offer_id:
+          body?.offer_id ||
+          null
       }
     )
 
+
     if (error) {
+
       console.error(
         "FINALIZE BILL ERROR:",
         error
@@ -136,69 +459,240 @@ export async function POST(req) {
       return Response.json(
         {
           success: false,
-          error: error.message
+          error:
+            error.message ||
+            "Unable to finalize bill"
         },
         { status: 400 }
       )
+
     }
 
-    const paymentReference = String(body?.payment_reference || "").trim().slice(0, 120)
-    if (paymentReference && Number(data.payment_received || 0) > 0) {
-      const { data: paymentRow } = await supabaseAdmin
-        .from("order_payments")
-        .select("id")
-        .eq("restaurant_id", order.restaurant_id)
-        .eq("order_id", orderId)
-        .eq("created_by", user.id)
-        .eq("status", "paid")
-        .eq("amount", Number(data.payment_received || 0))
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (paymentRow?.id) {
-        await supabaseAdmin.from("order_payments").update({ reference: paymentReference }).eq("id", paymentRow.id)
-      }
+
+    if (!data) {
+
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Finalize returned no bill"
+        },
+        { status: 400 }
+      )
+
     }
+
+
+    // ==========================================================
+    // PAYMENT REFERENCE
+    // ==========================================================
+
+    const paymentReference =
+      String(
+        body?.payment_reference || ""
+      )
+        .trim()
+        .slice(0, 120)
+
+
+    const paymentReceived =
+      Number(
+        data?.payment_received ||
+        data?.paid_amount ||
+        0
+      )
+
+
+    if (
+      paymentReference &&
+      paymentReceived > 0
+    ) {
+
+      const {
+        data: paymentRow
+      } = await supabaseAdmin
+
+        .from("order_payments")
+
+        .select("id")
+
+        .eq(
+          "restaurant_id",
+          order.restaurant_id
+        )
+
+        .eq(
+          "order_id",
+          orderId
+        )
+
+        .eq(
+          "created_by",
+          user.id
+        )
+
+        .eq(
+          "status",
+          "paid"
+        )
+
+        .eq(
+          "amount",
+          paymentReceived
+        )
+
+        .order(
+          "created_at",
+          {
+            ascending: false
+          }
+        )
+
+        .limit(1)
+
+        .maybeSingle()
+
+
+      if (paymentRow?.id) {
+
+        await supabaseAdmin
+
+          .from("order_payments")
+
+          .update({
+            reference:
+              paymentReference
+          })
+
+          .eq(
+            "id",
+            paymentRow.id
+          )
+
+      }
+
+    }
+
+
+    // ==========================================================
+    // FINAL BILL RESPONSE
+    // ==========================================================
 
     const bill = {
-      order_id: data.order_id,
-      invoice_no: data.invoice_no,
 
-      subtotal: Number(data.subtotal || 0),
-      discount: Number(data.discount || 0),
-      tax: Number(data.tax || 0),
-      total: Number(data.total || 0),
+      order_id:
+        data.order_id,
 
-      paid_amount: Number(data.paid_amount || 0),
-      payment_received: Number(data.payment_received || 0),
+      invoice_no:
+        data.invoice_no,
 
-      payment_status: data.payment_status,
-      payment_method: data.payment_method,
 
-      offer_id: data.offer_id || null,
+      subtotal:
+        Number(
+          data.subtotal || 0
+        ),
 
-      subtotal_amount: Number(data.subtotal || 0),
-      discount_amount: Number(data.discount || 0),
-      tax_amount: Number(data.tax || 0),
-      total_amount: Number(data.total || 0)
+
+      discount:
+        Number(
+          data.discount || 0
+        ),
+
+
+      tax:
+        Number(
+          data.tax || 0
+        ),
+
+
+      total:
+        Number(
+          data.total || 0
+        ),
+
+
+      paid_amount:
+        Number(
+          data.paid_amount || 0
+        ),
+
+
+      payment_received:
+        Number(
+          data.payment_received ??
+          data.paid_amount ??
+          0
+        ),
+
+
+      payment_status:
+        data.payment_status,
+
+
+      payment_method:
+        data.payment_method,
+
+
+      offer_id:
+        data.offer_id ||
+        null,
+
+
+      customer_id:
+        customerId ||
+        null,
+
+
+      subtotal_amount:
+        Number(
+          data.subtotal || 0
+        ),
+
+
+      discount_amount:
+        Number(
+          data.discount || 0
+        ),
+
+
+      tax_amount:
+        Number(
+          data.tax || 0
+        ),
+
+
+      total_amount:
+        Number(
+          data.total || 0
+        )
+
     }
+
 
     return Response.json({
       success: true,
       bill
     })
+
+
   } catch (error) {
+
     console.error(
       "FINALIZE BILL ERROR:",
       error
     )
 
+
     return Response.json(
       {
         success: false,
-        error: error.message || "Billing failed"
+        error:
+          error?.message ||
+          "Billing failed"
       },
       { status: 401 }
     )
+
   }
+
 }

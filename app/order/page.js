@@ -2874,31 +2874,16 @@ export default function OrderPage() {
 
         /* ==================================================
            PRODUCT GRID
-           DESKTOP = 8
+           DESKTOP = 6
            ================================================== */
 
         .order-food-grid {
-          display:
-            grid;
-
-          width:
-            100%;
-
-          grid-template-columns:
-            repeat(
-              8,
-              minmax(
-                0,
-                1fr
-              )
-            );
-
-          gap:
-            7px;
-
-          align-items:
-            stretch;
-        }
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
 
         /* ==================================================
            PRODUCT CARD
@@ -3997,7 +3982,7 @@ export default function OrderPage() {
           .order-food-grid {
             grid-template-columns:
               repeat(
-                8,
+                6,
                 minmax(
                   0,
                   1fr
@@ -4017,15 +4002,15 @@ export default function OrderPage() {
 
           .order-page {
             grid-template-columns:
-              220px
+              250px
               minmax(0, 1fr)
-              270px;
+              370px;
           }
 
           .order-food-grid {
             grid-template-columns:
               repeat(
-                7,
+                6,
                 minmax(
                   0,
                   1fr
@@ -4338,6 +4323,614 @@ export default function OrderPage() {
           .order-item-price {
             font-size:
               9px;
+          }
+        }
+
+
+        /* =========================================================
+           FINAL RESPONSIVE UI OVERRIDES
+           UI ONLY — NO ORDER / CART / SUPABASE LOGIC CHANGED
+           ========================================================= */
+
+        /* ---------- BASE / DESKTOP ---------- */
+
+        .order-page {
+          gap: 14px;
+          padding: 14px;
+        }
+
+        .order-type-panel,
+        .cart-panel {
+          padding: 20px;
+        }
+
+        .menu-panel {
+          padding: 16px;
+        }
+
+        .order-type-grid {
+          gap: 10px;
+        }
+
+        .order-type-btn {
+          min-height: 56px;
+          padding: 13px 10px;
+          border-radius: 14px;
+          font-size: 13px;
+        }
+
+        .select-table-btn {
+          min-height: 52px;
+          padding: 13px 12px;
+          border-radius: 13px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .selection-dropdown-item {
+          min-height: 46px;
+          padding: 11px 12px;
+          font-size: 13px;
+        }
+
+        .delivery-fields {
+          gap: 9px;
+          margin-top: 12px;
+        }
+
+        .field-input {
+          min-height: 48px;
+          padding: 12px 13px;
+          border-radius: 11px;
+          font-size: 13px;
+        }
+
+        .textarea-input {
+          min-height: 82px;
+        }
+
+        .delivery-charge-box {
+          min-height: 48px;
+          padding: 11px 13px;
+          border-radius: 11px;
+          font-size: 13px;
+        }
+
+        .category-header h2 {
+          font-size: 22px;
+        }
+
+        .category-eyebrow,
+        .cart-eyebrow,
+        .modal-eyebrow {
+          font-size: 9px;
+        }
+
+        .category-count {
+          font-size: 11px;
+        }
+
+        .category-tabs {
+          gap: 7px;
+          padding: 3px 2px 9px;
+        }
+
+        .category-tab {
+          padding: 7px 11px;
+          gap: 5px;
+          font-size: 11px;
+        }
+
+        .category-tab-count {
+          min-width: 18px;
+          height: 18px;
+          font-size: 8px;
+        }
+
+        .category-title {
+          margin: 6px 0 10px;
+          font-size: 13px;
+        }
+
+        .category-title small {
+          font-size: 10px;
+        }
+
+        /* PC: EXACTLY 5 FOOD ITEMS PER ROW */
+        .order-food-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 14px;
+        }
+
+        .order-menu-card {
+          padding: 7px;
+          border-radius: 14px;
+        }
+
+        .order-menu-image-wrap {
+          aspect-ratio: 1 / .72;
+          border-radius: 10px;
+        }
+
+        .order-menu-card-content {
+          padding: 8px 3px 3px;
+        }
+
+        .order-item-name {
+          min-height: 34px;
+          font-size: 13px;
+          line-height: 1.25;
+        }
+
+        .order-item-price {
+          margin-top: 6px;
+          font-size: 14px;
+          line-height: 1.1;
+        }
+
+        /* ---------- CART ---------- */
+
+        .cart-header h2 {
+          font-size: 22px;
+        }
+
+        .cart-badge {
+          min-height: 28px;
+          padding: 6px 10px;
+          font-size: 11px;
+        }
+
+        .cart-list {
+          gap: 9px;
+        }
+
+        .cart-item {
+          gap: 9px;
+          padding: 10px;
+          border-radius: 12px;
+        }
+
+        .cart-item-name {
+          font-size: 12px;
+        }
+
+        .cart-modifiers {
+          margin-top: 4px;
+          font-size: 10px;
+        }
+
+        .cart-item-price {
+          margin-top: 4px;
+          font-size: 10px;
+        }
+
+        .cart-item-actions {
+          gap: 5px;
+        }
+
+        .qty-btn {
+          width: 34px;
+          height: 34px;
+          border-radius: 9px;
+          font-size: 18px;
+        }
+
+        .qty-value {
+          min-width: 22px;
+          font-size: 12px;
+        }
+
+        .remove-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 9px;
+          font-size: 19px;
+        }
+
+        .cart-summary {
+          margin-top: 11px;
+          padding: 11px 12px;
+          border-radius: 12px;
+        }
+
+        .summary-row {
+          margin-bottom: 7px;
+          font-size: 11px;
+        }
+
+        .summary-total {
+          font-size: 16px;
+        }
+
+        .place-order-btn {
+          min-height: 56px;
+          margin-top: 12px;
+          padding: 13px 16px;
+          border-radius: 14px;
+          font-size: 15px;
+        }
+
+        /* ---------- MODIFIER MODAL ---------- */
+
+        .modifier-choice {
+          min-height: 46px;
+          padding: 11px 12px;
+          border-radius: 10px;
+          font-size: 12px;
+        }
+
+        .close-btn {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          font-size: 16px;
+        }
+
+        /* =========================================================
+           LARGE DESKTOP: 1250px+
+           5 ITEMS / ROW
+           ========================================================= */
+
+        @media (min-width: 1250px) {
+          .order-page {
+            grid-template-columns: 300px minmax(0, 1fr) 330px;
+          }
+
+          .order-food-grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+          }
+        }
+
+        /* =========================================================
+           DESKTOP / SMALL PC: 1000px–1249px
+           5 ITEMS / ROW
+           ========================================================= */
+
+        @media (min-width: 1000px) and (max-width: 1249px) {
+          .order-page {
+            grid-template-columns: 260px minmax(0, 1fr) 320px;
+            gap: 12px;
+            padding: 12px;
+          }
+
+          .order-food-grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 11px;
+          }
+
+          .order-menu-card {
+            padding: 6px;
+          }
+
+          .order-item-name {
+            font-size: 12px;
+            min-height: 31px;
+          }
+
+          .order-item-price {
+            font-size: 13px;
+          }
+
+          .order-type-btn {
+            min-height: 54px;
+            font-size: 12px;
+          }
+        }
+
+        /* =========================================================
+           TABLET: 768px–999px
+           3 ITEMS / ROW
+           ========================================================= */
+
+        @media (min-width: 768px) and (max-width: 999px) {
+          .order-page {
+            grid-template-columns: 225px minmax(0, 1fr);
+            gap: 10px;
+            padding: 10px;
+          }
+
+          .order-type-panel,
+          .cart-panel {
+            padding: 15px;
+          }
+
+          .menu-panel {
+            padding: 13px;
+          }
+
+          .order-type-btn {
+            min-height: 52px;
+            padding: 11px 7px;
+            font-size: 12px;
+          }
+
+          .select-table-btn {
+            min-height: 48px;
+            font-size: 12px;
+          }
+
+          .delivery-fields {
+            grid-template-columns: 1fr;
+          }
+
+          .order-food-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .order-menu-card {
+            padding: 6px;
+            border-radius: 12px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio: 1 / .74;
+          }
+
+          .order-menu-card-content {
+            padding: 7px 2px 2px;
+          }
+
+          .order-item-name {
+            min-height: 32px;
+            font-size: 12px;
+          }
+
+          .order-item-price {
+            font-size: 13px;
+          }
+
+          .cart-item {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .cart-item-main {
+            width: 100%;
+          }
+
+          .cart-item-actions {
+            width: 100%;
+            justify-content: flex-end;
+          }
+        }
+
+        /* =========================================================
+           MOBILE: 481px–767px
+           2 ITEMS / ROW
+           ========================================================= */
+
+        @media (min-width: 481px) and (max-width: 767px) {
+          .order-page {
+            display: block;
+            padding: 9px;
+          }
+
+          .order-page-header {
+            margin-bottom: 9px;
+          }
+
+          .order-page-header h1 {
+            font-size: 24px;
+          }
+
+          .order-page-subtitle {
+            font-size: 11px;
+          }
+
+          .order-type-panel,
+          .menu-panel,
+          .cart-panel {
+            position: static;
+            margin-bottom: 9px;
+            border-radius: 16px;
+          }
+
+          .order-type-panel,
+          .cart-panel {
+            padding: 13px;
+          }
+
+          .menu-panel {
+            padding: 13px;
+          }
+
+          .order-type-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+          }
+
+          .order-type-btn {
+            min-height: 56px;
+            padding: 12px 7px;
+            font-size: 13px;
+          }
+
+          .delivery-fields {
+            grid-template-columns: 1fr;
+          }
+
+          .delivery-fields .field-input:first-child,
+          .delivery-fields textarea,
+          .delivery-charge-box {
+            grid-column: auto;
+          }
+
+          .order-food-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .order-menu-card {
+            padding: 6px;
+            border-radius: 12px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio: 1 / .74;
+            border-radius: 9px;
+          }
+
+          .order-menu-card-content {
+            padding: 7px 3px 3px;
+          }
+
+          .order-item-name {
+            min-height: 34px;
+            font-size: 13px;
+          }
+
+          .order-item-price {
+            font-size: 14px;
+          }
+
+          .cart-list {
+            max-height: 360px;
+          }
+
+          .cart-item {
+            align-items: flex-start;
+          }
+        }
+
+        /* =========================================================
+           SMALL MOBILE: 360px–480px
+           2 ITEMS / ROW
+           ========================================================= */
+
+        @media (max-width: 480px) {
+          .order-page {
+            display: block;
+            padding: 7px;
+          }
+
+          .order-page-header h1 {
+            font-size: 22px;
+          }
+
+          .order-page-subtitle {
+            font-size: 10px;
+          }
+
+          .order-type-panel,
+          .menu-panel,
+          .cart-panel {
+            margin-bottom: 8px;
+          }
+
+          .order-type-panel,
+          .cart-panel,
+          .menu-panel {
+            padding: 11px;
+          }
+
+          .order-type-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+
+          .order-type-btn {
+            min-height: 52px;
+            padding: 10px 5px;
+            font-size: 12px;
+          }
+
+          .select-table-btn {
+            min-height: 48px;
+            font-size: 12px;
+          }
+
+          .field-input {
+            min-height: 46px;
+            padding: 11px 12px;
+            font-size: 13px;
+          }
+
+          .textarea-input {
+            min-height: 78px;
+          }
+
+          .order-food-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+
+          .order-menu-card {
+            padding: 5px;
+            border-radius: 11px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio: 1 / .76;
+            border-radius: 8px;
+          }
+
+          .order-item-name {
+            min-height: 31px;
+            font-size: 11px;
+          }
+
+          .order-item-price {
+            font-size: 12px;
+          }
+
+          .qty-btn {
+            width: 32px;
+            height: 32px;
+          }
+
+          .remove-btn {
+            width: 30px;
+            height: 30px;
+          }
+
+          .place-order-btn {
+            min-height: 54px;
+            font-size: 14px;
+          }
+        }
+
+        /* =========================================================
+           VERY SMALL PHONES: <=360px
+           KEEP 2 ITEMS / ROW, DO NOT SHRINK TOO FAR
+           ========================================================= */
+
+        @media (max-width: 360px) {
+          .order-food-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+          }
+
+          .order-menu-card {
+            padding: 4px;
+          }
+
+          .order-menu-image-wrap {
+            aspect-ratio: 1 / .78;
+          }
+
+          .order-item-name {
+            min-height: 29px;
+            font-size: 10px;
+          }
+
+          .order-item-price {
+            font-size: 11px;
+          }
+
+          .order-type-btn {
+            min-height: 50px;
+            font-size: 11px;
+          }
+
+          .qty-btn {
+            width: 30px;
+            height: 30px;
+          }
+
+          .remove-btn {
+            width: 29px;
+            height: 29px;
           }
         }
 

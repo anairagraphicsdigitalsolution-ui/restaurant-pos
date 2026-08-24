@@ -8,6 +8,18 @@ import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 
+function indiaDateKey(value) {
+  if (!value) return ""
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ""
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(d)
+}
+
 export default function BillingPage() {
 
   const router = useRouter()
@@ -48,13 +60,34 @@ export default function BillingPage() {
   const [paymentReference, setPaymentReference] = useState("")
   const [finalizing, setFinalizing] = useState(false)
   const [finalizedBill, setFinalizedBill] = useState(null)
+  // Prevent a successfully finalized order from being submitted a second time
+  // while background order/offer refreshes are still reconciling the UI.
+  const finalizeLockRef = useRef(null)
   const [gstSaving, setGstSaving] = useState(false)
+  // Keep both legacy loyalty flags so all three billing versions remain compatible.
+  const [loyaltyFeatureEnabled, setLoyaltyFeatureEnabled] = useState(false)
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(false)
+
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [customerEmail, setCustomerEmail] = useState("")
+  const [customerProfile, setCustomerProfile] = useState(null)
+  const [customerSaving, setCustomerSaving] = useState(false)
+  const [customerLookup, setCustomerLookup] = useState(false)
+  const [customerLookupLoading, setCustomerLookupLoading] = useState(false)
+  const [customerFound, setCustomerFound] = useState(false)
+
+  // Manual discount from the third billing version.
+  const [manualDiscount, setManualDiscount] = useState("")
+  const [manualDiscountMode, setManualDiscountMode] = useState("amount")
+
   const invoiceRef = useRef(null)
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search)
-      setBillView(isDedicatedBillPage || params.get("view") === "bill")
+      // Keep the normal Billing Dashboard clean. The bill panel opens only
+      // when the user presses the top "Open Bill" button.
+      setBillView(isDedicatedBillPage)
     }
     init()
   }, [billingRefresh, isDedicatedBillPage, pathname])
@@ -97,6 +130,16 @@ export default function BillingPage() {
     fetchRestaurant(restId)
     fetchOrders(restId)
     fetchOffers(restId)
+    const { data: loyaltyPlugin } = await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", restId)
+      .in("plugin_code", ["loyalty", "crm"])
+      .eq("enabled", true)
+      .limit(1)
+    const loyaltyIsEnabled = Boolean(loyaltyPlugin?.length)
+    setLoyaltyFeatureEnabled(loyaltyIsEnabled)
+    setLoyaltyEnabled(loyaltyIsEnabled)
   }
 
   async function saveGstSetting(patch) {
@@ -343,13 +386,174 @@ export default function BillingPage() {
     )
   }
 
+  async function lookupCustomerByPhone(phoneValue, orderIdOverride = null) {
+    const phone = String(phoneValue || "").replace(/\D/g, "").slice(-15)
+    const targetOrderId = orderIdOverride || currentOrder?.id
+    if (!phone || phone.length < 10 || !targetOrderId) return
+
+    setCustomerLookup(true)
+    setCustomerLookupLoading(true)
+
+    try {
+      // Primary lookup keeps the customer API from the first/second billing version.
+      const { data: authData, error: authError } = await supabase.auth.getSession()
+      if (authError || !authData?.session?.access_token) {
+        throw new Error("Login session expired. Please login again.")
+      }
+
+      const response = await fetch(
+        `/api/billing/customer?order_id=${encodeURIComponent(targetOrderId)}&phone=${encodeURIComponent(phone)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${authData.session.access_token}`
+          }
+        }
+      )
+      const result = await response.json()
+
+      if (response.ok && result.customer) {
+        setCustomerProfile(result.customer)
+        setCustomerFound(true)
+        setCustomerName(result.customer.name || "")
+        setCustomerPhone(result.customer.phone || phone)
+        setCustomerEmail(result.customer.email || "")
+        return result.customer
+      }
+
+      // Fallback to Supabase customer table used by the third billing version.
+      if (restaurant?.id) {
+        const { data, error } = await supabase
+          .from("customers")
+          .select("id,name,phone,email,loyalty_points,total_orders,total_spend")
+          .eq("restaurant_id", restaurant.id)
+          .eq("phone", phone)
+          .maybeSingle()
+
+        if (!error && data) {
+          setCustomerProfile(data)
+          setCustomerFound(true)
+          setCustomerName(data.name || "")
+          setCustomerPhone(data.phone || phone)
+          setCustomerEmail(data.email || "")
+          return data
+        }
+      }
+
+      setCustomerProfile(null)
+      setCustomerFound(false)
+      setCustomerPhone(phone)
+      return null
+    } catch (error) {
+      console.error("Customer lookup:", error)
+
+      // Even if the API is unavailable, try the direct customer table.
+      try {
+        if (restaurant?.id) {
+          const { data } = await supabase
+            .from("customers")
+            .select("id,name,phone,email,loyalty_points,total_orders,total_spend")
+            .eq("restaurant_id", restaurant.id)
+            .eq("phone", phone)
+            .maybeSingle()
+
+          if (data) {
+            setCustomerProfile(data)
+            setCustomerFound(true)
+            setCustomerName(data.name || "")
+            setCustomerPhone(data.phone || phone)
+            setCustomerEmail(data.email || "")
+            return data
+          }
+        }
+      } catch (fallbackError) {
+        console.error("Customer fallback lookup:", fallbackError)
+      }
+    } finally {
+      setCustomerLookup(false)
+      setCustomerLookupLoading(false)
+    }
+
+    return null
+  }
+
+  async function saveBillCustomer() {
+    if (!selectedOrder) return null
+
+    const name = String(customerName || "").trim()
+    const phone = String(customerPhone || "").replace(/\D/g, "").slice(-15)
+    const email = String(customerEmail || "").trim()
+
+    if (!name) throw new Error("Customer name is required")
+    if (phone.length < 10) throw new Error("Valid customer mobile number is required")
+
+    setCustomerSaving(true)
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getSession()
+      if (authError || !authData?.session?.access_token) {
+        throw new Error("Login session expired. Please login again.")
+      }
+
+      const response = await fetch("/api/billing/customer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authData.session.access_token}`
+        },
+        body: JSON.stringify({
+          order_id: selectedOrder,
+          name,
+          phone,
+          email: email || null
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Unable to save customer")
+      }
+
+      setCustomerProfile(result.customer)
+      setCustomerFound(true)
+      setCustomerName(result.customer?.name || name)
+      setCustomerPhone(result.customer?.phone || phone)
+      setCustomerEmail(result.customer?.email || email)
+      setCurrentOrder(prev =>
+        prev
+          ? {
+              ...prev,
+              customer_id: result.customer?.id
+            }
+          : prev
+      )
+
+      return result.customer
+    } finally {
+      setCustomerSaving(false)
+    }
+  }
+
   async function loadBill(orderId) {
 
     const selected =
       orders.find(o => o.id === orderId)
 
+    // Keep a successful finalize locked for the same order. This prevents
+    // background refreshes from making the user finalize the same bill twice.
+    if (finalizeLockRef.current && finalizeLockRef.current !== orderId) {
+      finalizeLockRef.current = null
+    }
+
     setCurrentOrder(selected)
     setSelectedOrder(orderId)
+    setCustomerProfile(null)
+    setCustomerFound(false)
+    setCustomerName("")
+    setCustomerPhone("")
+    setCustomerEmail("")
+    setManualDiscount("")
+    setManualDiscountMode("amount")
     if (typeof window !== "undefined") {
       window.localStorage.setItem("anaira_pos_selected_order", orderId)
     }
@@ -362,6 +566,43 @@ export default function BillingPage() {
       setAvailableOffers([])
       setSelectedOffer(null)
       return
+    }
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getSession()
+      if (authError || !authData?.session?.access_token) {
+        throw new Error("Login session expired. Please login again.")
+      }
+
+      const customerResponse = await fetch(
+        `/api/billing/customer?order_id=${encodeURIComponent(orderId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${authData.session.access_token}`
+          }
+        }
+      )
+      const customerResult = await customerResponse.json()
+        if (customerResponse.ok && customerResult.customer) {
+          setCustomerProfile(customerResult.customer)
+          setCustomerFound(true)
+          setCustomerName(customerResult.customer.name || "")
+          setCustomerPhone(customerResult.customer.phone || "")
+          setCustomerEmail(customerResult.customer.email || "")
+        } else if (selected.order_type === "delivery" || selected.order_type === "takeaway") {
+          const { data: delivery } = await supabase
+            .from("restaurant_deliveries")
+            .select("customer_name,phone")
+            .eq("order_id", orderId)
+            .maybeSingle()
+          if (delivery) {
+            setCustomerName(delivery.customer_name || "")
+            setCustomerPhone(delivery.phone || "")
+            if (delivery.phone) await lookupCustomerByPhone(delivery.phone, orderId)
+          }
+        }
+    } catch (error) {
+      console.error("Billing customer load:", error)
     }
 
     const { data: orderItems, error } =
@@ -521,6 +762,96 @@ export default function BillingPage() {
       }
     }
 
+    // Normalize the offer shape used by the billing UI.
+    // The current offers table uses offer_type + discount_value, while older
+    // billing code used discount_type + discount. If the RPC does not expose
+    // calculated_discount, calculate it here so the visible offer also
+    // actually reduces the bill.
+    rankedOffers = (rankedOffers || []).map(offer => {
+      const rawValue = Number(
+        offer?.discount_value ??
+        offer?.discount ??
+        offer?.value ??
+        0
+      )
+      const type = String(
+        offer?.offer_type ??
+        offer?.discount_type ??
+        "percent"
+      ).toLowerCase()
+
+      let calculated = Number(
+        offer?.calculated_discount ??
+        offer?.discount_amount
+      )
+
+      if (!Number.isFinite(calculated) || calculated < 0) {
+        calculated = 0
+      }
+
+      // If the RPC returned an offer but not a usable monetary discount,
+      // derive it from the actual offer fields.
+      if (calculated <= 0 && rawValue > 0 && (type === "percent" || type === "flat")) {
+        calculated = type === "flat"
+          ? Math.min(orderSubtotal, rawValue)
+          : Math.min(
+              orderSubtotal,
+              orderSubtotal * Math.min(Math.max(rawValue, 0), 100) / 100
+            )
+      }
+
+      if (offer?.max_discount != null) {
+        calculated = Math.min(
+          calculated,
+          Math.max(0, Number(offer.max_discount))
+        )
+      }
+
+      return {
+        ...offer,
+        discount: Number.isFinite(Number(offer?.discount))
+          ? Number(offer.discount)
+          : rawValue,
+        discount_type: offer?.discount_type || type,
+        calculated_discount: Number(calculated.toFixed(2))
+      }
+    }).filter(offer =>
+      Number(offer?.calculated_discount || 0) > 0
+    ).sort((a, b) =>
+      Number(b.calculated_discount || 0) - Number(a.calculated_discount || 0)
+    )
+
+    // If the database preview returned nothing, use the restaurant offers as
+    // a safe UI fallback and calculate their monetary discount locally.
+    if (!rankedOffers.length && offers?.length) {
+      rankedOffers = offers
+        .filter(offer => {
+          const active = offer?.active !== false && offer?.is_active !== false
+          const fromOk = !offer?.valid_from || new Date(offer.valid_from) <= new Date()
+          const tillOk = !offer?.valid_till || new Date(`${offer.valid_till}T23:59:59`) >= new Date()
+          const minOrder = Number(offer?.min_order || 0)
+          return active && fromOk && tillOk && orderSubtotal >= minOrder
+        })
+        .map(offer => {
+          const rawValue = Number(offer?.discount_value ?? offer?.discount ?? 0)
+          const type = String(offer?.offer_type ?? offer?.discount_type ?? "percent").toLowerCase()
+          let calculated = type === "flat"
+            ? Math.min(orderSubtotal, Math.max(0, rawValue))
+            : Math.min(orderSubtotal, orderSubtotal * Math.min(Math.max(rawValue, 0), 100) / 100)
+          if (offer?.max_discount != null) {
+            calculated = Math.min(calculated, Math.max(0, Number(offer.max_discount)))
+          }
+          return {
+            ...offer,
+            discount: rawValue,
+            discount_type: type,
+            calculated_discount: Number(calculated.toFixed(2))
+          }
+        })
+        .filter(offer => Number(offer.calculated_discount || 0) > 0)
+        .sort((a, b) => Number(b.calculated_discount || 0) - Number(a.calculated_discount || 0))
+    }
+
     const storedOffer =
       selected?.offer_id
         ? (rankedOffers || []).find(
@@ -560,9 +891,22 @@ export default function BillingPage() {
         : 0
     )
 
-    const selectedTotal = Number(selected?.total_amount || 0)
+    const previewTax = Number(selected?.tax_amount || 0) > 0
+      ? Number(selected.tax_amount)
+      : restaurant?.gst_enabled
+        ? Number(((Math.max(0, orderSubtotal - previewDiscount) * Number(restaurant?.gst_rate || 0)) / 100).toFixed(2))
+        : 0
+    const selectedTotal = rankedOffers.length || selected?.offer_id
+      ? Number((Math.max(0, orderSubtotal - previewDiscount) + previewTax).toFixed(2))
+      : Number(selected?.total_amount || 0)
     const selectedPaid = Number(selected?.paid_amount || 0)
-    const outstanding = Math.max(0, selectedTotal - selectedPaid)
+
+    // Offer-adjusted outstanding amount.
+    // If the order is already paid, it is always exactly zero.
+    const outstanding =
+      String(selected?.payment_status || "").toLowerCase() === "paid"
+        ? 0
+        : Math.max(0, Number((selectedTotal - selectedPaid).toFixed(2)))
     setPaymentReference(paymentLedgerByOrder[orderId]?.latestReference || "")
     setPaidAmount(
       selected?.payment_status === "paid"
@@ -618,8 +962,32 @@ export default function BillingPage() {
 
   const serverOfferId = currentOrder?.offer_id || null
   const selectedOfferId = selectedOffer?.id || null
+
+  const manualDiscountValue = Math.max(
+    0,
+    Number(manualDiscount || 0)
+  )
+
+  const manualDiscountAmount =
+    manualDiscountMode === "percent"
+      ? Math.min(
+          subtotal,
+          Number(
+            (
+              subtotal *
+              manualDiscountValue /
+              100
+            ).toFixed(2)
+          )
+        )
+      : Math.min(
+          subtotal,
+          manualDiscountValue
+        )
+
   const useServerDiscount =
     serverDiscount > 0 &&
+    manualDiscountValue <= 0 &&
     (!selectedOfferId || selectedOfferId === serverOfferId)
 
   const previewDiscount =
@@ -631,7 +999,9 @@ export default function BillingPage() {
         )
 
   const discountAmount =
-    previewDiscount
+    manualDiscountValue > 0
+      ? manualDiscountAmount
+      : previewDiscount
 
   const taxableAmount =
     Math.max(
@@ -685,19 +1055,42 @@ export default function BillingPage() {
   const useStoredOrderTotal =
     storedOrderTotal > 0 &&
     !editMode &&
-    (!selectedOfferId || selectedOfferId === serverOfferId)
+    manualDiscountValue <= 0 &&
+    (
+      !selectedOfferId ||
+      selectedOfferId === serverOfferId
+    )
+
+  // A selected/eligible offer MUST be deducted before GST and before payment.
+  // If the selected offer is different from the server-stored offer, always
+  // recalculate instead of trusting the old order total.
+  const calculatedBillTotal = Number(
+    (
+      taxableAmount +
+      gst
+    ).toFixed(2)
+  )
 
   const total =
-    useStoredOrderTotal
-      ? storedOrderTotal
-      : Number(
-          (
-            taxableAmount +
-            gst
-          ).toFixed(2)
-        )
+    selectedOfferId && selectedOfferId !== serverOfferId
+      ? calculatedBillTotal
+      : useStoredOrderTotal
+        ? storedOrderTotal
+        : calculatedBillTotal
 
   async function finalizeBill() {
+
+    // A bill that has already completed successfully must never be posted
+    // again. The ref is intentionally synchronous, so rapid double-clicks
+    // are blocked before React state has a chance to re-render.
+    if (
+      finalizing ||
+      finalizeLockRef.current === selectedOrder ||
+      finalizedBill?.order_id === selectedOrder ||
+      String(currentOrder?.payment_status || "").toLowerCase() === "paid"
+    ) {
+      return
+    }
 
     if (
       !selectedOrder ||
@@ -706,9 +1099,45 @@ export default function BillingPage() {
       return
     }
 
+    const orderType = String(
+      currentOrder?.order_type ||
+      currentOrder?.type ||
+      ""
+    ).toLowerCase()
+
+    const loyaltyActive = loyaltyFeatureEnabled || loyaltyEnabled
+
+    if (
+      loyaltyActive &&
+      orderType === "delivery" &&
+      (!customerName.trim() || !customerPhone.trim())
+    ) {
+      alert("Delivery bills require customer name and mobile number.")
+      return
+    }
+
+    if (
+      loyaltyActive &&
+      customerPhone.trim() &&
+      customerPhone.replace(/\D/g, "").length < 10
+    ) {
+      alert("Please enter a valid 10-digit mobile number.")
+      return
+    }
+
     setFinalizing(true)
+    finalizeLockRef.current = selectedOrder
 
     try {
+      const hasCustomerDetails =
+        Boolean(
+          String(customerName || "").trim() ||
+          String(customerPhone || "").trim()
+        )
+
+      const savedCustomer = hasCustomerDetails
+        ? await saveBillCustomer()
+        : null
 
       const {
         data: sessionData,
@@ -748,17 +1177,77 @@ export default function BillingPage() {
               payment_method:
                 paymentMethod,
 
+              // Finalize always collects the complete bill amount.
+              // Do not trust a manually entered paid amount.
               paid_amount:
-                Number(
-                  paidAmount || 0
-                ),
+                Number(Math.max(0, total || 0)),
 
               payment_reference:
                 paymentReference || null,
 
               offer_id:
                 selectedOffer?.id ||
-                null
+                null,
+
+              customer_id:
+                savedCustomer?.id ||
+                customerProfile?.id ||
+                currentOrder?.customer_id ||
+                null,
+
+              customer_name:
+                customerName ||
+                savedCustomer?.name ||
+                null,
+
+              customer_phone:
+                customerPhone ||
+                savedCustomer?.phone ||
+                null,
+
+              customer_email:
+                customerEmail ||
+                savedCustomer?.email ||
+                null,
+
+              discount_amount:
+                Number(discountAmount || 0),
+
+              // Compatibility aliases for older finalize API versions.
+              offer_discount_amount:
+                manualDiscountValue > 0
+                  ? 0
+                  : Number(discountAmount || 0),
+
+              offer_title:
+                selectedOffer?.title ||
+                selectedOffer?.name ||
+                null,
+
+              manual_discount_amount:
+                manualDiscountValue > 0
+                  ? Number(manualDiscountAmount || 0)
+                  : 0,
+
+              manual_discount_mode:
+                manualDiscountValue > 0
+                  ? manualDiscountMode
+                  : null,
+
+              final_total:
+                Number(Math.max(0, total || 0)),
+
+              // ₹100 = 10 points. The finalize API can persist this value
+              // atomically with the successful payment.
+              loyalty_points_earned:
+                loyaltyActive
+                  ? Math.floor(
+                      Math.max(
+                        0,
+                        Number(total || 0)
+                      ) / 100
+                    ) * 10
+                  : 0
 
             })
           }
@@ -789,7 +1278,9 @@ export default function BillingPage() {
       setCurrentOrder(
         prev => ({
           ...prev,
-          ...result.bill
+          ...result.bill,
+          payment_status: "paid",
+          paid_amount: Number(result.bill?.total_amount ?? total ?? 0),
         })
       )
 
@@ -813,16 +1304,43 @@ export default function BillingPage() {
           : 0
       )
 
-      if (
-        currentOrder?.restaurant_id
-      ) {
-
-        await fetchOrders(
-          currentOrder.restaurant_id
-        )
+      // Keep the successful result as the single source of truth for this
+      // screen. Do NOT immediately call fetchOrders() here: that async refresh
+      // can race with loadBill() and temporarily put the old unpaid order back,
+      // which is why the user could previously be forced to click Finalize
+      // again. The database has already been finalized by the API at this point.
+      const finalizedOrderPatch = {
+        ...result.bill,
+        id: selectedOrder,
+        payment_status: "paid",
+        paid_amount: Number(result.bill?.total_amount ?? total ?? 0),
+        total_amount: Number(result.bill?.total_amount ?? total ?? 0),
+        discount_amount: Number(result.bill?.discount_amount ?? result.bill?.discount ?? discountAmount ?? 0)
       }
 
+      setCurrentOrder(prev => ({
+        ...prev,
+        ...finalizedOrderPatch
+      }))
+
+      setOrders(prev =>
+        prev.map(order =>
+          order.id === selectedOrder
+            ? {
+                ...order,
+                ...finalizedOrderPatch,
+                payment_status: "paid",
+                paid_amount: Number(finalizedOrderPatch.paid_amount || 0)
+              }
+            : order
+        )
+      )
+
     } catch (error) {
+
+      // The request did not complete successfully, so the order may be
+      // retried. Clear the synchronous lock only on failure.
+      finalizeLockRef.current = null
 
       console.error(error)
 
@@ -849,13 +1367,7 @@ export default function BillingPage() {
     )
   }
 
-  const today = (() => {
-    const d = new Date()
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, "0")
-    const day = String(d.getDate()).padStart(2, "0")
-    return `${y}-${m}-${day}`
-  })()
+  const today = indiaDateKey(new Date())
 
   /*
     Reports: blank dates mean ALL orders.
@@ -863,7 +1375,7 @@ export default function BillingPage() {
   */
 
   const filteredOrders = orders.filter(o => {
-    const orderDate = String(o.created_at || "").slice(0, 10)
+    const orderDate = indiaDateKey(o.billed_at || o.created_at)
     if (!orderDate) return false
     if (!reportDate && !reportEndDate) return true
     if (reportDate && !reportEndDate) return orderDate === reportDate
@@ -891,14 +1403,27 @@ export default function BillingPage() {
       0
     )
 
+  const reportGstTotal = filteredOrders.reduce(
+    (sum, o) => sum + Number(o.tax_amount || 0),
+    0
+  )
+
   const paidOrderCount = filteredOrders.filter(
     o => String(o.payment_status || "").toLowerCase() === "paid"
   ).length
 
+  // Pending balance is based on the reconciled payment status.
+  // A finalized/paid bill has ZERO outstanding balance even when an older
+  // stored order total still contains the pre-offer amount.
   const pendingAmount = filteredOrders.reduce((sum, o) => {
+    const status = String(o.payment_status || "").toLowerCase()
+
+    if (status === "paid") return sum
+
     const orderTotal = Number(reportTotals[o.id] || 0)
     const paid = Number(o.paid_amount || 0)
-    return sum + Math.max(0, orderTotal - paid)
+
+    return sum + Math.max(0, Number((orderTotal - paid).toFixed(2)))
   }, 0)
 
   const collectedAmount = filteredOrders.reduce((sum, o) => {
@@ -1029,6 +1554,224 @@ export default function BillingPage() {
     }
   }
 
+  async function generateReportPdf(printAfter = false) {
+    try {
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      })
+
+      const margin = 14
+      const pageWidth = 210
+      const pageHeight = 297
+      const contentWidth = pageWidth - margin * 2
+      let y = margin
+      let pageNo = 1
+
+      const reportPeriod = reportDate || reportEndDate
+        ? `${reportDate || "Start"}${reportEndDate ? ` → ${reportEndDate}` : ""}`
+        : "All available orders"
+
+      const money = value => `₹${Number(value || 0).toFixed(2)}`
+      const text = value => String(value ?? "").replace(/\s+/g, " ").trim()
+
+      const drawHeader = () => {
+        y = margin
+        pdf.setFont("helvetica", "bold")
+        pdf.setFontSize(16)
+        pdf.setTextColor(17, 24, 39)
+        pdf.text(text(restaurant?.name || "Restaurant"), margin, y)
+        y += 6
+
+        pdf.setFont("helvetica", "normal")
+        pdf.setFontSize(9)
+        pdf.setTextColor(75, 85, 99)
+
+        const address = text(restaurant?.address)
+        if (address) {
+          const lines = pdf.splitTextToSize(address, contentWidth)
+          pdf.text(lines, margin, y)
+          y += lines.length * 4
+        }
+
+        const contact = [restaurant?.phone, restaurant?.gst_number && restaurant?.gst_enabled ? `GSTIN: ${restaurant.gst_number}` : ""]
+          .filter(Boolean).join("  •  ")
+        if (contact) {
+          pdf.text(contact, margin, y)
+          y += 5
+        }
+
+        pdf.setFont("helvetica", "bold")
+        pdf.setFontSize(13)
+        pdf.setTextColor(17, 24, 39)
+        pdf.text("SALES REPORT", margin, y + 4)
+
+        pdf.setFont("helvetica", "normal")
+        pdf.setFontSize(9)
+        pdf.setTextColor(75, 85, 99)
+        pdf.text(`Report period: ${reportPeriod}`, pageWidth - margin, y + 4, { align: "right" })
+
+        y += 11
+        pdf.setDrawColor(209, 213, 219)
+        pdf.line(margin, y, pageWidth - margin, y)
+        y += 7
+      }
+
+      const drawFooter = () => {
+        pdf.setFont("helvetica", "normal")
+        pdf.setFontSize(7)
+        pdf.setTextColor(107, 114, 128)
+        pdf.text("Powered by Anaira Graphics", pageWidth / 2, pageHeight - 8, { align: "center" })
+        pdf.text(`Page ${pageNo}`, pageWidth - margin, pageHeight - 8, { align: "right" })
+      }
+
+      const newPage = () => {
+        drawFooter()
+        pdf.addPage()
+        pageNo += 1
+        drawHeader()
+      }
+
+      const ensureSpace = (height = 10) => {
+        if (y + height > pageHeight - 18) newPage()
+      }
+
+      const sectionTitle = title => {
+        ensureSpace(10)
+        pdf.setFont("helvetica", "bold")
+        pdf.setFontSize(11)
+        pdf.setTextColor(17, 24, 39)
+        pdf.text(title, margin, y)
+        y += 6
+      }
+
+      const table = (headers, rows, widths) => {
+        const rowHeight = 6
+        const headerHeight = 7
+        const totalWidth = widths.reduce((a,b) => a+b, 0)
+        const drawRow = (cells, isHeader = false) => {
+          const linesPerCell = cells.map((cell, i) =>
+            pdf.splitTextToSize(text(cell), Math.max(10, widths[i] - 4))
+          )
+          const h = isHeader ? headerHeight : Math.max(rowHeight, Math.min(18, Math.max(...linesPerCell.map(l => l.length)) * 4 + 2))
+          ensureSpace(h + 1)
+
+          let x = margin
+          pdf.setFillColor(...(isHeader ? [243,244,246] : [255,255,255]))
+          pdf.setDrawColor(209,213,219)
+          pdf.rect(x, y, totalWidth, h, "FD")
+
+          cells.forEach((cell, i) => {
+            if (i > 0) pdf.line(x, y, x, y + h)
+            const lines = linesPerCell[i]
+            pdf.setFont("helvetica", isHeader ? "bold" : "normal")
+            pdf.setFontSize(isHeader ? 7.5 : 7.2)
+            pdf.setTextColor(31,41,55)
+            pdf.text(lines, x + 2, y + 4)
+            x += widths[i]
+          })
+          y += h
+        }
+
+        drawRow(headers, true)
+        rows.forEach(row => drawRow(row, false))
+        y += 4
+      }
+
+      drawHeader()
+
+      sectionTitle("Summary")
+      table(
+        ["Metric", "Value", "Metric", "Value"],
+        [
+          ["Revenue", money(reportTotal), "Orders", filteredOrders.length],
+          ["Average bill", money(reportTotal / (filteredOrders.length || 1)), "GST", money(reportGstTotal)],
+          ["Paid orders", paidOrderCount, "Pending", money(pendingAmount)],
+          ["Collected", money(collectedAmount), "Outstanding", money(pendingAmount)]
+        ],
+        [48, 48, 48, 48]
+      )
+
+      sectionTitle("Complete Order Details")
+      table(
+        ["Order", "Date", "Status", "Amount", "Collected"],
+        filteredOrders.map(o => [
+          `#${String(o.id).slice(0, 8)}`,
+          formatDate(o.billed_at || o.created_at),
+          String(o.delivery_status || o.status || "pending").replaceAll("_", " "),
+          money(reportTotals[o.id]),
+          money(o.paid_amount)
+        ]),
+        [30, 45, 43, 26, 26]
+      )
+
+      sectionTitle("Payment Breakdown")
+      table(
+        ["Payment method", "Collected"],
+        Object.entries(paymentMethodTotals).map(([method, amount]) => [
+          method.toUpperCase(), money(amount)
+        ]),
+        [120, 50]
+      )
+
+      const dailyMap = {}
+      filteredOrders.forEach(o => {
+        const key = indiaDateKey(o.billed_at || o.created_at)
+        dailyMap[key] = (dailyMap[key] || 0) + Number(reportTotals[o.id] || 0)
+      })
+
+      sectionTitle("Daily Revenue")
+      table(
+        ["Date", "Revenue"],
+        Object.entries(dailyMap).sort(([a],[b]) => a.localeCompare(b)).map(([date, amount]) => [
+          date, money(amount)
+        ]),
+        [120, 50]
+      )
+
+      sectionTitle("Item Summary")
+      table(
+        ["Item", "Sales"],
+        filteredItemChartData.map(item => [item.name, money(item.total)]),
+        [120, 50]
+      )
+
+      sectionTitle("GST Summary")
+      table(
+        ["GST", "Amount"],
+        [
+          ["GST collected", money(reportGstTotal)],
+          ["GST status", restaurant?.gst_enabled ? "Enabled" : "Disabled"],
+          ["GST rate", restaurant?.gst_enabled ? `${Number(restaurant?.gst_rate || 0)}%` : "0%"]
+        ],
+        [120, 50]
+      )
+
+      drawFooter()
+      const suffix = reportDate || reportEndDate
+        ? `${reportDate || "start"}-${reportEndDate || reportDate || "end"}`
+        : "all"
+      const filename = `sales-report-${suffix}.pdf`
+      if (printAfter) {
+        const blobUrl = pdf.output("bloburl")
+        const printWindow = window.open(blobUrl, "_blank")
+        if (!printWindow) {
+          pdf.save(filename)
+          return
+        }
+        setTimeout(() => {
+          try { printWindow.focus(); printWindow.print() } catch {}
+        }, 900)
+      } else {
+        pdf.save(filename)
+      }
+    } catch (error) {
+      console.error("REPORT PDF GENERATION ERROR:", error)
+      alert("Unable to generate the complete report PDF on this device.")
+    }
+  }
+
   function printContent(id, selectedPrintSize = printSize) {
 
     const element =
@@ -1037,6 +1780,14 @@ export default function BillingPage() {
     if (!element) return
 
     const clone = element.cloneNode(true)
+
+    if (id === "report-print") {
+      clone.style.maxHeight = "none"
+      clone.style.height = "auto"
+      clone.style.overflow = "visible"
+      clone.style.overflowY = "visible"
+      clone.style.width = "100%"
+    }
 
     clone
       .querySelectorAll("[data-html2canvas-ignore]")
@@ -1081,6 +1832,18 @@ export default function BillingPage() {
         <head>
           <title>Invoice</title>
           <style>
+            :root {
+              --surface: #ffffff;
+              --surface-2: #ffffff;
+              --surface2: #ffffff;
+              --text: #111111;
+              --muted: #555555;
+              --border: #dddddd;
+              --primary: #b7791f;
+              --primary-rgb: 183,121,31;
+              --warning-rgb: 217,119,6;
+            }
+
             @page {
               size: ${printWidth} ${printHeight};
               margin: 0;
@@ -1134,6 +1897,59 @@ export default function BillingPage() {
               margin: 0 !important;
               box-shadow: none !important;
               border: 0 !important;
+            }
+
+
+
+            #report-print,
+            #report-print * {
+              box-sizing: border-box;
+            }
+
+            #report-print {
+              max-height: none !important;
+              height: auto !important;
+              overflow: visible !important;
+              background: #fff !important;
+              color: #111 !important;
+              border: 0 !important;
+              box-shadow: none !important;
+            }
+
+            #report-print .report-table-wrap {
+              max-height: none !important;
+              height: auto !important;
+              overflow: visible !important;
+            }
+
+            #report-print .report-actions {
+              display: none !important;
+            }
+
+            #report-print .report-summary-grid {
+              grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+            }
+
+            #report-print table {
+              page-break-inside: auto;
+            }
+
+            #report-print tr {
+              page-break-inside: avoid;
+              page-break-after: auto;
+            }
+
+            #report-print thead {
+              display: table-header-group;
+            }
+
+            #report-print h3,
+            #report-print h4 {
+              color: #111 !important;
+            }
+
+            #report-print .report-print-footer {
+              color: #777 !important;
             }
 
             @media print {
@@ -1320,6 +2136,28 @@ export default function BillingPage() {
           grid-template-columns: minmax(0, 1fr) !important;
         }
 
+
+        /* Reports stay visible on the normal Billing Dashboard.
+           Only the invoice/bill column is hidden outside Bill View. */
+        .billing-main-grid.billing-report-only {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+
+        .billing-main-grid.billing-report-only > .billing-bill-section {
+          display: none !important;
+        }
+
+        .billing-main-grid.billing-report-only > .billing-left-panel {
+          position: static !important;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+
+        .billing-main-grid.billing-report-only .billing-report-print {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
         .billing-print-settings {
           display: grid;
           grid-template-columns: minmax(180px, 1fr) minmax(140px, .7fr) minmax(140px, .7fr);
@@ -1407,14 +2245,27 @@ export default function BillingPage() {
           onClick={() => {
             if (isDedicatedBillPage) {
               router.push("/billing")
-            } else {
-              router.push("/billing/bill")
+              return
             }
+
+            setBillView(v => {
+              const next = !v
+              if (!v && typeof window !== "undefined") {
+                window.setTimeout(() => {
+                  document
+                    .getElementById("billing-bill-section")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }, 50)
+              }
+              return next
+            })
           }}
           className="billing-action billing-bill-jump"
           style={{ ...btnGreen, marginTop: 0, width: "auto", minWidth: 150 }}
+          aria-expanded={isBillScreen}
+          aria-controls="billing-bill-section"
         >
-          {isBillScreen ? "← Billing" : "🧾 Open Bill"}
+          {isBillScreen ? "← Billing Dashboard" : "🧾 Open Bill"}
         </button>
 
         <button
@@ -1603,7 +2454,7 @@ export default function BillingPage() {
 
       {/* MAIN GRID */}
 
-      <div className="billing-main-grid" style={mainGrid}>
+      <div className={`billing-main-grid${isBillScreen ? "" : " billing-report-only"}`} style={mainGrid}>
 
         {/* BILL */}
 
@@ -1893,6 +2744,42 @@ export default function BillingPage() {
 
               </table>
 
+              {/* CUSTOMER + APPLIED OFFER ON INVOICE */}
+              {(customerName || customerPhone || selectedOffer) ? (
+                <div
+                  className="billing-invoice-meta"
+                  style={{
+                    marginTop:18,
+                    padding:"12px 14px",
+                    border:"1px solid #e5e7eb",
+                    borderRadius:12,
+                    background:"#f8fafc",
+                    display:"grid",
+                    gap:5,
+                    fontSize:13
+                  }}
+                >
+                  {(customerName || customerPhone) ? (
+                    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <span><strong>Customer:</strong> {customerName || "—"}</span>
+                      {customerPhone ? <span><strong>Mobile:</strong> {customerPhone}</span> : null}
+                      {customerEmail ? <span><strong>Email:</strong> {customerEmail}</span> : null}
+                    </div>
+                  ) : null}
+                  {selectedOffer ? (
+                    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <span><strong>Offer:</strong> {selectedOffer.title || selectedOffer.name || "Offer"}</span>
+                      <span><strong>Saved:</strong> -₹{Number(discountAmount || 0).toFixed(2)}</span>
+                    </div>
+                  ) : null}
+                  {(loyaltyFeatureEnabled || loyaltyEnabled) && customerPhone ? (
+                    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <span><strong>Loyalty:</strong> +{Math.floor(Math.max(0, Number(total || 0)) / 100) * 10} points after successful payment</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {/* TOTALS */}
 
               <div style={totalBox}>
@@ -1904,8 +2791,14 @@ export default function BillingPage() {
                   {subtotal.toFixed(2)}
                 </p>
 
+                {selectedOffer ? (
+                  <p>
+                    Offer: {selectedOffer.title || selectedOffer.name || "Offer"}
+                  </p>
+                ) : null}
+
                 <p>
-                  Offer Discount:
+                  {manualDiscountValue > 0 ? "Manual Discount:" : "Offer Discount:"}
                   {" "}
                   -₹
                   {discountAmount.toFixed(2)}
@@ -1948,6 +2841,58 @@ export default function BillingPage() {
 
                 <strong>Payment</strong>
 
+                <div style={{display:"grid",gap:10,padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface2)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                      <span><strong>Customer</strong><br/><small style={{color:"var(--muted)"}}>Phone match links the customer. Points are added automatically after successful payment.</small></span>
+                      {customerProfile ? <span style={{fontSize:11,fontWeight:800,color:"var(--primary)"}}>{Number(customerProfile.loyalty_points || 0)} pts</span> : null}
+                    </div>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={e => setCustomerName(e.target.value)}
+                      placeholder="Customer name"
+                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                    />
+                    <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:8}}>
+                      <input
+                        type="tel"
+                        value={customerPhone}
+                        onChange={e => {
+                          setCustomerPhone(e.target.value.replace(/[^0-9+ ]/g, "").slice(0,16))
+                          setCustomerFound(false)
+                        }}
+                        onBlur={() => lookupCustomerByPhone(customerPhone)}
+                        placeholder="Customer mobile number"
+                        style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db",minWidth:0}}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => lookupCustomerByPhone(customerPhone)}
+                        disabled={customerLookupLoading}
+                        style={{...btnBlue,marginTop:0,padding:"10px 14px",minWidth:90}}
+                      >
+                        {customerLookupLoading ? "Searching..." : "Find"}
+                      </button>
+                    </div>
+                    <input
+                      type="email"
+                      value={customerEmail}
+                      onChange={e => setCustomerEmail(e.target.value)}
+                      placeholder="Customer email (optional)"
+                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                    />
+                    {customerLookup ? <small style={{color:"var(--muted)"}}>Checking customer…</small> : null}
+                    {customerFound ? (
+                      <small style={{color:"#15803d",fontWeight:700}}>✓ Existing customer found — details loaded.</small>
+                    ) : customerProfile ? (
+                      <small style={{color:"var(--muted)"}}>Existing customer • {Number(customerProfile.total_orders || 0)} orders • ₹{Number(customerProfile.total_spend || 0).toFixed(2)} spent</small>
+                    ) : (
+                      <small style={{color:"var(--muted)"}}>New customer will be created when the bill is finalized.</small>
+                    )}
+                    <small style={{fontWeight:800,color:"var(--primary)"}}>Loyalty: ₹100 = 10 points.</small>
+                    <small style={{fontWeight:800,color:"var(--text)"}}>This bill: +{Math.floor(Math.max(0, Number(total || 0)) / 100) * 10} points after successful payment.</small>
+                  </div>
+
                 <label className="billing-field-label">Offer / Discount</label>
                 <select
                   value={selectedOffer?.id || ""}
@@ -1964,6 +2909,42 @@ export default function BillingPage() {
                     </option>
                   ))}
                 </select>
+                {selectedOffer ? (
+                  <small style={{color:"var(--primary)",fontWeight:800}}>
+                    ✓ Auto-applied: {selectedOffer.title || selectedOffer.name || "Offer"} — ₹{Number(selectedOffer.calculated_discount || discountAmount || 0).toFixed(2)} saved
+                  </small>
+                ) : null}
+
+                <div
+                  style={{
+                    display:"grid",
+                    gridTemplateColumns:"minmax(0,1fr) minmax(120px,160px)",
+                    gap:10,
+                    alignItems:"end"
+                  }}
+                >
+                  <label className="billing-field-label" style={{display:"grid",gap:6}}>
+                    <span>Manual Discount</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={manualDiscount}
+                      onChange={e => setManualDiscount(e.target.value)}
+                      placeholder={manualDiscountMode === "percent" ? "0" : "₹0.00"}
+                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                    />
+                  </label>
+                  <select
+                    value={manualDiscountMode}
+                    onChange={e => setManualDiscountMode(e.target.value)}
+                    style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db",minWidth:0}}
+                    aria-label="Discount type"
+                  >
+                    <option value="amount">₹ Amount</option>
+                    <option value="percent">% Percent</option>
+                  </select>
+                </div>
 
                 <label className="billing-field-label">Payment Method</label>
                 <select
@@ -2002,20 +2983,15 @@ export default function BillingPage() {
                 <input
                   type="number"
                   min="0"
-                  value={paidAmount}
-                  onChange={e =>
-                    setPaidAmount(
-                      e.target.value
-                    )
-                  }
-                  placeholder={
-                    `Paid amount (₹${total.toFixed(2)})`
-                  }
+                  value={Number(total || 0).toFixed(2)}
+                  readOnly
+                  aria-label="Paid amount"
                   style={{
                     ...input,
                     color:"#111827",
-                    background:"#ffffff",
-                    border:"1px solid #d1d5db"
+                    background:"#f3f4f6",
+                    border:"1px solid #d1d5db",
+                    cursor:"not-allowed"
                   }}
                 />
 
@@ -2038,6 +3014,8 @@ export default function BillingPage() {
                   }
                   disabled={
                     finalizing ||
+                    finalizeLockRef.current === selectedOrder ||
+                    finalizedBill?.order_id === selectedOrder ||
                     currentOrder
                       ?.payment_status ===
                       "paid"
@@ -2056,12 +3034,12 @@ export default function BillingPage() {
 
                     ? "Finalizing..."
 
-                    : currentOrder
-                        ?.payment_status ===
-                        "paid"
-
+                    : (
+                        currentOrder?.payment_status === "paid" ||
+                        finalizeLockRef.current === selectedOrder ||
+                        finalizedBill?.order_id === selectedOrder
+                      )
                       ? "Paid"
-
                       : "Finalize & Generate Invoice"}
 
                 </button>
@@ -2162,143 +3140,218 @@ export default function BillingPage() {
 
           <div
             id="report-print"
+            className="billing-report-print"
             style={{
               ...card,
               maxHeight:"850px",
               overflowY:"auto"
             }}
           >
-
-            <h3
-              style={{
-                color:"var(--primary)",
-                marginBottom:15
-              }}
-            >
-              📊 Revenue Report
-            </h3>
-
-            <div
-              style={{
-                maxHeight:"230px",
-                overflowY:"auto",
-                marginTop:15,
-                borderRadius:18,
-                border:
-                  "1px solid rgba(var(--primary-rgb),.12)",
-                background:
-                  "rgba(255,255,255,.02)"
-              }}
-            >
-
-              <table className="billing-invoice-table" style={table}>
-
-                <thead>
-
-                  <tr>
-
-                    <th style={th}>
-                      Order
-                    </th>
-
-                    <th style={th}>
-                      Date
-                    </th>
-
-                    <th style={th}>
-                      Amount
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {filteredOrders.map(o => (
-
-                    <tr key={o.id}>
-
-                      <td style={td}>
-                        #{o.id.slice(0,5)}
-                      </td>
-
-                      <td style={td}>
-                        {formatDate(
-                          o.created_at
-                        )}
-                      </td>
-
-                      <td style={td}>
-                        ₹
-                        {Number(
-                          reportTotals[o.id] ||
-                          0
-                        ).toFixed(2)}
-                      </td>
-
-                    </tr>
-
-                  ))}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-            <div
-              style={{
-                marginTop:25,
-                padding:24,
-                borderRadius:24,
-
-                background:
-                  "linear-gradient(135deg,rgba(var(--primary-rgb),.08),rgba(var(--warning-rgb),.05))",
-
-                border:
-                  "1px solid rgba(var(--primary-rgb),.35)",
-
-                backdropFilter:
-                  "blur(20px)",
-
-                boxShadow:
-                  "0 15px 35px rgba(var(--primary-rgb),.12)"
-              }}
-            >
-
-              <h2
-                style={{
-                  color:"var(--primary)",
-                  margin:0
-                }}
-              >
-                ₹
-                {reportTotal.toFixed(2)}
-              </h2>
-
-              <p
-                style={{
-                  marginTop:8,
-                  color:"var(--muted)"
-                }}
-              >
-                Total Revenue
+            <div className="report-print-header" style={{marginBottom:18}}>
+              <h3 style={{color:"var(--primary)",marginBottom:6}}>
+                📊 Revenue Report
+              </h3>
+              <p style={{margin:0,color:"var(--muted)"}}>
+                {reportDate || reportEndDate
+                  ? `Period: ${reportDate || "Start"}${reportEndDate ? ` → ${reportEndDate}` : ""}`
+                  : "All available orders"}
               </p>
-
+              {restaurant?.name ? (
+                <p style={{margin:"5px 0 0",fontWeight:800,color:"var(--text)"}}>
+                  {restaurant.name}
+                </p>
+              ) : null}
             </div>
 
-            <button
-              onClick={() =>
-                printContent(
-                  "report-print"
-                )
-              }
-              className="billing-action" style={luxuryBtn}
+            <div
+              className="report-summary-grid"
+              style={{
+                display:"grid",
+                gridTemplateColumns:"repeat(6,minmax(0,1fr))",
+                gap:10,
+                marginBottom:16
+              }}
             >
-              🖨 Print Report
-            </button>
+              {[
+                ["Revenue", `₹${reportTotal.toFixed(2)}`],
+                ["Orders", filteredOrders.length],
+                ["Average Bill", `₹${(reportTotal / (filteredOrders.length || 1)).toFixed(2)}`],
+                ["GST", `₹${reportGstTotal.toFixed(2)}`],
+                ["Paid Orders", paidOrderCount],
+                ["Pending", `₹${pendingAmount.toFixed(2)}`]
+              ].map(([label,value]) => (
+                <div key={label} className="report-summary-card" style={{
+                  padding:"12px 14px",
+                  border:"1px solid var(--border)",
+                  borderRadius:12,
+                  background:"var(--surface2)"
+                }}>
+                  <div style={{fontSize:11,color:"var(--muted)",fontWeight:700}}>{label}</div>
+                  <div style={{fontSize:18,fontWeight:900,color:"var(--text)",marginTop:4}}>{value}</div>
+                </div>
+              ))}
+            </div>
 
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"minmax(0,1fr) minmax(220px,300px)",
+              gap:16,
+              marginBottom:16
+            }}>
+              <div>
+                <h4 style={{margin:"0 0 8px",color:"var(--text)"}}>Order Details</h4>
+                <div
+                  className="report-table-wrap"
+                  style={{
+                    maxHeight:"230px",
+                    overflowY:"auto",
+                    borderRadius:12,
+                    border:"1px solid var(--border)"
+                  }}
+                >
+                  <table className="billing-invoice-table" style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Order</th>
+                        <th style={th}>Date</th>
+                        <th style={th}>Status</th>
+                        <th style={th}>Amount</th>
+                        <th style={th}>Collected</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOrders.map(o => (
+                        <tr key={o.id}>
+                          <td style={td}>#{o.id.slice(0,5)}</td>
+                          <td style={td}>{formatDate(o.created_at)}</td>
+                          <td style={td}>{String(o.delivery_status || o.status || "pending").replaceAll("_"," ")}</td>
+                          <td style={td}>₹{Number(reportTotals[o.id] || 0).toFixed(2)}</td>
+                          <td style={td}>₹{Number(o.paid_amount || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {!filteredOrders.length ? (
+                        <tr><td colSpan={5} style={{...td,textAlign:"center"}}>No orders for this period.</td></tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{margin:"0 0 8px",color:"var(--text)"}}>Payment Breakdown</h4>
+                <table className="billing-invoice-table" style={table}>
+                  <thead>
+                    <tr><th style={th}>Method</th><th style={th}>Collected</th></tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(paymentMethodTotals).map(([method, amount]) => (
+                      <tr key={method}>
+                        <td style={td}>{method.toUpperCase()}</td>
+                        <td style={td}>₹{Number(amount).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {!Object.keys(paymentMethodTotals).length ? (
+                      <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No payments recorded.</td></tr>
+                    ) : null}
+                  </tbody>
+                </table>
+
+                <h4 style={{margin:"18px 0 8px",color:"var(--text)"}}>Top Selling Items</h4>
+                <table className="billing-invoice-table" style={table}>
+                  <thead>
+                    <tr><th style={th}>Item</th><th style={th}>Sales</th></tr>
+                  </thead>
+                  <tbody>
+                    {filteredItemChartData.map(item => (
+                      <tr key={item.name}>
+                        <td style={td}>{item.name}</td>
+                        <td style={td}>₹{Number(item.total).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {!filteredItemChartData.length ? (
+                      <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No item sales.</td></tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="report-total-box" style={{
+              marginTop:10,
+              padding:18,
+              borderRadius:16,
+              background:"var(--surface2)",
+              border:"1px solid var(--border)"
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
+                <strong>Total Revenue</strong>
+                <strong style={{fontSize:22,color:"var(--primary)"}}>₹{reportTotal.toFixed(2)}</strong>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginTop:6,color:"var(--muted)"}}>
+                <span>GST: ₹{reportGstTotal.toFixed(2)}</span>
+                <span>Collected: ₹{collectedAmount.toFixed(2)}</span>
+                <span>Outstanding: ₹{pendingAmount.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="report-print-footer" style={{
+              marginTop:14,
+              paddingTop:10,
+              borderTop:"1px solid var(--border)",
+              textAlign:"center",
+              fontSize:9,
+              color:"var(--muted)"
+            }}>
+              Powered by Anaira Graphics
+            </div>
+
+            <div
+              className="report-actions"
+              style={{
+                display:"flex",
+                gap:10,
+                marginTop:14,
+                flexWrap:"wrap",
+                alignItems:"center"
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => printContent("report-print", "A4")}
+                className="billing-action"
+                style={{...luxuryBtn, fontWeight:800}}
+                title="Print the complete report using the browser print dialog"
+              >
+                🖨 Print Full Report
+              </button>
+              <button
+                type="button"
+                onClick={() => generateReportPdf(true)}
+                className="billing-action"
+                style={{...luxuryBtn, fontWeight:800}}
+                title="Generate the complete A4 report PDF and open its print dialog"
+              >
+                🖨 Print All Report (PDF)
+              </button>
+              <button
+                type="button"
+                onClick={generateReportPdf}
+                className="billing-action"
+                style={{...btnBlue, fontWeight:800}}
+                title="Download the complete A4 report as a PDF"
+              >
+                📄 Download Full Report PDF
+              </button>
+              <span
+                style={{
+                  fontSize:12,
+                  color:"var(--muted)",
+                  fontWeight:700
+                }}
+              >
+                Includes summary, orders, payments, daily revenue, item sales and GST.
+              </span>
+            </div>
           </div>
 
         </div>
