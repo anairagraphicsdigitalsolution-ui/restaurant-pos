@@ -880,7 +880,7 @@ image.style.transform="scale(1)"
 
   <button
     type="button"
-    className="qr-qty-btn" style={qtyBtn}
+    style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
       updateQty(item.id,-1)
@@ -893,7 +893,7 @@ image.style.transform="scale(1)"
 
   <button
     type="button"
-    className="qr-qty-btn" style={qtyBtn}
+    style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
       updateQty(item.id,1)
@@ -1250,6 +1250,8 @@ color:"var(--muted)"
 >
 
   <button
+    type="button"
+    className="qr-delete-btn"
     style={deleteBtn}
     onClick={() => removeItem(item.id)}
   >
@@ -1515,43 +1517,6 @@ margin:"14px 0"
         </div>
       ))}
 
-      {recommendedFoods.length > 0 && (
-        <div style={comboModalBox} className="qr-recommendation-box">
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-            <b>✨ You may also like</b>
-            <small>More from this category</small>
-          </div>
-          <div className="qr-recommendation-grid">
-            {recommendedFoods.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                className="qr-recommendation-card"
-                onClick={() => {
-                  setSelectedFood(item)
-                  setModalQty(1)
-                  setModalRequest("")
-                  const cfg = item?.combo_config || {}
-                  const firstGroup = cfg?.groups?.[0] || null
-                  setComboSelection(
-                    item?.item_type === "combo" && firstGroup?.min === 1 && firstGroup?.max === 1
-                      ? []
-                      : []
-                  )
-                }}
-              >
-                <img
-                  src={item.image || "/food-placeholder.jpg"}
-                  alt={item.name}
-                />
-                <span className="qr-recommendation-name">{item.name}</span>
-                <span className="qr-recommendation-price">₹{item.price}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div style={modalQtyBox}>
 
   <button
@@ -1708,63 +1673,262 @@ transform:translateX(-50%);
 .qr-menu-grid{
   grid-template-columns:repeat(5,minmax(0,1fr));
 }
+
 @media (min-width:901px){
-  .qr-menu-grid{max-width:1280px;margin-left:auto;margin-right:auto;gap:16px;}
+  .qr-menu-grid{
+    max-width:1280px;
+    margin-left:auto;
+    margin-right:auto;
+    gap:16px;
+  }
 }
+
 @media (min-width:601px) and (max-width:900px){
-  .qr-menu-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:16px 12px;}
-  .qr-menu-grid>div{min-width:0!important;border-radius:16px!important;}
-  .qr-menu-grid img{height:145px!important;min-height:145px!important;object-fit:cover!important;}
-  .qr-menu-grid>div>div{padding:11px 10px 12px!important;gap:7px!important;}
-  .qr-menu-grid h3{font-size:13px!important;line-height:1.25!important;min-height:33px!important;height:33px!important;margin-bottom:4px!important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:15px!important;}
+  .qr-menu-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:14px;
+    padding:16px 12px;
+  }
+  .qr-menu-grid > div{
+    min-width:0 !important;
+    border-radius:16px !important;
+  }
+  .qr-menu-grid img{
+    height:145px !important;
+    min-height:145px !important;
+    object-fit:cover !important;
+  }
+  .qr-menu-grid > div > div{
+    padding:11px 10px 12px !important;
+    gap:7px !important;
+  }
+  .qr-menu-grid h3{
+    font-size:13px !important;
+    line-height:1.25 !important;
+    min-height:33px !important;
+    height:33px !important;
+    margin-bottom:4px !important;
+  }
+  .qr-menu-grid span[style*="font-size:18px"]{
+    font-size:15px !important;
+  }
+  .qr-menu-grid > div > div button:not(.qr-qty-btn){
+    padding:7px 11px !important;
+    font-size:11px !important;
+    border-radius:9px !important;
+    min-height:34px !important;
+  }
 }
+
 @media (min-width:381px) and (max-width:600px){
-  .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;padding:12px 9px;}
-  .qr-menu-grid>div{min-width:0!important;width:100%;border-radius:13px!important;}
-  .qr-menu-grid img{height:118px!important;min-height:118px!important;object-fit:cover!important;}
-  .qr-menu-grid>div>div{padding:8px 7px 9px!important;gap:6px!important;}
-  .qr-menu-grid h3{font-size:11px!important;line-height:1.2!important;min-height:27px!important;height:27px!important;margin:0 0 3px!important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:13px!important;}
+  .qr-menu-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:11px;
+    padding:12px 9px;
+  }
+  .qr-menu-grid > div{
+    min-width:0 !important;
+    width:100%;
+    border-radius:13px !important;
+    box-shadow:0 7px 18px rgba(0,0,0,.24) !important;
+  }
+  .qr-menu-grid img{
+    width:100% !important;
+    height:118px !important;
+    min-height:118px !important;
+    object-fit:cover !important;
+  }
+  .qr-menu-grid > div > div{
+    padding:8px 7px 9px !important;
+    gap:6px !important;
+  }
+  .qr-menu-grid h3{
+    font-size:11px !important;
+    line-height:1.2 !important;
+    min-height:27px !important;
+    height:27px !important;
+    margin:0 0 3px !important;
+  }
+  .qr-menu-grid span[style*="font-size:18px"]{
+    font-size:13px !important;
+    line-height:1.1 !important;
+  }
+  .qr-menu-grid > div > div button:not(.qr-qty-btn){
+    padding:6px 8px !important;
+    font-size:10px !important;
+    line-height:1.1 !important;
+    border-radius:8px !important;
+    min-height:30px !important;
+  }
 }
+
 @media (max-width:380px){
-  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 8px;}
-  .qr-menu-grid>div{min-width:0!important;width:100%;border-radius:13px!important;}
-  .qr-menu-grid img{height:125px!important;min-height:125px!important;object-fit:cover!important;}
-  .qr-menu-grid>div>div{padding:8px 7px 9px!important;gap:6px!important;}
-  .qr-menu-grid h3{font-size:11px!important;line-height:1.2!important;min-height:27px!important;height:27px!important;margin:0 0 3px!important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:13px!important;}
+  .qr-menu-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    padding:10px 8px;
+  }
+  .qr-menu-grid > div{
+    min-width:0 !important;
+    width:100%;
+    border-radius:13px !important;
+    box-shadow:0 6px 16px rgba(0,0,0,.23) !important;
+  }
+  .qr-menu-grid img{
+    width:100% !important;
+    height:125px !important;
+    min-height:125px !important;
+    object-fit:cover !important;
+  }
+  .qr-menu-grid > div > div{
+    padding:8px 7px 9px !important;
+    gap:6px !important;
+  }
+  .qr-menu-grid h3{
+    font-size:11px !important;
+    line-height:1.2 !important;
+    min-height:27px !important;
+    height:27px !important;
+    margin:0 0 3px !important;
+  }
+  .qr-menu-grid span[style*="font-size:18px"]{
+    font-size:13px !important;
+    line-height:1.1 !important;
+  }
+  .qr-menu-grid > div > div button:not(.qr-qty-btn){
+    padding:6px 9px !important;
+    font-size:10px !important;
+    line-height:1.1 !important;
+    border-radius:8px !important;
+    min-height:32px !important;
+  }
+  .qr-header{
+    padding:12px !important;
+  }
 }
+
+/* Round, touch-friendly quantity controls. */
 .qr-qty-btn{
-  width:42px!important;height:42px!important;min-width:42px!important;min-height:42px!important;
-  padding:0!important;border-radius:50%!important;display:inline-flex!important;
-  align-items:center!important;justify-content:center!important;flex:0 0 42px!important;
-  font-size:21px!important;line-height:1!important;font-weight:800!important;
-  box-sizing:border-box!important;touch-action:manipulation;
+  width:42px !important;
+  height:42px !important;
+  min-width:42px !important;
+  min-height:42px !important;
+  padding:0 !important;
+  border-radius:50% !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  flex:0 0 42px !important;
+  font-size:21px !important;
+  line-height:1 !important;
+  font-weight:800 !important;
+  box-sizing:border-box !important;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
 }
-.qr-modal-qty-btn{width:50px!important;height:50px!important;min-width:50px!important;min-height:50px!important;flex-basis:50px!important;font-size:25px!important;}
-@media(max-width:600px){
-  .qr-qty-btn{width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;flex-basis:40px!important;font-size:20px!important;}
-  .qr-modal-qty-btn{width:48px!important;height:48px!important;min-width:48px!important;min-height:48px!important;flex-basis:48px!important;font-size:24px!important;}
+
+.qr-qty-btn:active,
+.qr-delete-btn:active{
+  transform:scale(.93);
 }
-@media(max-width:380px){
-  .qr-qty-btn{width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;flex-basis:38px!important;font-size:19px!important;}
-  .qr-modal-qty-btn{width:46px!important;height:46px!important;min-width:46px!important;min-height:46px!important;flex-basis:46px!important;font-size:23px!important;}
+
+.qr-delete-btn{
+  width:42px !important;
+  height:42px !important;
+  min-width:42px !important;
+  min-height:42px !important;
+  padding:0 !important;
+  border-radius:50% !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  flex:0 0 42px !important;
+  box-sizing:border-box !important;
+  line-height:1 !important;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
 }
-.qr-recommendation-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px;}
-.qr-recommendation-card{
-  min-width:0;border:1px solid rgba(var(--primary-rgb),.16);border-radius:13px;
-  background:rgba(255,255,255,.045);color:#fff;padding:7px;cursor:pointer;
-  display:flex;flex-direction:column;gap:5px;text-align:left;
+
+.qr-modal-qty-btn{
+  width:50px !important;
+  height:50px !important;
+  min-width:50px !important;
+  min-height:50px !important;
+  flex-basis:50px !important;
+  font-size:25px !important;
 }
-.qr-recommendation-card img{width:100%;height:78px;object-fit:cover;border-radius:9px;}
-.qr-recommendation-name{font-size:11px;font-weight:800;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.qr-recommendation-price{font-size:12px;color:var(--primary);font-weight:900;}
-@media(max-width:600px){.qr-recommendation-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.qr-recommendation-card img{height:90px;}}
-@media(max-width:380px){.qr-recommendation-card img{height:75px;}}
-.qr-category-bar{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+
+@media (max-width:600px){
+  .qr-qty-btn{
+    width:40px !important;
+    height:40px !important;
+    min-width:40px !important;
+    min-height:40px !important;
+    flex-basis:40px !important;
+    font-size:20px !important;
+  }
+  .qr-modal-qty-btn{
+    width:48px !important;
+    height:48px !important;
+    min-width:48px !important;
+    min-height:48px !important;
+    flex-basis:48px !important;
+    font-size:24px !important;
+  }
+}
+
+@media (max-width:380px){
+  .qr-qty-btn{
+    width:38px !important;
+    height:38px !important;
+    min-width:38px !important;
+    min-height:38px !important;
+    flex-basis:38px !important;
+    font-size:19px !important;
+  }
+  .qr-modal-qty-btn{
+    width:46px !important;
+    height:46px !important;
+    min-width:46px !important;
+    min-height:46px !important;
+    flex-basis:46px !important;
+    font-size:23px !important;
+  }
+}
+
+.qr-category-bar{
+  overflow-x:auto;
+  scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+}
 .qr-category-bar::-webkit-scrollbar{display:none;}
 .qr-search-box{max-width:1280px;margin:0 auto;}
+.qr-header-action:active{transform:scale(.97);}
+
+@media (max-width:600px){
+  .qr-header-actions{gap:6px !important;}
+  .qr-header-action{
+    padding:0 9px !important;
+    min-height:40px !important;
+    border-radius:12px !important;
+    font-size:12px !important;
+  }
+}
+
+/* Food-detail modal stays usable on phone, tablet and desktop. */
+@media (min-width:601px){
+  .qr-page [style*="maxWidth:500"]{
+    border-radius:24px !important;
+    margin:0 16px 16px !important;
+  }
+}
+
+@media (max-width:600px){
+  .qr-page [style*="maxWidth:500"]{
+    max-width:560px !important;
+    width:100% !important;
+  }
+}
 `}</style>
 
 </div>
@@ -2062,14 +2226,28 @@ const quickBtn = {
   cursor:"pointer"
 }
 const deleteBtn = {
-  width:26,
-  height:26,
-  border:"none",
+  width:42,
+  height:42,
+  minWidth:42,
+  minHeight:42,
+  padding:0,
+  margin:0,
+  border:"1px solid rgba(255,255,255,.12)",
   borderRadius:"50%",
   background:"var(--danger)",
   color:"#fff",
   cursor:"pointer",
-  fontSize:11
+  fontSize:18,
+  lineHeight:1,
+  fontWeight:700,
+  display:"inline-flex",
+  alignItems:"center",
+  justifyContent:"center",
+  flex:"0 0 42px",
+  flexShrink:0,
+  boxSizing:"border-box",
+  touchAction:"manipulation",
+  WebkitTapHighlightColor:"transparent"
 }
 const categoryBar = {
   display:"flex",
