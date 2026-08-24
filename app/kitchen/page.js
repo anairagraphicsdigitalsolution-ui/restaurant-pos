@@ -28,6 +28,7 @@ const [kotSize, setKotSize] = useState("80mm")
   useEffect(() => {
     let channel
     let fallbackTimer
+    let refreshTimer
 
     async function init() {
       const { data: userData } = await supabase.auth.getUser()
@@ -61,17 +62,24 @@ const [kotSize, setKotSize] = useState("80mm")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${resolvedRestaurantId}` },
-          () => fetchOrders(resolvedRestaurantId)
+          () => {
+            clearTimeout(refreshTimer)
+            refreshTimer = setTimeout(
+              () => fetchOrders(resolvedRestaurantId),
+              350
+            )
+          }
         )
         .subscribe()
 
-      fallbackTimer = setInterval(() => fetchOrders(resolvedRestaurantId), 15000)
+      fallbackTimer = setInterval(() => fetchOrders(resolvedRestaurantId), 30000)
     }
 
     init()
 
     return () => {
       if (fallbackTimer) clearInterval(fallbackTimer)
+      clearTimeout(refreshTimer)
       if (channel) supabase.removeChannel(channel)
     }
   }, [])

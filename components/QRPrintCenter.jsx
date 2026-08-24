@@ -34,7 +34,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
     if (superAdmin) {
       setPluginAccess(true)
       loadQRData(restaurantId)
-      const timer = setInterval(() => loadQRData(restaurantId, true), 15000)
+      const timer = setInterval(() => loadQRData(restaurantId, true), 60000)
       return () => clearInterval(timer)
     }
 
@@ -83,7 +83,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
 
     const timer = setInterval(() => {
       verifyAccess()
-    }, 15000)
+    }, 60000)
 
     return () => {
       cancelled = true

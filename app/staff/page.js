@@ -14,6 +14,7 @@ export default function StaffPage() {
 
   useEffect(() => {
     let channel = null
+    let refreshTimer = null
 
     async function start() {
       channel = await init()
@@ -22,6 +23,7 @@ export default function StaffPage() {
     void start()
 
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
       if (channel) void supabase.removeChannel(channel)
     }
   }, [])

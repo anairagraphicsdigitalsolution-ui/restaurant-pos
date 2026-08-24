@@ -166,7 +166,7 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
         }
       }
 
-      pollTimer = window.setInterval(poll, 5000)
+      pollTimer = window.setInterval(poll, 30000)
     }
 
     start()

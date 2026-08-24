@@ -14,6 +14,7 @@ export default function TablesPage() {
   useEffect(() => {
     let channel
     let timer
+    let refreshTimer
 
     async function init() {
       if (authLoading) return
@@ -30,21 +31,28 @@ export default function TablesPage() {
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${authRestaurantId}` },
-          () => load(authRestaurantId)
+          () => {
+              clearTimeout(refreshTimer)
+              refreshTimer = setTimeout(() => load(authRestaurantId), 350)
+            }
         )
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "tables", filter: `restaurant_id=eq.${authRestaurantId}` },
-          () => load(authRestaurantId)
+          () => {
+              clearTimeout(refreshTimer)
+              refreshTimer = setTimeout(() => load(authRestaurantId), 350)
+            }
         )
         .subscribe()
 
-      timer = setInterval(() => load(authRestaurantId), 15000)
+      timer = setInterval(() => load(authRestaurantId), 30000)
     }
     init()
 
     return () => {
       if (timer) clearInterval(timer)
+      clearTimeout(refreshTimer)
       if (channel) supabase.removeChannel(channel)
     }
   }, [authLoading, authRestaurantId])

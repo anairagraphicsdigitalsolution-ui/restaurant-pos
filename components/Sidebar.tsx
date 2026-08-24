@@ -155,22 +155,6 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         },
         () => setUnreadNotifications(count => count + 1)
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "notifications",
-          filter: `restaurant_id=eq.${restaurantId}`,
-        },
-        payload => {
-          const oldRead = (payload.old as any)?.read_at
-          const newRead = (payload.new as any)?.read_at
-          if (!oldRead && newRead) {
-            setUnreadNotifications(count => Math.max(0, count - 1))
-          }
-        }
-      )
       .subscribe()
 
     return () => {

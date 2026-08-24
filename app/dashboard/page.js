@@ -307,7 +307,7 @@ export default function Dashboard() {
 
         <section className="threeGrid">
           <div className="panel">
-            <PanelHeader title="Recent Orders" subtitle="Latest activity" action={<button className="textBtn" onClick={() => router.push("/order")}>View all →</button>} />
+            <PanelHeader title="Recent Orders" subtitle="Latest activity" action={<button className="textBtn" onClick={() => router.push("/dashboard/reports")}>View all →</button>} />
             <div className="listScroll">
               {orders.slice(0, 7).map((order) => {
                 const meta = statusMeta(order.status)
