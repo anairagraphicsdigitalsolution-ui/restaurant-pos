@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
+import { getWhatsAppConfig, normalizeWhatsAppNumber, sendWhatsAppMessage } from "@/lib/whatsappServer"
 
 export const runtime = "nodejs"
 
@@ -38,10 +39,12 @@ export async function POST(req) {
     const type = cleanText(body?.source_type, 20)?.toLowerCase()
     const sourceId = cleanText(body?.source_id, 80)
     const overallNote = cleanText(body?.overall_note, 1000)
+    const customerName = cleanText(body?.customer_name, 80)
+    const customerPhone = normalizeWhatsAppNumber(body?.customer_phone)
     const offerId = cleanText(body?.offer_id, 80)
     const items = normalizeItems(body?.items)
 
-    if (!slug || !sourceId || !["table", "room"].includes(type)) {
+    if (!slug || !sourceId || !["table", "room", "website"].includes(type)) {
       return Response.json(
         { success: false, error: "Invalid QR order data" },
         { status: 400 }
@@ -51,8 +54,12 @@ export async function POST(req) {
     // The database RPC performs the authoritative restaurant/source/menu
     // validation and calculates prices from menu_items. The client never
     // supplies price, restaurant_id, or source_label.
+    const rpcName = type === "website"
+      ? "create_public_website_order"
+      : "create_public_qr_order"
+
     const { data: orderResult, error: orderError } =
-      await supabaseAdmin.rpc("create_public_qr_order", {
+      await supabaseAdmin.rpc(rpcName, {
         p_slug: slug,
         p_type: type,
         p_source_id: sourceId,
@@ -74,104 +81,151 @@ export async function POST(req) {
     }
 
     const orderId = orderResult?.order_id
-    let whatsappUrl = null
+    let customerWhatsappUrl = null
+    let restaurantWhatsappUrl = null
+    let whatsapp = { restaurantNotification: false, customerConfirmation: false }
 
     /*
-     * ============================================================
-     * WHATSAPP PLAN CHECK
-     * ============================================================
+     * WhatsApp is optional. The QR/website order itself is never blocked.
+     * When the plugin is ON, the restaurant can:
+     * 1) receive an actual Cloud API notification at a configured staff/owner
+     *    WhatsApp recipient;
+     * 2) send an actual Cloud API order confirmation to the customer's number;
+     * 3) offer a customer-side wa.me fallback that opens WhatsApp with the
+     *    complete order slip addressed to the restaurant.
      *
-     * WhatsApp URL will only be generated if the restaurant's
-     * active subscription allows the "whatsapp" feature.
-     *
-     * The order itself is NOT blocked.
+     * A browser cannot silently send a WhatsApp message from the customer's
+     * personal account. The wa.me fallback therefore requires the customer's
+     * tap/confirmation. The Cloud API messages are sent from the restaurant's
+     * registered Business number.
      */
     if (orderId && orderResult?.restaurant_id) {
-      const { data: whatsappEnabled, error: featureError } =
-        await supabaseAdmin.rpc("has_restaurant_plan_feature", {
-          p_restaurant_id: orderResult.restaurant_id,
-          p_plugin_code: "whatsapp"
-        })
+      const { data: pluginRow, error: pluginError } = await supabaseAdmin
+        .from("restaurant_plugins")
+        .select("enabled")
+        .eq("restaurant_id", orderResult.restaurant_id)
+        .in("plugin_code", ["whatsapp-invoice", "whatsapp"])
+        .order("plugin_code", { ascending: true })
+        .limit(1)
+        .maybeSingle()
 
-      if (featureError) {
-        console.error(
-          "WHATSAPP PLAN CHECK ERROR:",
-          featureError
-        )
-      }
+      if (pluginError) console.error("WHATSAPP PLUGIN CHECK:", pluginError)
 
-      // Only continue with WhatsApp generation when the plan allows it.
-      if (whatsappEnabled === true) {
-        const { data: settings, error: settingsError } =
-          await supabaseAdmin
-            .from("plugin_settings")
-            .select("config")
-            .eq("restaurant_id", orderResult.restaurant_id)
-            .eq("plugin_code", "whatsapp")
+      if (pluginRow?.enabled === true) {
+        try {
+          // Persist customer details without changing the core order RPC.
+          if (customerName || customerPhone) {
+            const { error: customerUpdateError } = await supabaseAdmin
+              .from("orders")
+              .update({
+                ...(customerName ? { customer_name: customerName } : {}),
+                ...(customerPhone ? { customer_phone: customerPhone } : {})
+              })
+              .eq("id", orderId)
+            if (customerUpdateError) console.error("ORDER CUSTOMER UPDATE:", customerUpdateError)
+          }
+
+          const config = await getWhatsAppConfig(orderResult.restaurant_id)
+
+          const { data: orderItems, error: orderItemsError } = await supabaseAdmin
+            .from("order_items")
+            .select("item_name, quantity, line_total")
+            .eq("order_id", orderId)
+            .order("id")
+
+          if (orderItemsError) throw new Error(orderItemsError.message)
+
+          const { data: restaurant, error: restaurantError } = await supabaseAdmin
+            .from("restaurants")
+            .select("name")
+            .eq("id", orderResult.restaurant_id)
             .maybeSingle()
 
-        if (settingsError) {
-          console.error(
-            "WHATSAPP SETTINGS ERROR:",
-            settingsError
-          )
-        }
+          if (restaurantError) throw new Error(restaurantError.message)
 
-        const number = String(
-          settings?.config?.number || ""
-        ).replace(/\D/g, "")
+          const slipLines = [
+            `🧾 New Order - ${restaurant?.name || "Restaurant"}`,
+            `📍 ${orderResult.source_label || type}`,
+            `🆔 ${orderId}`,
+            "",
+            "Items:",
+            ...(orderItems || []).map(item =>
+              `- ${item.item_name || "Item"} x${item.quantity} = ₹${item.line_total || 0}`
+            ),
+            "",
+            `💰 Subtotal: ₹${orderResult.subtotal || 0}`,
+            `🎁 Offer Discount: ₹${orderResult.discount_amount || 0}`,
+            `💵 Total: ₹${orderResult.total_amount || 0}`,
+            ...(customerName ? [`👤 ${customerName}`] : []),
+            ...(customerPhone ? [`📱 ${customerPhone}`] : []),
+            ...(overallNote ? [`📝 Note: ${overallNote}`] : [])
+          ]
+          const slip = slipLines.join("\n")
 
-        if (number) {
-          const { data: restaurant, error: restaurantError } =
-            await supabaseAdmin
-              .from("restaurants")
-              .select("name")
-              .eq("id", orderResult.restaurant_id)
-              .maybeSingle()
-
-          if (restaurantError) {
-            console.error(
-              "RESTAURANT FETCH ERROR:",
-              restaurantError
-            )
+          // Customer -> restaurant: pre-filled WhatsApp chat.
+          // This is intentionally a user-confirmed action, not a silent send.
+          const restaurantRecipient = normalizeWhatsAppNumber(config.order_notification_recipient)
+          if (restaurantRecipient && customerPhone) {
+            restaurantWhatsappUrl =
+              `https://wa.me/${restaurantRecipient}?text=${encodeURIComponent(slip)}`
           }
 
-          const { data: orderItems, error: orderItemsError } =
-            await supabaseAdmin
-              .from("order_items")
-              .select("item_name, quantity, line_total")
-              .eq("order_id", orderId)
-              .order("id")
-
-          if (orderItemsError) {
-            console.error(
-              "ORDER ITEMS FETCH ERROR:",
-              orderItemsError
-            )
+          // Restaurant -> staff/owner: actual Cloud API notification.
+          if (config.send_qr_order_notification !== false && restaurantRecipient) {
+            try {
+              const result = await sendWhatsAppMessage({
+                restaurantId: orderResult.restaurant_id,
+                to: restaurantRecipient,
+                type: "template",
+                templateName: config.qr_order_template_name || "new_qr_order",
+                language: config.invoice_template_language || "en_US",
+                // Recommended Meta template:
+                // {{1}} restaurant, {{2}} order id, {{3}} source,
+                // {{4}} item summary, {{5}} total.
+                templateParams: [
+                  restaurant?.name || "Restaurant",
+                  orderId,
+                  orderResult.source_label || type,
+                  (orderItems || []).map(item =>
+                    `${item.item_name || "Item"} x${item.quantity}`
+                  ).join(", ").slice(0, 900),
+                  Number(orderResult.total_amount || 0).toFixed(2)
+                ]
+              })
+              whatsapp.restaurantNotification = Boolean(result?.success)
+            } catch (e) {
+              console.error("WHATSAPP RESTAURANT ORDER NOTIFICATION:", e)
+            }
           }
 
-          let message =
-            `🧾 New Order - ${restaurant?.name || "Restaurant"}\n\n`
-
-          message += `📍 ${orderResult.source_label}\n\n`
-          message += "Items:\n"
-
-          for (const item of orderItems || []) {
-            message +=
-              `- ${item.item_name || "Item"} x${item.quantity} = ₹${item.line_total || 0}\n`
+          // Restaurant -> customer: actual Cloud API confirmation.
+          if (
+            customerPhone &&
+            config.send_order_confirmation !== false
+          ) {
+            try {
+              const result = await sendWhatsAppMessage({
+                restaurantId: orderResult.restaurant_id,
+                to: customerPhone,
+                type: "template",
+                templateName: config.order_template_name || "order_confirmation",
+                language: config.invoice_template_language || "en_US",
+                templateParams: [
+                  customerName || "Customer",
+                  orderId,
+                  String(orderResult.total_amount || 0)
+                ]
+              })
+              whatsapp.customerConfirmation = Boolean(result?.success)
+            } catch (e) {
+              console.error("WHATSAPP CUSTOMER ORDER CONFIRMATION:", e)
+            }
           }
 
-          message +=
-            `\n💰 Subtotal: ₹${orderResult.subtotal || 0}`
-
-          message +=
-            `\n🎁 Offer Discount: ₹${orderResult.discount_amount || 0}`
-
-          message +=
-            `\n💵 Total: ₹${orderResult.total_amount || 0}`
-
-          whatsappUrl =
-            `https://wa.me/${number}?text=${encodeURIComponent(message)}`
+          // Keep the legacy property name only as a compatibility alias.
+          customerWhatsappUrl = restaurantWhatsappUrl
+        } catch (e) {
+          console.error("WHATSAPP QR ORDER FLOW:", e)
         }
       }
     }
@@ -179,7 +233,10 @@ export async function POST(req) {
     return Response.json({
       success: true,
       order: orderResult,
-      whatsapp_url: whatsappUrl
+      whatsapp,
+      restaurant_whatsapp_url: restaurantWhatsappUrl,
+      customer_whatsapp_url: customerWhatsappUrl,
+      whatsapp_url: restaurantWhatsappUrl
     })
   } catch (error) {
     console.error("QR ORDER ERROR:", error)

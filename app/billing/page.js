@@ -39,6 +39,8 @@ export default function BillingPage() {
   const [offers, setOffers] = useState([])
   const [selectedOffer, setSelectedOffer] = useState(null)
   const [availableOffers, setAvailableOffers] = useState([])
+  const [availableLoyaltyRewards, setAvailableLoyaltyRewards] = useState([])
+  const [selectedLoyaltyReward, setSelectedLoyaltyReward] = useState(null)
 
   const [showAllOrders, setShowAllOrders] = useState(false)
   const [billingRefresh, setBillingRefresh] = useState(0)
@@ -91,6 +93,25 @@ export default function BillingPage() {
     }
     init()
   }, [billingRefresh, isDedicatedBillPage, pathname])
+
+  useEffect(() => {
+    if (!currentOrder?.restaurant_id || !customerProfile?.id || !items.length) {
+      setAvailableLoyaltyRewards([])
+      setSelectedLoyaltyReward(null)
+      return
+    }
+
+    const orderSubtotal = items.reduce(
+      (sum, item) => sum + Number(item.line_total || 0),
+      0
+    )
+
+    loadLoyaltyRewardsForCustomer(
+      customerProfile,
+      currentOrder.restaurant_id,
+      orderSubtotal
+    )
+  }, [customerProfile?.id, currentOrder?.restaurant_id, items.length])
 
   // When the user opens the dedicated Bill view, restore the last selected
   // order so the workflow is: open bill -> review -> finalize -> print.
@@ -386,6 +407,34 @@ export default function BillingPage() {
     )
   }
 
+  async function loadLoyaltyRewardsForCustomer(customer, restaurantId, orderSubtotal) {
+    if (!customer?.id || !restaurantId) {
+      setAvailableLoyaltyRewards([])
+      setSelectedLoyaltyReward(null)
+      return
+    }
+    const { data, error } = await supabase
+      .from("loyalty_rewards")
+      .select("id,name,description,points_cost,reward_type,reward_value,min_order_amount,usage_limit,used_count,active")
+      .eq("restaurant_id", restaurantId)
+      .eq("active", true)
+      .order("points_cost", { ascending: true })
+    if (error) {
+      console.error("Loyalty rewards:", error)
+      setAvailableLoyaltyRewards([])
+      return
+    }
+    const points = Number(customer.loyalty_points || 0)
+    const eligible = (data || []).filter(r =>
+      String(r.reward_type || "").toLowerCase() !== "free_item" &&
+      points >= Number(r.points_cost || 0) &&
+      Number(orderSubtotal || 0) >= Number(r.min_order_amount || 0) &&
+      (r.usage_limit == null || Number(r.used_count || 0) < Number(r.usage_limit))
+    )
+    setAvailableLoyaltyRewards(eligible)
+    setSelectedLoyaltyReward(null)
+  }
+
   async function lookupCustomerByPhone(phoneValue, orderIdOverride = null) {
     const phone = String(phoneValue || "").replace(/\D/g, "").slice(-15)
     const targetOrderId = orderIdOverride || currentOrder?.id
@@ -417,6 +466,7 @@ export default function BillingPage() {
         setCustomerName(result.customer.name || "")
         setCustomerPhone(result.customer.phone || phone)
         setCustomerEmail(result.customer.email || "")
+        await loadLoyaltyRewardsForCustomer(result.customer, currentOrder?.restaurant_id, items.reduce((sum, item) => sum + Number(item.line_total || 0), 0))
         return result.customer
       }
 
@@ -552,6 +602,8 @@ export default function BillingPage() {
     setCustomerName("")
     setCustomerPhone("")
     setCustomerEmail("")
+    setAvailableLoyaltyRewards([])
+    setSelectedLoyaltyReward(null)
     setManualDiscount("")
     setManualDiscountMode("amount")
     if (typeof window !== "undefined") {
@@ -869,6 +921,32 @@ export default function BillingPage() {
     setAvailableOffers(rankedOffers)
     setSelectedOffer(bestOffer)
 
+    // Loyalty rewards are loaded only for the identified customer. Points are
+    // NOT deducted here; the server redeems them atomically during finalization.
+    if (customerProfile?.id) {
+      const { data: rewardRows, error: rewardError } = await supabase
+        .from("loyalty_rewards")
+        .select("id,name,description,points_cost,reward_type,reward_value,min_order_amount,usage_limit,used_count,active")
+        .eq("restaurant_id", selected.restaurant_id)
+        .eq("active", true)
+        .order("points_cost", { ascending: true })
+      if (rewardError) {
+        console.error("Billing loyalty rewards:", rewardError)
+        setAvailableLoyaltyRewards([])
+      } else {
+        const customerPoints = Number(customerProfile.loyalty_points || 0)
+        setAvailableLoyaltyRewards((rewardRows || []).filter(r =>
+          String(r.reward_type || "").toLowerCase() !== "free_item" &&
+          customerPoints >= Number(r.points_cost || 0) &&
+          orderSubtotal >= Number(r.min_order_amount || 0) &&
+          (r.usage_limit == null || Number(r.used_count || 0) < Number(r.usage_limit))
+        ))
+      }
+    } else {
+      setAvailableLoyaltyRewards([])
+    }
+    setSelectedLoyaltyReward(null)
+
     const previewDiscount =
       Number(
         selected?.discount_amount || 0
@@ -1003,6 +1081,28 @@ export default function BillingPage() {
       ? manualDiscountAmount
       : previewDiscount
 
+  const loyaltyRewardDiscount = (() => {
+    const reward = selectedLoyaltyReward
+    if (!reward || !customerProfile) return 0
+    const remainingBase = Math.max(0, subtotal - discountAmount)
+    const type = String(reward.reward_type || "discount").toLowerCase()
+    const value = Math.max(0, Number(reward.reward_value || 0))
+    if (type === "percent") {
+      return Math.min(remainingBase, Number((remainingBase * Math.min(value, 100) / 100).toFixed(2)))
+    }
+    if (type === "discount" || type === "coupon") {
+      return Math.min(remainingBase, value)
+    }
+    // Free-item rewards cannot be converted to a monetary discount because
+    // the current reward schema has no menu_item_id. Do not invent a price.
+    return 0
+  })()
+
+  const combinedDiscountAmount = Math.min(
+    subtotal,
+    Number((discountAmount + loyaltyRewardDiscount).toFixed(2))
+  )
+
   // Delivery charge is separate from food-item discounts.
   const deliveryCharge = Number(
     currentOrder?.delivery_charge || 0
@@ -1012,7 +1112,7 @@ export default function BillingPage() {
     Math.max(
       0,
       subtotal -
-        discountAmount
+        combinedDiscountAmount
     )
 
   /*
@@ -1044,45 +1144,24 @@ export default function BillingPage() {
         : 0
 
   /*
-    Total
+    FINAL PAYABLE
 
-    If server has a real total, use it.
-    Otherwise calculate from resolved
-    menu prices.
+    IMPORTANT:
+    Never use currentOrder.total_amount as the payment amount here.
+    That value can be the old pre-billing snapshot and may not include
+    the current offer/loyalty/delivery/GST calculation.
+
+    Billing must pay the amount currently displayed by this screen.
+    The finalize RPC remains authoritative and recalculates the same
+    components server-side.
   */
-
-  const storedOrderTotal =
-    Number(
-      currentOrder?.total_amount ||
-      0
-    )
-
-  const useStoredOrderTotal =
-    storedOrderTotal > 0 &&
-    !editMode &&
-    manualDiscountValue <= 0 &&
-    (
-      !selectedOfferId ||
-      selectedOfferId === serverOfferId
-    )
-
-  // A selected/eligible offer MUST be deducted before GST and before payment.
-  // If the selected offer is different from the server-stored offer, always
-  // recalculate instead of trusting the old order total.
-  const calculatedBillTotal = Number(
+  const total = Number(
     (
       taxableAmount +
       gst +
       deliveryCharge
     ).toFixed(2)
   )
-
-  const total =
-    selectedOfferId && selectedOfferId !== serverOfferId
-      ? calculatedBillTotal
-      : useStoredOrderTotal
-        ? storedOrderTotal
-        : calculatedBillTotal
 
   async function finalizeBill() {
 
@@ -1183,8 +1262,8 @@ export default function BillingPage() {
               payment_method:
                 paymentMethod,
 
-              // Finalize always collects the complete bill amount.
-              // Do not trust a manually entered paid amount.
+              // Send the current calculated payable amount.
+              // Never send the stale orders.total_amount snapshot.
               paid_amount:
                 Number(Math.max(0, total || 0)),
 
@@ -1193,6 +1272,10 @@ export default function BillingPage() {
 
               offer_id:
                 selectedOffer?.id ||
+                null,
+
+              loyalty_reward_id:
+                selectedLoyaltyReward?.id ||
                 null,
 
               customer_id:
@@ -1276,6 +1359,31 @@ export default function BillingPage() {
       setFinalizedBill(
         result.bill
       )
+
+      // WhatsApp is an optional integration. Billing remains successful even
+      // if WhatsApp is disabled or Meta rejects the message.
+      if (customerPhone && result.bill?.invoice_no) {
+        fetch("/api/whatsapp/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session.access_token}`
+          },
+          body: JSON.stringify({
+            action: "invoice",
+            to: customerPhone,
+            bill: {
+              customer_name: customerName || savedCustomer?.name || "Customer",
+              customer_phone: customerPhone,
+              invoice_no: result.bill.invoice_no,
+              total_amount: Number(result.bill.total_amount ?? total ?? 0)
+            }
+          })
+        }).then(async r => {
+          const wa = await r.json().catch(() => ({}))
+          if (!r.ok || !wa.success) console.warn("WhatsApp invoice:", wa.error || "Message not sent")
+        }).catch(err => console.warn("WhatsApp invoice:", err))
+      }
 
       alert(
         `Invoice ${result.bill.invoice_no} generated successfully.`
@@ -2775,7 +2883,10 @@ export default function BillingPage() {
                   {selectedOffer ? (
                     <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
                       <span><strong>Offer:</strong> {selectedOffer.title || selectedOffer.name || "Offer"}</span>
-                      <span><strong>Saved:</strong> -₹{Number(discountAmount || 0).toFixed(2)}</span>
+                      <span><strong>Saved:</strong> -₹{Number(combinedDiscountAmount || 0).toFixed(2)}</span>
+                {selectedLoyaltyReward ? (
+                  <span><strong>Loyalty:</strong> {selectedLoyaltyReward.name} • -₹{loyaltyRewardDiscount.toFixed(2)}</span>
+                ) : null}
                     </div>
                   ) : null}
                   {(loyaltyFeatureEnabled || loyaltyEnabled) && customerPhone ? (
@@ -2807,7 +2918,7 @@ export default function BillingPage() {
                   {manualDiscountValue > 0 ? "Manual Discount:" : "Offer Discount:"}
                   {" "}
                   -₹
-                  {discountAmount.toFixed(2)}
+                  {combinedDiscountAmount.toFixed(2)}
                 </p>
 
                 {restaurant?.gst_enabled && (
@@ -2928,6 +3039,46 @@ export default function BillingPage() {
                   <small style={{color:"var(--primary)",fontWeight:800}}>
                     ✓ Auto-applied: {selectedOffer.title || selectedOffer.name || "Offer"} — ₹{Number(selectedOffer.calculated_discount || discountAmount || 0).toFixed(2)} saved
                   </small>
+                ) : null}
+
+                {customerProfile ? (
+                  <div style={{display:"grid",gap:8,padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface2)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                      <strong>⭐ Loyalty Reward</strong>
+                      <span style={{fontSize:12,fontWeight:800,color:"var(--primary)"}}>
+                        {Number(customerProfile.loyalty_points || 0)} pts available
+                      </span>
+                    </div>
+                    <select
+                      value={selectedLoyaltyReward?.id || ""}
+                      onChange={e => {
+                        const next = availableLoyaltyRewards.find(r => r.id === e.target.value) || null
+                        setSelectedLoyaltyReward(next)
+                      }}
+                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                    >
+                      <option value="">No loyalty reward</option>
+                      {availableLoyaltyRewards.map(reward => (
+                        <option key={reward.id} value={reward.id}>
+                          {reward.name} — {reward.points_cost} pts
+                          {String(reward.reward_type).toLowerCase() === "percent"
+                            ? ` • ${reward.reward_value}% OFF`
+                            : String(reward.reward_type).toLowerCase() === "free_item"
+                              ? " • Free item"
+                              : ` • ₹${Number(reward.reward_value || 0).toFixed(2)} OFF`}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedLoyaltyReward ? (
+                      <small style={{color:"#15803d",fontWeight:800}}>
+                        ✓ {selectedLoyaltyReward.name} — ₹{loyaltyRewardDiscount.toFixed(2)} discount • {selectedLoyaltyReward.points_cost} points will be redeemed only after successful payment.
+                      </small>
+                    ) : (
+                      <small style={{color:"var(--muted)"}}>
+                        Select an eligible reward. Points are not deducted until the bill is successfully finalized.
+                      </small>
+                    )}
+                  </div>
                 ) : null}
 
                 <div
@@ -3158,7 +3309,7 @@ export default function BillingPage() {
             className="billing-report-print"
             style={{
               ...card,
-              maxHeight:"850px",
+              maxHeight:"560px",
               overflowY:"auto"
             }}
           >
@@ -3183,8 +3334,8 @@ export default function BillingPage() {
               style={{
                 display:"grid",
                 gridTemplateColumns:"repeat(6,minmax(0,1fr))",
-                gap:10,
-                marginBottom:16
+                gap:8,
+                marginBottom:10
               }}
             >
               {[
@@ -3196,13 +3347,13 @@ export default function BillingPage() {
                 ["Pending", `₹${pendingAmount.toFixed(2)}`]
               ].map(([label,value]) => (
                 <div key={label} className="report-summary-card" style={{
-                  padding:"12px 14px",
+                  padding:"8px 10px",
                   border:"1px solid var(--border)",
-                  borderRadius:12,
+                  borderRadius:10,
                   background:"var(--surface2)"
                 }}>
-                  <div style={{fontSize:11,color:"var(--muted)",fontWeight:700}}>{label}</div>
-                  <div style={{fontSize:18,fontWeight:900,color:"var(--text)",marginTop:4}}>{value}</div>
+                  <div style={{fontSize:10,color:"var(--muted)",fontWeight:700,whiteSpace:"nowrap"}}>{label}</div>
+                  <div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginTop:2,whiteSpace:"nowrap"}}>{value}</div>
                 </div>
               ))}
             </div>
@@ -3210,21 +3361,22 @@ export default function BillingPage() {
             <div style={{
               display:"grid",
               gridTemplateColumns:"minmax(0,1fr) minmax(220px,300px)",
-              gap:16,
-              marginBottom:16
+              gap:12,
+              marginBottom:10
             }}>
-              <div>
-                <h4 style={{margin:"0 0 8px",color:"var(--text)"}}>Order Details</h4>
+              <div style={{minWidth:0}}>
+                <h4 style={{margin:"0 0 5px",color:"var(--text)",fontSize:13}}>Order Details</h4>
                 <div
                   className="report-table-wrap"
                   style={{
-                    maxHeight:"230px",
+                    height:"150px",
+                    maxHeight:"150px",
                     overflowY:"auto",
-                    borderRadius:12,
+                    borderRadius:10,
                     border:"1px solid var(--border)"
                   }}
                 >
-                  <table className="billing-invoice-table" style={table}>
+                  <table className="billing-invoice-table" style={{...table,fontSize:12}}>
                     <thead>
                       <tr>
                         <th style={th}>Order</th>
@@ -3250,59 +3402,87 @@ export default function BillingPage() {
                     </tbody>
                   </table>
                 </div>
+
+                <h4 style={{margin:"10px 0 5px",color:"var(--text)",fontSize:13}}>Top Selling Items</h4>
+                <div
+                  className="report-table-wrap"
+                  style={{
+                    height:"150px",
+                    maxHeight:"150px",
+                    overflowY:"auto",
+                    borderRadius:10,
+                    border:"1px solid var(--border)"
+                  }}
+                >
+                  <table className="billing-invoice-table" style={{...table,fontSize:12}}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Item</th>
+                        <th style={th}>Sales</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredItemChartData.map(item => (
+                        <tr key={item.name}>
+                          <td style={td}>{item.name}</td>
+                          <td style={td}>₹{Number(item.total).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {!filteredItemChartData.length ? (
+                        <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No item sales.</td></tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <div>
-                <h4 style={{margin:"0 0 8px",color:"var(--text)"}}>Payment Breakdown</h4>
-                <table className="billing-invoice-table" style={table}>
-                  <thead>
-                    <tr><th style={th}>Method</th><th style={th}>Collected</th></tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(paymentMethodTotals).map(([method, amount]) => (
-                      <tr key={method}>
-                        <td style={td}>{method.toUpperCase()}</td>
-                        <td style={td}>₹{Number(amount).toFixed(2)}</td>
+              <div style={{minWidth:0}}>
+                <h4 style={{margin:"0 0 5px",color:"var(--text)",fontSize:13}}>Payment Breakdown</h4>
+                <div
+                  className="report-table-wrap"
+                  style={{
+                    height:"310px",
+                    maxHeight:"310px",
+                    overflowY:"auto",
+                    borderRadius:10,
+                    border:"1px solid var(--border)"
+                  }}
+                >
+                  <table className="billing-invoice-table" style={{...table,fontSize:12}}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Method</th>
+                        <th style={th}>Collected</th>
                       </tr>
-                    ))}
-                    {!Object.keys(paymentMethodTotals).length ? (
-                      <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No payments recorded.</td></tr>
-                    ) : null}
-                  </tbody>
-                </table>
-
-                <h4 style={{margin:"18px 0 8px",color:"var(--text)"}}>Top Selling Items</h4>
-                <table className="billing-invoice-table" style={table}>
-                  <thead>
-                    <tr><th style={th}>Item</th><th style={th}>Sales</th></tr>
-                  </thead>
-                  <tbody>
-                    {filteredItemChartData.map(item => (
-                      <tr key={item.name}>
-                        <td style={td}>{item.name}</td>
-                        <td style={td}>₹{Number(item.total).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                    {!filteredItemChartData.length ? (
-                      <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No item sales.</td></tr>
-                    ) : null}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {Object.entries(paymentMethodTotals).map(([method, amount]) => (
+                        <tr key={method}>
+                          <td style={td}>{method.toUpperCase()}</td>
+                          <td style={td}>₹{Number(amount).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {!Object.keys(paymentMethodTotals).length ? (
+                        <tr><td colSpan={2} style={{...td,textAlign:"center"}}>No payments recorded.</td></tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
             <div className="report-total-box" style={{
-              marginTop:10,
-              padding:18,
-              borderRadius:16,
+              marginTop:8,
+              padding:"10px 14px",
+              borderRadius:12,
               background:"var(--surface2)",
               border:"1px solid var(--border)"
             }}>
               <div style={{display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
                 <strong>Total Revenue</strong>
-                <strong style={{fontSize:22,color:"var(--primary)"}}>₹{reportTotal.toFixed(2)}</strong>
+                <strong style={{fontSize:18,color:"var(--primary)"}}>₹{reportTotal.toFixed(2)}</strong>
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginTop:6,color:"var(--muted)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginTop:3,color:"var(--muted)",fontSize:12}}>
                 <span>GST: ₹{reportGstTotal.toFixed(2)}</span>
                 <span>Collected: ₹{collectedAmount.toFixed(2)}</span>
                 <span>Outstanding: ₹{pendingAmount.toFixed(2)}</span>
@@ -3310,8 +3490,8 @@ export default function BillingPage() {
             </div>
 
             <div className="report-print-footer" style={{
-              marginTop:14,
-              paddingTop:10,
+              marginTop:8,
+              paddingTop:7,
               borderTop:"1px solid var(--border)",
               textAlign:"center",
               fontSize:9,
@@ -3324,8 +3504,8 @@ export default function BillingPage() {
               className="report-actions"
               style={{
                 display:"flex",
-                gap:10,
-                marginTop:14,
+                gap:8,
+                marginTop:8,
                 flexWrap:"wrap",
                 alignItems:"center"
               }}

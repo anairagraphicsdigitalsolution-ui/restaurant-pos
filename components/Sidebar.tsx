@@ -8,6 +8,7 @@ import React, {
   CSSProperties
 } from "react"
 import { supabase } from "@/lib/supabase"
+import { CORE_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 
 
 /* ✅ ADD PROPS TYPE */
@@ -120,23 +121,38 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       }
 
       const resolved: Record<string, boolean> = { ...pluginState }
+      const proMasterOn = pluginState["restaurant-pro"] === true
+
       for (const [key, codes] of Object.entries(aliases)) {
         resolved[key] = codes.some(code => pluginState[code] === true)
       }
 
-      // Super Admin plugin state is the runtime navigation source of truth.
-      // The subscription is still displayed for billing context, but it no longer
-      // silently turns a feature on when the Super Admin has switched it off.
+      // Restaurant Core is controlled by its Super Admin master switch.
+      // Operations Hub remains independent.
+      const coreOn = pluginState["restaurant-core"] === true
+      for (const code of CORE_FEATURE_CODES) {
+        resolved[code] = coreOn
+      }
+
+      // Restaurant Pro is a true master switch. Its child features cannot
+      // become visible while the master is OFF.
+      for (const row of pluginRows || []) {
+        if (isRestaurantProFeature(row.plugin_code)) {
+          resolved[row.plugin_code] = proMasterOn && row.enabled === true
+        }
+      }
+
+      // Loyalty remains independent from Restaurant Pro.
+      resolved["loyalty"] = pluginState["loyalty"] === true
+
       setPlanFeatures(resolved)
       setFeaturePlugins(resolved)
 
-      const hubRows = (pluginRows || []).filter(row =>
-        ["operations-hub","restaurant-core","restaurant-pro"].includes(row.plugin_code)
-      )
-
-      setHubPlugins(
-        Object.fromEntries((hubRows || []).map(row => [row.plugin_code, row.enabled === true]))
-      )
+      setHubPlugins({
+        "operations-hub": true,
+        "restaurant-core": coreOn,
+        "restaurant-pro": proMasterOn
+      })
     }
   }
 
@@ -174,6 +190,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     { name: "Platform Theme", path: "/super-admin/theme", icon: "🎨" },
     { name: "Platform Analytics", path: "/super-admin/analytics", icon: "📈" },
     { name: "Subscriptions", path: "/super-admin/subscriptions", icon: "💳" },
+    { name: "Offer Plan Limits", path: "/super-admin/offer-limits", icon: "🎁" },
     { name: "Audit Logs", path: "/super-admin/audit", icon: "🛡️" },
     { name: "Users", path: "/super-admin/users", icon: "👥" },
     { name: "AI Image", path: "/ai/image", icon: "🎨" },
@@ -189,6 +206,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       path: "/admin",
       children: [
         { name: "Dashboard", path: "/admin" },
+        { name: "Plugins", path: "/admin/plugins" },
       ]
     },
     {
@@ -210,20 +228,19 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     },
     {
       name: "Restaurant Pro",
-      icon: "🚀",
       path: "/dashboard/restaurant-pro",
       hubPlugin: "restaurant-pro",
       children: [
-        { name: "Overview", path: "/dashboard/restaurant-pro" },
-        { name: "GST & Billing", path: "/dashboard/restaurant-pro?tab=gst" },
-        { name: "Suppliers", path: "/dashboard/restaurant-pro?tab=suppliers", feature: "purchasing" },
-        { name: "Purchasing", path: "/dashboard/restaurant-pro?tab=purchases", feature: "purchasing" },
-        { name: "Recipes", path: "/dashboard/restaurant-pro?tab=recipes", feature: "recipe-bom" },
-        { name: "Delivery", path: "/dashboard/restaurant-pro?tab=delivery", feature: "delivery" },
-        { name: "Staff Shifts", path: "/dashboard/restaurant-pro?tab=staff", feature: "staff-attendance" },
-        { name: "Loyalty", path: "/dashboard/restaurant-pro?tab=loyalty", feature: "loyalty" },
-        { name: "Cash Session", path: "/dashboard/restaurant-pro?tab=cash", feature: "cash-closing" },
-      ]
+        { name: "Pro Features", path: "/dashboard/restaurant-pro" },
+        { name: "Website Ordering", path: "/dashboard/website-ordering", feature: "website-ordering" },
+        { name: "Captain / Waiter", path: "/staff", feature: "captain-app" },
+        { name: "Smart Notifications", path: "/dashboard/notifications", feature: "smart-notifications" },
+        { name: "Calling Device", path: "/dashboard/calling", feature: "calling-device" },
+        { name: "Offers & Promotions", path: "/dashboard/offers", feature: "offers" },
+        { name: "Printing Center", path: "/dashboard/printing", feature: "thermal-printing" },
+        { name: "Facebook / Instagram", path: "/dashboard/social", feature: "facebook-integration" },
+        { name: "Integrations", path: "/dashboard/restaurant-pro" },
+      ],
     },
     {
       name: "Restaurant Core",
@@ -242,23 +259,6 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       ]
     },
     {
-      name: "Restaurant Suite",
-      icon: "🏆",
-      path: "/dashboard/restaurant-suite",
-      feature: "pos-core",
-      children: [
-        { name: "Operations Center", path: "/dashboard/restaurant-suite" },
-        { name: "Token / Pickup", path: "/dashboard/restaurant-suite?tab=tokens", feature: "token-management" },
-        { name: "Online Reconciliation", path: "/dashboard/restaurant-suite?tab=online", feature: "online-reconciliation" },
-        { name: "Food Cost", path: "/dashboard/restaurant-suite?tab=costing", feature: "profit-food-cost" },
-        { name: "CRM Campaigns", path: "/dashboard/restaurant-suite?tab=marketing", feature: "campaigns" },
-        { name: "Captain / Staff", path: "/dashboard/restaurant-suite?tab=captain", feature: "captain-app" },
-        { name: "Kiosk / Display", path: "/dashboard/restaurant-suite?tab=devices", feature: "digital-display" },
-        { name: "Advanced Operations", path: "/dashboard/restaurant-suite/advanced", feature: "pos-core" },
-        { name: "Anaira Operations Hub", path: "/dashboard/restaurant-suite/operations", feature: "pos-core" },
-      ]
-    },
-    {
       name: "Offers",
       icon: "🎁",
       path: "/dashboard/offers",
@@ -269,13 +269,21 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       ]
     },
     {
+      name: "Reservations",
+      icon: "📅",
+      path: "/dashboard/reservations",
+      feature: "reservations-pro",
+      children: [
+        { name: "Table Reservations", path: "/dashboard/reservations", feature: "reservations-pro" },
+      ]
+    },
+    {
       name: "Customers",
       icon: "👥",
       path: "/dashboard/customers",
-      feature: "crm",
+      anyFeature: ["crm","loyalty","feedback-reviews"],
       children: [
-        { name: "Customer CRM", path: "/dashboard/customers" },
-        { name: "Reservations", path: "/dashboard/reservations", feature: "reservations" },
+        { name: "Customer CRM", path: "/dashboard/customers", feature: "crm" },
         { name: "Loyalty & Rewards", path: "/dashboard/business?tab=loyalty", feature: "loyalty" },
         { name: "Feedback & Reviews", path: "/dashboard/business?tab=feedback", feature: "feedback-reviews" },
       ]

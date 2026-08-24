@@ -412,6 +412,56 @@ export default function DeliveryManagement() {
     setCollectionNote("")
   }
 
+  async function markDoneAndBill() {
+    if (!selected?.order_id) {
+      setError("Order is missing for this delivery.")
+      return
+    }
+
+    if (selected.settlement_status !== "settled") {
+      setError("Settle the delivery payment before marking the order done.")
+      return
+    }
+
+    setBusy(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch("/api/kitchen/order-status", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          order_id: selected.order_id,
+          status: "done",
+        }),
+        cache: "no-store",
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Unable to mark order done")
+      }
+
+      // Billing screen restores the selected order from this key.
+      window.localStorage.setItem(
+        "anaira_pos_selected_order",
+        selected.order_id
+      )
+
+      router.push("/billing/bill")
+    } catch (e) {
+      setError(e?.message || "Unable to complete delivery order")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function openRiderEditor(rider = null) {
     setRiderForm(rider
       ? { id: rider.id || "", name: rider.name || "", phone: rider.phone || "", vehicle: rider.vehicle || "", active: rider.active !== false }
@@ -1252,6 +1302,17 @@ export default function DeliveryManagement() {
                   >
                     ✓ Settle Payment
                   </button>
+
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      selected.settlement_status !== "settled"
+                    }
+                    onClick={markDoneAndBill}
+                  >
+                    {busy ? "Saving…" : "✓ Mark Done & Open Billing"}
+                  </button>
                 </div>
               </div>
 
@@ -1307,7 +1368,7 @@ export default function DeliveryManagement() {
                         : ""
                     }
                   >
-                    5. Money returned & settled
+                    5. Money returned & settled → Mark Done & Billing
                   </span>
                 </div>
               </div>

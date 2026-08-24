@@ -48,13 +48,54 @@ export async function POST(req) {
       return Response.json({ success: true, reservation: data })
     }
 
-    const tableId = String(body?.table_id || "").trim()
-    const startAt = parseDateTime(body?.date, body?.time)
-    const duration = Math.max(1, Number(body?.duration || 60))
-    const endAt = startAt ? new Date(new Date(startAt).getTime() + duration * 60000).toISOString() : null
+    const profile = await supabaseAdmin
+      .from("profiles")
+      .select("restaurant_id,role")
+      .eq("id", user.id)
+      .maybeSingle()
+    const restaurantId = profile?.data?.restaurant_id
+    if (!restaurantId && profile?.data?.role !== "super_admin") {
+      return Response.json({ success:false, error:"Restaurant profile not found" }, {status:400})
+    }
 
-    if (!tableId || !startAt || !endAt || !body?.name || !body?.phone) {
+    const { data: pluginRow } = await supabaseAdmin
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", restaurantId)
+      .in("plugin_code", ["reservations-pro","reservations"])
+      .eq("enabled", true)
+      .limit(1)
+      .maybeSingle()
+    if (!pluginRow?.enabled && profile?.data?.role !== "super_admin") {
+      return Response.json({ success:false, error:"Advanced Reservations is not active" }, {status:403})
+    }
+
+    const { data: settingsRow } = await supabaseAdmin
+      .from("plugin_settings")
+      .select("config")
+      .eq("restaurant_id", restaurantId)
+      .eq("plugin_code", "reservations-pro")
+      .maybeSingle()
+    const cfg = settingsRow?.config || {}
+    const startAt = parseDateTime(body?.date, body?.time)
+    const duration = Math.max(
+      1,
+      Number(body?.duration || cfg.default_duration_minutes || 90)
+    )
+    const endAt = startAt ? new Date(new Date(startAt).getTime() + duration * 60000).toISOString() : null
+    const guests = Math.max(1, Number(body?.guests || 1))
+    const maxGuests = Math.max(1, Number(cfg.max_guests || 20))
+    const minNotice = Math.max(0, Number(cfg.min_notice_minutes || 0))
+
+    if (!tableId || !startAt || !endAt || !body?.name || (cfg.require_phone !== false && !body?.phone)) {
       return Response.json({ success: false, error: "Complete reservation details are required" }, { status: 400 })
+    }
+
+    if (guests > maxGuests) {
+      return Response.json({success:false,error:`Maximum ${maxGuests} guests allowed for a reservation`},{status:400})
+    }
+    if (minNotice > 0 && new Date(startAt).getTime() < Date.now() + minNotice * 60000) {
+      return Response.json({success:false,error:`Reservation must be made at least ${minNotice} minutes in advance`},{status:400})
     }
 
     const payload = {
@@ -63,8 +104,8 @@ export async function POST(req) {
       p_start_at: startAt,
       p_end_at: endAt,
       p_name: String(body.name).trim().slice(0, 120),
-      p_phone: String(body.phone).trim().slice(0, 40),
-      p_guests: Math.max(1, Number(body.guests || 1)),
+      p_phone: String(body.phone || "").trim().slice(0, 40),
+      p_guests: guests,
       p_notes: typeof body.notes === "string" ? body.notes.slice(0, 1000) : null
     }
 
@@ -80,7 +121,18 @@ export async function POST(req) {
     const { data, error } = await supabaseAdmin.rpc(rpcName, payload)
 
     if (error) return Response.json({ success: false, error: error.message }, { status: 400 })
-    return Response.json({ success: true, reservation: data })
+
+    let finalReservation = data
+    if (cfg.auto_confirm === true && data?.reservation_id) {
+      const { data: statusData, error: statusError } = await supabaseAdmin.rpc("stage3_update_reservation_status", {
+        p_actor_id: user.id,
+        p_reservation_id: data.reservation_id,
+        p_status: "confirmed"
+      })
+      if (!statusError) finalReservation = statusData
+    }
+
+    return Response.json({ success: true, reservation: finalReservation })
   } catch (error) {
     return Response.json(
       { success: false, error: error.message || "Reservation failed" },

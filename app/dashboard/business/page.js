@@ -25,7 +25,8 @@ export default function BusinessOperations() {
   const [name, setName] = useState("Restaurant")
   const [tab, setTab] = useState(searchParams.get("tab") || "overview")
   const [loading, setLoading] = useState(true)
-  const [pluginEnabled, setPluginEnabled] = useState(false)
+  const [pluginEnabled, setPluginEnabled] = useState(true)
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(false)
   const [toast, setToast] = useState("")
   const [loyaltyError, setLoyaltyError] = useState("")
   const [customers, setCustomers] = useState([])
@@ -92,14 +93,26 @@ export default function BusinessOperations() {
 
     if (!p?.restaurant_id) return setLoading(false)
 
-    setRid(p.restaurant_id);
-    const { data: pluginRow } = await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id", p.restaurant_id).eq("plugin_code", "operations-hub").maybeSingle()
-    const enabled = pluginRow?.enabled === true
-    setPluginEnabled(enabled)
-    if (!enabled) {
-      setLoading(false)
-      return
+    setRid(p.restaurant_id)
+
+    // Operations Hub itself is Core and must remain available regardless of
+    // Restaurant Pro / individual plugin state.
+    setPluginEnabled(true)
+
+    const { data: loyaltyRow } = await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", p.restaurant_id)
+      .eq("plugin_code", "loyalty")
+      .maybeSingle()
+
+    const loyaltyOn = loyaltyRow?.enabled === true
+    setLoyaltyEnabled(loyaltyOn)
+
+    if (searchParams.get("tab") === "loyalty" && !loyaltyOn) {
+      setTab("overview")
     }
+
     const { data: r } = await supabase.from("restaurants").select("name").eq("id", p.restaurant_id).single()
     setName(r?.name || "Restaurant")
 
@@ -109,8 +122,7 @@ export default function BusinessOperations() {
       loadExpenses(p.restaurant_id),
       loadAttendance(p.restaurant_id),
       loadFeedback(p.restaurant_id),
-      loadLoyaltyTransactions(p.restaurant_id),
-      loadAdvancedLoyalty(p.restaurant_id),
+      ...(loyaltyOn ? [loadLoyaltyTransactions(p.restaurant_id), loadAdvancedLoyalty(p.restaurant_id)] : []),
       loadStaff(p.restaurant_id),
       loadKots(p.restaurant_id),
       loadOrders(p.restaurant_id),
@@ -945,7 +957,7 @@ export default function BusinessOperations() {
 
       {tab === "attendance" && <div style={grid}><Card title="My attendance" subtitle="Clock in/out for the current logged-in user."><button style={primary} onClick={clockIn}>🟢 Clock In</button><List>{attendance.slice(0, 30).map(a => <Row key={a.id}><div><b>{new Date(a.clock_in).toLocaleDateString("en-IN")}</b><small>{new Date(a.clock_in).toLocaleTimeString("en-IN")} → {a.clock_out ? new Date(a.clock_out).toLocaleTimeString("en-IN") : "Active"}</small></div>{!a.clock_out && <button style={mini} onClick={() => clockOut(a.id)}>Clock Out</button>}</Row>)}</List></Card><Card title="Attendance overview" subtitle="Restaurant-scoped records"><Metric title="Records loaded" value={attendance.length} hint="Recent attendance entries" /><Metric title="Currently active" value={openAttendance} hint="Open clock-in records" /></Card></div>}
 
-      {tab === "loyalty" && (() => {
+      {tab === "loyalty" && loyaltyEnabled && (() => {
         const q = loyaltySearch.trim().toLowerCase()
         const loyaltyCustomers = customers.filter(c => !q || `${c.name} ${c.phone || ""} ${c.email || ""}`.toLowerCase().includes(q))
         const pointsIssued = loyaltyTransactions.filter(t => Number(t.points) > 0).reduce((s, t) => s + Number(t.points || 0), 0)

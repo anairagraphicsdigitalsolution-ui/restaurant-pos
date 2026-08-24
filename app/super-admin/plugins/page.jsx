@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
+import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
 
 const categoryMeta = {
   "Core Hubs":["🧭","Core Hubs"],
@@ -53,7 +55,7 @@ export default function PluginsPage(){
       const data=await res.json()
       if(!res.ok||!data.success) throw new Error(data.error||"Unable to load plugin center")
       setRestaurants(data.restaurants||[])
-      setCatalog(data.catalog||[])
+      setCatalog(PLUGIN_CATALOG)
     }catch(e){
       setMessage(`❌ ${e.message}`)
     }finally{
@@ -72,19 +74,19 @@ export default function PluginsPage(){
       })
       const data=await res.json()
       if(!res.ok||!data.success) throw new Error(data.error||"Unable to load restaurant plugins")
-      setCatalog(data.catalog||catalog)
+      setCatalog(PLUGIN_CATALOG)
       setInstalled(data.plugins||[])
     }catch(e){
       setMessage(`❌ ${e.message}`)
     }
   }
 
-  const merged=useMemo(()=>catalog.map(c=>({
+  const merged=useMemo(()=>PLUGIN_CATALOG.map(c=>({
     ...c,
     plugin:installed.find(p=>p.plugin_code===c.code)||null
   })),[catalog,installed])
 
-  const categories=["All",...Array.from(new Set(catalog.map(x=>x.category).filter(Boolean)))]
+  const categories=["All",...Array.from(new Set(PLUGIN_CATALOG.map(x=>x.category).filter(Boolean)))]
   const filteredRestaurants=restaurants.filter(r=>{
     const q=restaurantSearch.trim().toLowerCase()
     return !q || `${r.name} ${r.status}`.toLowerCase().includes(q)
@@ -105,8 +107,54 @@ export default function PluginsPage(){
   const activeHubs=installed.filter(x=>hubCodes.has(x.plugin_code)&&x.enabled).length
   const activeRows=installed.filter(x=>x.enabled)
 
+  const [configOpen,setConfigOpen]=useState("")
+  const [config,setConfig]=useState({})
+  async function loadConfig(plugin){
+    if(!selected)return
+    setConfigOpen(plugin.code)
+    const headers=await authHeaders()
+    const res=await fetch(`/api/super-admin/plugins?restaurant_id=${encodeURIComponent(selected.id)}&config_for=${encodeURIComponent(plugin.code)}`,{headers,cache:"no-store"})
+    const data=await res.json()
+    setConfig(data.config||{})
+  }
+  async function saveConfig(plugin){
+    if(!selected)return
+    const headers=await authHeaders()
+    const res=await fetch("/api/super-admin/plugins",{method:"PATCH",headers,body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code,config})})
+    const data=await res.json()
+    if(!res.ok||!data.success) throw new Error(data.error||"Configuration save failed")
+    setMessage(`✅ ${plugin.name} settings saved for ${selected.name}`)
+  }
+
+  async function testWhatsApp(plugin){
+    if(plugin.code!=="whatsapp-invoice" || !selected) return
+    try{
+      await saveConfig(plugin)
+      const headers=await authHeaders()
+      const res=await fetch("/api/whatsapp/test",{
+        method:"POST",
+        headers,
+        body:JSON.stringify({
+          restaurant_id:selected.id,
+          to:config.test_recipient,
+          templateName:"hello_world",
+          language:"en_US"
+        })
+      })
+      const data=await res.json()
+      if(!res.ok||!data.success) throw new Error(data.error||"WhatsApp test failed")
+      setMessage(`✅ WhatsApp API accepted the test message${data.wamid?` · ${data.wamid}`:""}`)
+    }catch(e){
+      setMessage(`❌ WhatsApp test: ${e.message}`)
+    }
+  }
+
   async function toggle(plugin){
     if(!selected) return
+    if (plugin.code === "operations-hub" || CORE_FEATURE_CODES.has(plugin.code)) {
+      setMessage("Operations Hub is always available. Core feature modules are controlled by Restaurant Core.")
+      return
+    }
     const row=plugin.plugin
     setSaving(plugin.code)
     setMessage("")
@@ -132,52 +180,6 @@ export default function PluginsPage(){
     }
   }
 
-  async function setAll(enabled){
-    if(!selected) return
-    const rows = enabled
-      ? merged.filter(x => !x.plugin?.enabled)
-      : installed.filter(x => x.enabled).map(x => ({
-          code:x.plugin_code,
-          name:x.display_name||x.plugin_code,
-          plugin:x
-        }))
-    if(!rows.length){
-      setMessage(enabled?"All plugins are already installed.":"No active plugins to disable.")
-      return
-    }
-    const action=enabled?"activate":"deactivate"
-    if(!confirm(`${action[0].toUpperCase()+action.slice(1)} ${rows.length} plugins for ${selected.name}?`)) return
-
-    const headers=await authHeaders()
-    setSaving("__all__")
-    try{
-      for(const item of rows){
-        if(enabled){
-          if(item.plugin?.id){
-            await fetch("/api/super-admin/plugins",{
-              method:"PATCH",headers,
-              body:JSON.stringify({restaurant_id:selected.id,id:item.plugin.id,enabled:true})
-            })
-          } else {
-            await fetch("/api/super-admin/plugins",{
-              method:"POST",headers,
-              body:JSON.stringify({restaurant_id:selected.id,plugin_code:item.code})
-            })
-          }
-        }else{
-          await fetch("/api/super-admin/plugins",{
-            method:"PATCH",headers,
-            body:JSON.stringify({restaurant_id:selected.id,id:item.plugin.id,enabled:false})
-          })
-        }
-      }
-      await selectRestaurant(selected)
-      if(typeof window!=="undefined") window.dispatchEvent(new CustomEvent("anaira:plugins-updated"))
-      setMessage(`✅ ${enabled?"Plugins activated":"Plugins deactivated"}`)
-    }finally{
-      setSaving("")
-    }
-  }
 
   if(loading) return <main className="plugin-pro-shell"><div style={loadingCard}>Loading Plugin Control Center…</div></main>
 
@@ -191,8 +193,17 @@ export default function PluginsPage(){
         .hub-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
         .plugin-btn{transition:.18s ease}
         .plugin-btn:hover{transform:translateY(-1px)}
+        .plugin-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+        .plugin-settings-panel{width:100%;box-sizing:border-box}
+        .plugin-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .plugin-setting-card{padding:14px;border-radius:14px;background:var(--surface-2);border:1px solid var(--border)}
+        .plugin-setting-field{display:grid;gap:6px;margin-top:9px}
+        .plugin-setting-field:first-child{margin-top:0}
+        .plugin-setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-radius:11px;background:var(--surface);border:1px solid var(--border)}
+        .plugin-setting-toggle input{width:18px;height:18px;accent-color:var(--primary)}
+        .plugin-settings-save{position:sticky;bottom:12px;z-index:3;padding:10px;border-radius:12px;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(14px);border:1px solid var(--border)}
         @media(max-width:1180px){.plugin-grid{grid-template-columns:1fr}.plugin-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.hub-cards{grid-template-columns:1fr}}
-        @media(max-width:650px){.plugin-pro-shell{padding:12px 10px 35px}.plugin-cards{grid-template-columns:1fr}.stats-grid{grid-template-columns:1fr 1fr!important}}
+        @media(max-width:650px){.plugin-settings-grid{grid-template-columns:1fr}.plugin-actions{width:100%}.plugin-actions .plugin-btn{flex:1}.plugin-pro-shell{padding:12px 10px 35px}.plugin-cards{grid-template-columns:1fr}.stats-grid{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
       <div className="plugin-wrap">
@@ -236,8 +247,7 @@ export default function PluginsPage(){
           <div style={actionRow}>
             <button className="plugin-btn" style={ghost} onClick={load}>↻ Refresh</button>
             {selected&&<>
-              <button className="plugin-btn" style={success} disabled={saving==="__all__"} onClick={()=>setAll(true)}>⚡ Activate All</button>
-              <button className="plugin-btn" style={danger} disabled={saving==="__all__"} onClick={()=>setAll(false)}>⏻ Disable All</button>
+
             </>}
           </div>
         </section>
@@ -272,7 +282,8 @@ export default function PluginsPage(){
 
               <div className="hub-cards">
                 {merged.filter(p=>hubCodes.has(p.code)).map(p=>{
-                  const on=p.plugin?.enabled===true
+                  const alwaysOn = p.code === "operations-hub"
+                  const on = alwaysOn ? true : p.plugin?.enabled===true
                   return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
                     <div style={hubIcon}>{p.icon||"🧩"}</div>
                     <div style={{flex:1,minWidth:0}}>
@@ -281,6 +292,34 @@ export default function PluginsPage(){
                         <span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"LOCKED"}</span>
                       </div>
                       <p style={pluginDesc}>{p.description}</p>
+                      <button className="plugin-btn" disabled={alwaysOn || saving===p.code} onClick={()=>toggle(p)} style={alwaysOn?ghost:(on?hubDeactivate:hubActivate)}>
+                        {alwaysOn ? "Always On" : saving===p.code?"Saving…":on?"Deactivate":"Activate"}
+                      </button>
+                    </div>
+                  </article>
+                })}
+              </div>
+            </section>
+
+            <section style={{...hubPanel,marginTop:0}}>
+              <div style={sectionHead}>
+                <div>
+                  <div style={eyebrow}>INTEGRATION PLUGIN</div>
+                  <h2 style={sectionTitle}>WhatsApp Integration</h2>
+                  <p style={sectionText}>Enable or disable WhatsApp Invoice independently. It does not depend on Restaurant Pro or Core POS.</p>
+                </div>
+              </div>
+              <div className="hub-cards">
+                {merged.filter(p => p.code === "whatsapp-invoice").map(p => {
+                  const on = p.plugin?.enabled === true
+                  return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
+                    <div style={hubIcon}>📲</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
+                        <h3 style={{margin:0,fontSize:16}}>WhatsApp Invoice</h3>
+                        <span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"OFF"}</span>
+                      </div>
+                      <p style={pluginDesc}>Send invoice/customer messages through WhatsApp click-to-chat.</p>
                       <button className="plugin-btn" disabled={saving===p.code} onClick={()=>toggle(p)} style={on?hubDeactivate:hubActivate}>
                         {saving===p.code?"Saving…":on?"Deactivate":"Activate"}
                       </button>
@@ -321,7 +360,8 @@ export default function PluginsPage(){
 
                 <div className="plugin-cards">
                   {filtered.map(p=>{
-                    const on=p.plugin?.enabled===true
+                    const alwaysOn = OPERATIONS_FEATURE_CODES.has(p.code)
+                    const on=alwaysOn ? true : p.plugin?.enabled===true
                     const [catIcon,catLabel]=categoryMeta[p.category]||["🧩",p.category]
                     return <article key={p.code} style={{...pluginCard,...(on?pluginOn:{})}}>
                       <div style={cardTop}>
@@ -333,10 +373,14 @@ export default function PluginsPage(){
                       <p style={pluginDesc}>{p.description}</p>
                       <div style={cardBottom}>
                         <span style={code}>{p.code}</span>
-                        <button className="plugin-btn" disabled={saving===p.code} onClick={()=>toggle(p)} style={on?switchOn:switchOff}>
-                          {saving===p.code?"Saving…":on?"Deactivate":"Activate"}
-                        </button>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",justifyContent:"flex-end"}}>
+                          <button className="plugin-btn" disabled={alwaysOn || saving===p.code} onClick={()=>toggle(p)} style={alwaysOn?ghost:(on?switchOn:switchOff)}>
+                            {alwaysOn ? "Always On" : saving===p.code?"Saving…":on?"Deactivate":"Activate"}
+                          </button>
+                          {on && <button className="plugin-btn" onClick={()=>loadConfig(p)} style={ghost}>⚙ Configure</button>}
+                        </div>
                       </div>
+                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} onSave={()=>saveConfig(p)} onTest={()=>testWhatsApp(p)} />}
                     </article>
                   })}
                 </div>
@@ -351,8 +395,336 @@ export default function PluginsPage(){
   )
 }
 
+const PLUGIN_SETTINGS = {
+  "reservations-pro": {
+    title:"Reservation Settings",
+    sections:[
+      {title:"Reservation Rules",fields:[
+        ["enabled","Reservation accepting","toggle",true],
+        ["auto_confirm","Auto-confirm reservations","toggle",true],
+        ["advance_days","Maximum advance booking (days)","number",30],
+        ["min_notice_minutes","Minimum notice (minutes)","number",30],
+        ["default_duration_minutes","Default reservation duration (minutes)","number",90],
+        ["allow_waitlist","Enable waitlist","toggle",true],
+        ["allow_no_show","Track no-show status","toggle",true],
+      ]},
+      {title:"Table & Customer",fields:[
+        ["auto_assign_table","Automatically assign table","toggle",false],
+        ["allow_table_selection","Customer can request table","toggle",true],
+        ["require_phone","Phone number required","toggle",true],
+        ["require_email","Email required","toggle",false],
+        ["max_guests","Maximum guests per reservation","number",20],
+      ]},
+      {title:"Deposit & Cancellation",fields:[
+        ["deposit_enabled","Require deposit","toggle",false],
+        ["deposit_type","Deposit type","select",["fixed","percentage"]],
+        ["deposit_value","Deposit value","number",0],
+        ["cancellation_hours","Free cancellation before (hours)","number",4],
+      ]},
+    ]
+  },
+  "qr-ordering-pro": {
+    title:"Advanced QR Ordering Settings",
+    sections:[
+      {title:"Ordering",fields:[
+        ["customer_name_required","Customer name required","toggle",false],
+        ["customer_phone_required","Customer phone required","toggle",false],
+        ["allow_reorder","Allow repeat/reorder","toggle",true],
+        ["allow_cooking_request","Allow cooking instructions","toggle",true],
+        ["allow_customer_request","Allow call/request waiter","toggle",true],
+        ["auto_send_kitchen","Send confirmed order to kitchen","toggle",true],
+      ]},
+      {title:"Billing",fields:[
+        ["payment_mode","Payment mode","select",["pay_at_counter","pay_online","both"]],
+        ["service_charge_enabled","Service charge","toggle",false],
+        ["service_charge_percent","Service charge %","number",0],
+        ["minimum_order","Minimum order amount","number",0],
+      ]}
+    ]
+  },
+  "qr-print-center": {
+    title:"QR Print Settings",
+    sections:[{title:"QR Output",fields:[
+      ["qr_size_mm","QR size (mm)","number",35],
+      ["include_logo","Include restaurant logo","toggle",true],
+      ["include_restaurant_name","Print restaurant name","toggle",true],
+      ["include_table_number","Print table/room number","toggle",true],
+      ["include_instruction","Print scan instruction","toggle",true],
+      ["instruction_text","Scan instruction","text","Scan to order"],
+    ]}]
+  },
+  "website-ordering": {
+    title:"Website Ordering Settings",
+    sections:[
+      {title:"Connection",fields:[
+        ["domain","Restaurant website domain","text",""],
+        ["slug","Public ordering slug","text",""],
+        ["auto_send_kitchen","Automatically send new order to kitchen","toggle",true],
+      ]},
+      {title:"Order Rules",fields:[
+        ["order_mode","Allowed order mode","select",["pickup","delivery","both"]],
+        ["minimum_order","Minimum order amount","number",0],
+        ["accept_online_payment","Accept online payment","toggle",false],
+        ["accept_cash","Accept cash on delivery/pickup","toggle",true],
+        ["customer_phone_required","Customer phone required","toggle",true],
+        ["customer_address_required","Delivery address required","toggle",false],
+      ]}
+    ]
+  },
+  "captain-app": {
+    title:"Captain / Waiter Settings",
+    sections:[
+      {title:"Staff Workflow",fields:[
+        ["allow_table_order","Allow table order taking","toggle",true],
+        ["allow_open_order","Allow open order","toggle",false],
+        ["auto_send_kot","Send KOT immediately after submit","toggle",true],
+        ["allow_item_edit_after_kot","Allow edit after KOT","toggle",false],
+        ["show_item_stock","Show live item availability","toggle",true],
+        ["allow_discount_request","Allow discount request","toggle",false],
+      ]},
+      {title:"Access",fields:[
+        ["require_pin","Require staff PIN","toggle",true],
+        ["session_timeout_minutes","Session timeout (minutes)","number",480],
+        ["restrict_to_assigned_tables","Restrict captain to assigned tables","toggle",false],
+      ]}
+    ]
+  },
+  "smart-notifications": {
+    title:"Smart Notification Settings",
+    sections:[
+      {title:"Order Alerts",fields:[
+        ["new_order","New order notification","toggle",true],
+        ["kitchen_ready","Kitchen ready notification","toggle",true],
+        ["payment_received","Payment received notification","toggle",true],
+        ["delivery_update","Delivery status notification","toggle",true],
+        ["reservation_alert","Reservation notification","toggle",true],
+      ]},
+      {title:"Channels",fields:[
+        ["in_app","In-app notifications","toggle",true],
+        ["sound","Notification sound","toggle",true],
+        ["browser","Browser notification","toggle",false],
+        ["email","Email notifications","toggle",false],
+      ]}
+    ]
+  },
+  "calling-device": {
+    title:"Calling Device Settings",
+    sections:[
+      {title:"Voice",fields:[
+        ["enabled","Voice announcement","toggle",true],
+        ["language","Voice language","select",["en-IN","hi-IN","en-US"]],
+        ["repeat","Repeat announcement","number",3],
+        ["volume","Volume (0-1)","number",1],
+        ["rate","Speech rate","number",0.9],
+        ["phrase","Announcement phrase","text","New order received. Order {order_number} has arrived."],
+      ]},
+      {title:"Events",fields:[
+        ["new_order","Announce new order","toggle",true],
+        ["order_ready","Announce order ready","toggle",false],
+        ["waiter_call","Announce waiter call","toggle",true],
+      ]}
+    ]
+  },
+  "offers": {
+    title:"Offers & Promotions Settings",
+    sections:[
+      {title:"Offer Rules",fields:[
+        ["monthly_limit","Monthly offer creation limit","number",10],
+        ["allow_combo","Allow combo offers","toggle",true],
+        ["allow_discount","Allow percentage/fixed discounts","toggle",true],
+        ["auto_apply","Automatically apply eligible offer","toggle",false],
+        ["allow_stack","Allow stacking multiple offers","toggle",false],
+        ["require_coupon","Require coupon code","toggle",false],
+      ]},
+      {title:"Promotion",fields:[
+        ["facebook_promotion","Allow Facebook promotion","toggle",false],
+        ["instagram_promotion","Allow Instagram promotion","toggle",false],
+        ["whatsapp_promotion","Allow WhatsApp promotion","toggle",false],
+      ]}
+    ]
+  },
+  "thermal-printing": {
+    title:"Thermal / KOT Printer Settings",
+    sections:[
+      {title:"Printer",fields:[
+        ["printer_name","Printer name / ID","text",""],
+        ["printer_type","Printer type","select",["escpos","network","usb","bridge"]],
+        ["bridge_url","Local printer bridge URL","text",""],
+        ["ip","Printer IP","text",""],
+        ["port","Printer port","number",9100],
+        ["copies","Number of copies","number",1],
+      ]},
+      {title:"KOT",fields:[
+        ["print_kot","Print KOT automatically","toggle",true],
+        ["print_receipt","Print customer receipt","toggle",true],
+        ["print_void","Print void/cancel slip","toggle",true],
+        ["print_delivery","Print delivery order","toggle",true],
+      ]}
+    ]
+  },
+  "a4-invoice": {
+    title:"A4 Invoice Settings",
+    sections:[{title:"Invoice Printer",fields:[
+      ["printer_name","Printer name / ID","text",""],
+      ["bridge_url","Printer bridge URL","text",""],
+      ["copies","Number of copies","number",1],
+      ["auto_print","Auto-print finalized bill","toggle",false],
+      ["include_gst","Show GST details","toggle",true],
+      ["include_customer","Show customer details","toggle",true],
+    ]}]
+  },
+  "hardware-print-queue": {
+    title:"Hardware Print Queue Settings",
+    sections:[{title:"Bridge",fields:[
+      ["queue","Print queue / agent","text",""],
+      ["bridge_url","Bridge URL","text",""],
+      ["api_key","Bridge API key","password",""],
+      ["retry_count","Retry count","number",3],
+      ["retry_delay_ms","Retry delay (ms)","number",1000],
+      ["offline_queue","Queue jobs when bridge is offline","toggle",true],
+    ]}]
+  },
+  "whatsapp-invoice": {
+    title:"WhatsApp Business API",
+    sections:[
+      {title:"Connection",fields:[
+        ["provider","Provider","select",["meta-cloud"]],
+        ["credential_owner","Credentials","select",["restaurant","platform"]],
+        ["business_number","WhatsApp business number","text",""],
+        ["phone_number_id","Phone Number ID","text",""],
+        ["waba_id","WhatsApp Business Account ID","text",""],
+        ["api_version","Graph API version","text","v23.0"],
+        ["access_token","Permanent/System User access token","password",""],
+        ["base_url","Graph API base URL","text","https://graph.facebook.com"],
+      ]},
+      {title:"Webhook",fields:[
+        ["webhook_verify_token","Webhook verify token","password",""],
+        ["webhook_app_secret","Meta App Secret","password",""],
+      ]},
+      {title:"Automatic Messages",fields:[
+        ["send_invoice","Send invoice after billing","toggle",true],
+        ["send_order_confirmation","Send order confirmation to customer","toggle",true],
+        ["send_payment_receipt","Send payment receipt","toggle",false],
+        ["send_qr_order_notification","Send new QR order to restaurant/staff","toggle",true],
+        ["order_notification_recipient","Restaurant/staff WhatsApp recipient","text",""],
+        ["invoice_template_name","Approved invoice template name","text","invoice_ready"],
+        ["invoice_template_language","Template language","text","en_US"],
+        ["order_template_name","Approved order confirmation template","text","order_confirmation"],
+        ["qr_order_template_name","Approved QR order notification template","text","new_qr_order"],
+        ["payment_template_name","Approved payment receipt template","text","payment_receipt"],
+      ]},
+      {title:"Test / Fallback",fields:[
+        ["test_recipient","Test recipient number","text",""],
+        ["allow_24h_text","Allow free-form text inside customer 24h window","toggle",true],
+      ]}
+    ]
+  },
+
+  "swiggy-integration": {
+    title:"Swiggy Integration Settings",
+    sections:[
+      {title:"Partner Connection",fields:[
+        ["outlet_id","Outlet / Store ID","text",""],
+        ["base_url","Partner API base URL","text",""],
+        ["api_key","API credential","password",""],
+        ["webhook_secret","Webhook secret","password",""],
+        ["environment","Environment","select",["sandbox","production"]],
+      ]},
+      {title:"Order Sync",fields:[
+        ["accept_orders","Accept incoming orders","toggle",true],
+        ["auto_kitchen","Send Swiggy orders to kitchen","toggle",true],
+        ["sync_status","Sync order status back","toggle",true],
+        ["sync_menu","Enable menu sync","toggle",false],
+      ]}
+    ]
+  },
+  "zomato-integration": {
+    title:"Zomato Integration Settings",
+    sections:[
+      {title:"Partner Connection",fields:[
+        ["outlet_id","Outlet ID","text",""],
+        ["base_url","Partner API base URL","text",""],
+        ["api_key","API credential","password",""],
+        ["webhook_secret","Webhook secret","password",""],
+        ["environment","Environment","select",["sandbox","production"]],
+      ]},
+      {title:"Order Sync",fields:[
+        ["accept_orders","Accept incoming orders","toggle",true],
+        ["auto_kitchen","Send Zomato orders to kitchen","toggle",true],
+        ["sync_status","Sync order status back","toggle",true],
+        ["sync_menu","Enable menu sync","toggle",false],
+      ]}
+    ]
+  },
+  "facebook-integration": {
+    title:"Facebook Settings",
+    sections:[
+      {title:"Meta Connection",fields:[
+        ["account_id","Facebook Page ID","text",""],
+        ["access_token","Page access token","password",""],
+        ["base_url","Graph API base URL","text","https://graph.facebook.com"],
+      ]},
+      {title:"Publishing",fields:[
+        ["publish_offers","Publish offers","toggle",false],
+        ["publish_manual","Allow manual publishing","toggle",true],
+        ["default_hashtags","Default hashtags","text",""],
+      ]}
+    ]
+  },
+  "instagram-integration": {
+    title:"Instagram Settings",
+    sections:[
+      {title:"Meta Connection",fields:[
+        ["account_id","Instagram Professional Account ID","text",""],
+        ["access_token","Access token","password",""],
+        ["base_url","Graph API base URL","text","https://graph.facebook.com"],
+      ]},
+      {title:"Publishing",fields:[
+        ["publish_offers","Publish offers","toggle",false],
+        ["publish_manual","Allow manual publishing","toggle",true],
+        ["default_hashtags","Default hashtags","text",""],
+      ]}
+    ]
+  }
+}
+
+function PluginConfig({plugin,config,setConfig,onSave,onTest}){
+  const schema=PLUGIN_SETTINGS[plugin.code]
+  const set=(key,value)=>setConfig(c=>({...c,[key]:value}))
+  if(!schema){
+    return <div className="plugin-settings-panel" style={configBox}><div style={miniLabel}>PLUGIN SETTINGS</div><p style={sectionText}>This plugin has no additional configuration fields.</p><button className="plugin-btn" onClick={onSave} style={hubActivate}>Save Settings</button></div>
+  }
+  return <div style={configBox}>
+    <div style={miniLabel}>RESTAURANT-SPECIFIC SETTINGS · {schema.title.toUpperCase()}</div>
+    {schema.sections.map(section=><div key={section.title} style={{marginTop:12}}>
+      <h4 style={{margin:"0 0 7px",fontSize:12}}>{section.title}</h4>
+      <div className="plugin-settings-grid" style={settingsGrid}>
+        {section.fields.map(([key,label,type,defaultValue])=>{
+          const value=config[key] ?? defaultValue
+          if(type==="toggle") return <label key={key} className="plugin-setting-toggle" style={settingRow}><span>{label}</span><input type="checkbox" checked={Boolean(value)} onChange={e=>set(key,e.target.checked)}/></label>
+          if(type==="select") {
+             const options=Array.isArray(defaultValue)?defaultValue:[]
+             const selected=Array.isArray(value)?(value[0]??options[0]??""):(value??options[0]??"")
+             return <label key={key} style={field}><span>{label}</span><select value={selected} onChange={e=>set(key,e.target.value)} style={searchInput}>{options.map(x=><option key={String(x)} value={x}>{x}</option>)}</select></label>
+           }
+          return <label key={key} style={field}><span>{label}</span>{type==="textarea"?<textarea rows={3} value={value||""} onChange={e=>set(key,e.target.value)} style={searchInput}/>:<input type={type==="number"?"number":type} value={value??""} onChange={e=>set(key,type==="number"?Number(e.target.value):e.target.value)} style={searchInput}/>}</label>
+        })}
+      </div>
+    </div>)}
+    <div className="plugin-settings-save" style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+      <button className="plugin-btn" onClick={onSave} style={hubActivate}>💾 Save {schema.title}</button>
+      {plugin.code==="whatsapp-invoice" && <button className="plugin-btn" onClick={onTest} style={success}>🧪 Send Test WhatsApp</button>}
+      <button className="plugin-btn" onClick={()=>setConfig({})} style={ghost}>Reset Form</button>
+    </div>
+  </div>
+}
+
 function Stat({icon,label,value}){return <div style={stat}><span style={{fontSize:23}}>{icon}</span><small>{label}</small><strong title={String(value)}>{value}</strong></div>}
 
+const configBox={marginTop:12,padding:15,borderRadius:14,background:"var(--background)",border:"1px solid var(--border)"}
+const settingsGrid={display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:9}
+const field={display:"grid",gap:5,fontSize:10,fontWeight:900,color:"var(--muted)"}
+const settingRow={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 11px",borderRadius:10,border:"1px solid var(--border)",fontSize:10,fontWeight:900,color:"var(--muted)",background:"var(--surface)"}
 const shell={minHeight:"100vh"}
 const hero={padding:"30px",borderRadius:24,marginBottom:14,position:"relative",overflow:"hidden",background:"linear-gradient(135deg,var(--surface),rgba(var(--primary-rgb),.06))",border:"1px solid var(--border)",boxShadow:"0 18px 60px rgba(0,0,0,.12)"}
 const heroGlow={position:"absolute",width:320,height:320,right:-100,top:-150,borderRadius:"50%",background:"rgba(var(--primary-rgb),.12)",filter:"blur(12px)"}

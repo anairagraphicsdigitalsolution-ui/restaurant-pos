@@ -216,9 +216,9 @@ export default function RestaurantCore(){
                 <OrderSelect orders={orders} selected={selected} setSelected={setSelected}/>
                 <div style={buttonGrid}>
                   <button disabled={busy} style={button} onClick={()=>op("hold_order")}>Hold Order</button>
-                  <button disabled={busy} style={button} onClick={()=>op("park_order")}>Park Order</button>
+                  <button disabled={busy} style={button} onClick={()=>op("hold_order",{hold_type:"park"})}>Park Order</button>
                   <button disabled={busy} style={button} onClick={()=>op("reopen_order")}>Reopen Order</button>
-                  <button disabled={busy} style={button} onClick={()=>op("quick_order")}>Quick Order</button>
+                  <button disabled={busy} style={button} onClick={()=>{ window.location.href="/order" }}>Open POS / Quick Order</button>
                 </div>
                 <p style={muted}>Select an existing order to run workflow actions. New POS order creation remains available through the main POS screen.</p>
               </Panel>
@@ -286,9 +286,10 @@ export default function RestaurantCore(){
                   </select>
                 </div>
                 <div style={buttonGrid}>
-                  <button disabled={busy} style={primary} onClick={()=>op("partial_payment",{amount:Number(amount||0),method})}>Partial Payment</button>
-                  <button disabled={busy} style={button} onClick={()=>op("split_bill",{parts:Number(parts||2)})}>Split Bill</button>
-                  <button disabled={busy} style={button} onClick={()=>op("refund",{reason})}>Refund / Void</button>
+                  <button disabled={busy} style={primary} onClick={()=>op("payment",{amount:Number(amount||0),payment_method:method})}>Partial Payment</button>
+                  <button disabled={busy} style={button} onClick={()=>op("split",{parts:Number(parts||2)})}>Split Bill</button>
+                  <button disabled={busy} style={button} onClick={()=>op("refund",{amount:Number(amount||0),reason})}>Refund</button>
+                  <button disabled={busy} style={button} onClick={()=>op("void",{reason})}>Void</button>
                   <button disabled={busy} style={button} onClick={()=>op("reopen_order")}>Reopen Order</button>
                 </div>
                 <input style={input} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Refund / void reason"/>
@@ -313,7 +314,7 @@ export default function RestaurantCore(){
                 <p style={muted}>Manage ingredients, recipes, stock levels, wastage and food-cost workflows from the inventory workspace.</p>
                 <div style={buttonGrid}>
                   <a href="/dashboard/inventory" style={link}>Inventory →</a>
-                  <a href="/dashboard/restaurant-pro?tab=recipes" style={link}>Recipes →</a>
+                  <a href="/dashboard/inventory" style={link}>Recipes →</a>
                 </div>
               </Panel>
               <Panel title="Purchasing">
@@ -327,7 +328,7 @@ export default function RestaurantCore(){
             <div className="core-grid2" style={grid2}>
               <Panel title="Delivery Operations">
                 <p style={muted}>Manage delivery orders, riders, zones, charges and delivery status from the dedicated workspace.</p>
-                <a href="/dashboard/restaurant-pro?tab=delivery" style={link}>Open Delivery Management →</a>
+                <a href="/dashboard/delivery" style={link}>Open Delivery Management →</a>
               </Panel>
               <Panel title="Order Queue">
                 {orders.filter(o=>String(o.order_mode||o.source_type||"").toLowerCase().includes("delivery")).slice(0,8).map(o=>(

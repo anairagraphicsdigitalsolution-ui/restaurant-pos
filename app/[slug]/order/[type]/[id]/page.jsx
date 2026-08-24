@@ -22,6 +22,8 @@ export default function OrderPage() {
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [showCart, setShowCart] = useState(false)
   const [orderNote, setOrderNote] = useState("")
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
   const [search, setSearch] = useState("")
   const [banners, setBanners] = useState([])
   const [offers,setOffers]=useState([])
@@ -293,6 +295,8 @@ async function init() {
           source_type: type,
           source_id: selected.id,
           overall_note: orderNote,
+          customer_name: customerName.trim() || null,
+          customer_phone: customerPhone.replace(/\D/g, "").slice(0, 15) || null,
           offer_id: activeOffer?.id || null,
           items: cart.map(i => ({
             item_id: i.id,
@@ -309,8 +313,8 @@ async function init() {
         throw new Error(payload?.error || "Order failed")
       }
 
-      if (payload.whatsapp_url) {
-        window.open(payload.whatsapp_url, "_blank", "noopener,noreferrer")
+      if (payload.customer_whatsapp_url) {
+        window.open(payload.customer_whatsapp_url, "_blank", "noopener,noreferrer")
       }
 
       alert("✅ Order placed successfully")
@@ -1279,7 +1283,25 @@ color:"var(--muted)"
 
         </div>
       ))}
-      <textarea
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <input
+            value={customerName}
+            onChange={e=>setCustomerName(e.target.value.slice(0,80))}
+            placeholder="Your name"
+            style={{width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:12,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}
+          />
+          <input
+            value={customerPhone}
+            onChange={e=>setCustomerPhone(e.target.value.replace(/[^0-9+ ]/g,"").slice(0,18))}
+            placeholder="WhatsApp number"
+            inputMode="tel"
+            style={{width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:12,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}
+          />
+        </div>
+        <div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>
+          Enter your WhatsApp number to receive order confirmation. To send the order from your own WhatsApp to the restaurant, WhatsApp requires your confirmation/tap.
+        </div>
+<textarea
   value={orderNote}
   onChange={(e)=>setOrderNote(e.target.value)}
   

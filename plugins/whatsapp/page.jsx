@@ -13,16 +13,35 @@ export default function WhatsAppConfig() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (rid) load()
-    else setLoading(false)
+    load()
   }, [rid])
 
   async function load() {
+    let restaurantId = rid
+
+    if (!restaurantId) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("restaurant_id")
+          .eq("id", user.id)
+          .maybeSingle()
+        restaurantId = profile?.restaurant_id || null
+      }
+    }
+
+    if (!restaurantId) {
+      setLoading(false)
+      return
+    }
+
     const { data, error } = await supabase
       .from("plugin_settings")
       .select("config")
-      .eq("restaurant_id", rid)
-      .eq("plugin_code", "whatsapp")
+      .eq("restaurant_id", restaurantId)
+      .in("plugin_code", ["whatsapp-invoice", "whatsapp"])
+      .limit(1)
       .maybeSingle()
 
     if (error) console.error("WhatsApp settings:", error)
@@ -43,7 +62,9 @@ export default function WhatsAppConfig() {
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", rid)
-        .eq("plugin_code", "whatsapp")
+        .in("plugin_code", ["whatsapp-invoice", "whatsapp"])
+        .eq("enabled", true)
+        .limit(1)
         .maybeSingle()
 
       if (!plugin?.enabled) {
@@ -56,7 +77,7 @@ export default function WhatsAppConfig() {
         .upsert(
           {
             restaurant_id: rid,
-            plugin_code: "whatsapp",
+            plugin_code: "whatsapp-invoice",
             config: { number: clean }
           },
           { onConflict: "restaurant_id,plugin_code" }

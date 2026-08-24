@@ -246,6 +246,16 @@ const [kotSize, setKotSize] = useState("80mm")
 
       fetchSequenceRef.current += 1
 
+      if (
+        status === "preparing" &&
+        currentOrder?.source_type === "delivery"
+      ) {
+        router.push(
+          `/dashboard/delivery?order_id=${encodeURIComponent(id)}`
+        )
+        return
+      }
+
       if (status === "done" || status === "cancelled") {
         setOrders(prev =>
           prev.filter(order => order.id !== id)

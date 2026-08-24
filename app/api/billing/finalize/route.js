@@ -444,6 +444,9 @@ export async function POST(req) {
 
         p_offer_id:
           body?.offer_id ||
+          null,
+        p_loyalty_reward_id:
+          body?.loyalty_reward_id ||
           null
       }
     )

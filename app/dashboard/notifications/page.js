@@ -10,6 +10,7 @@ export default function Notifications() {
   const [permission, setPermission] = useState(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   )
+  const [settings,setSettings]=useState({in_app:true,sound:true,browser:false,email:false})
 
   async function load() {
     const { data: u } = await supabase.auth.getUser()
@@ -21,6 +22,9 @@ export default function Notifications() {
       .single()
     if (!p?.restaurant_id) return
     setRestaurantId(p.restaurant_id)
+    const {data:pluginSettings}=await supabase.from("plugin_settings").select("config")
+      .eq("restaurant_id",p.restaurant_id).eq("plugin_code","smart-notifications").maybeSingle()
+    setSettings({...settings,...(pluginSettings?.config||{})})
     const { data } = await supabase
       .from("notifications")
       .select("*")
@@ -99,7 +103,10 @@ export default function Notifications() {
           filter: `restaurant_id=eq.${restaurantId}`,
         },
         payload => {
-          setNotifications(prev => [payload.new, ...prev].slice(0, 100))
+          if(settings.in_app!==false) setNotifications(prev => [payload.new, ...prev].slice(0, 100))
+          if(settings.browser===true && typeof Notification!=="undefined" && Notification.permission==="granted"){
+            try{new Notification(payload.new?.title||"Restaurant notification",{body:payload.new?.message||""})}catch{}
+          }
 
           if (payload.new?.type === "order") {
             // The notification trigger fires immediately after the order INSERT,
@@ -144,7 +151,7 @@ export default function Notifications() {
       .subscribe()
 
     return () => { void supabase.removeChannel(channel) }
-  }, [restaurantId])
+  }, [restaurantId,settings])
 
   async function read(id) {
     await supabase
@@ -164,7 +171,7 @@ export default function Notifications() {
             <p>New orders, reviews, payments and operational alerts.</p>
           </div>
           <div className="actions">
-            {permission !== "granted" && permission !== "unsupported" && (
+            {settings.browser===true && permission !== "granted" && permission !== "unsupported" && (
               <button onClick={enableAlerts}>🔔 Enable alerts & sound</button>
             )}
             <button onClick={load}>↻ Refresh</button>

@@ -22,6 +22,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
   const [pluginAccess, setPluginAccess] = useState(superAdmin ? true : null)
   const [orderingEnabled, setOrderingEnabled] = useState(superAdmin)
   const [printEnabled, setPrintEnabled] = useState(false)
+  const [printConfig,setPrintConfig] = useState({})
   const printRef = useRef(null)
 
   useEffect(() => {
@@ -185,6 +186,9 @@ export default function QRPrintCenter({ superAdmin = false }) {
       setRooms(payload.rooms || [])
       setOrderingEnabled(payload.orderingEnabled === true)
       setPrintEnabled(payload.printEnabled === true)
+      const {data:settings}=await supabase.from("plugin_settings").select("config")
+        .eq("restaurant_id",rid).eq("plugin_code","qr-print-center").maybeSingle()
+      setPrintConfig(settings?.config||{})
     } catch (err) {
       console.error("QR DATA ERROR:", err)
       setError(err?.message || "Unable to load QR data")
@@ -323,7 +327,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
           </div>
 
           <div ref={printRef} className="qr-print-sheet" style={printSheet}>
-            <PrintHeader restaurant={selectedRestaurant} />
+            <PrintHeader restaurant={selectedRestaurant} config={printConfig} />
 
             {tables.length > 0 && (
               <section style={section}>
@@ -379,7 +383,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
   )
 }
 
-function PrintHeader({ restaurant }) {
+function PrintHeader({ restaurant,config={} }) {
   return (
     <header className="qr-print-header" style={printHeader}>
       <div style={printHeaderBrand}>
@@ -390,10 +394,10 @@ function PrintHeader({ restaurant }) {
         )}
         <div>
           <div style={printEyebrow}>WELCOME TO</div>
-          <h2 style={printRestaurantName}>{restaurant.name}</h2>
-          <p style={printTagline}>
-            Scan • Explore our menu • Order from your table or room
-          </p>
+          <h2 style={printRestaurantName}>{config.include_restaurant_name === false ? "" : restaurant.name}</h2>
+          {config.include_instruction !== false && <p style={printTagline}>
+            {config.instruction_text || "Scan • Explore our menu • Order from your table or room"}
+          </p>}
         </div>
       </div>
       <img src={BRAND_LOGO} alt="Anaira Graphics" style={anairaLogo} />
@@ -401,7 +405,7 @@ function PrintHeader({ restaurant }) {
   )
 }
 
-function QRCard({ type, label, url, restaurant, canPrint = false }) {
+function QRCard({ type, label, url, restaurant, canPrint = false, config = {} }) {
   const cardRef = useRef(null)
   const qrRef = useRef(null)
 
@@ -523,26 +527,26 @@ function QRCard({ type, label, url, restaurant, canPrint = false }) {
       </div>
 
       <div style={qrCardLogoLine}>
-        {restaurant.logo ? (
+        {config.include_logo !== false && (restaurant.logo ? (
           <img src={restaurant.logo} alt="" style={miniRestaurantLogo} />
         ) : (
           <div style={miniRestaurantFallback}>🍽️</div>
-        )}
-        <strong style={qrLabel}>{label}</strong>
+        ))}
+        {config.include_table_number !== false && <strong style={qrLabel}>{label}</strong>}
       </div>
 
       <div ref={qrRef} className="qr-code-wrap" style={qrCodeWrap}>
         {url ? (
-          <QRCode value={url} size={148} bgColor="#ffffff" fgColor="#0a1d15" />
+          <QRCode value={url} size={Math.max(96,Math.min(320,Math.round(Number(config.qr_size_mm||35)*4.2)))} bgColor="#ffffff" fgColor="#0a1d15" />
         ) : (
           <div style={invalidQr}>Restaurant slug missing</div>
         )}
       </div>
 
-      <h3 style={scanTitle}>Scan to Order</h3>
+      {config.include_instruction !== false && <><h3 style={scanTitle}>Scan to Order</h3>
       <p style={scanText}>
-        Browse the menu, choose your favourites and place your order directly from here.
-      </p>
+        {config.instruction_text || "Browse the menu, choose your favourites and place your order directly from here."}
+      </p></>}
 
       <div style={cardDivider} />
       <div style={cardBranding}>

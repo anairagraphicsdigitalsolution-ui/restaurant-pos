@@ -15,20 +15,40 @@ export default function WhatsAppConfig(){
   useEffect(()=>{if(rid)load()},[rid])
 
   async function load(){
-    const {data:plugin}=await supabase.from("restaurant_plugins")
-      .select("enabled").eq("restaurant_id",rid).in("plugin_code",["whatsapp","whatsapp-invoice"]).eq("enabled",true).limit(1)
+    const {data:pluginRows,error:pluginError}=await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id",rid)
+      .in("plugin_code",["whatsapp-invoice","whatsapp"])
+      .eq("enabled",true)
+      .limit(1)
+
+    if(pluginError){
+      console.error("WhatsApp plugin state:",pluginError)
+      setEnabled(false)
+      return
+    }
+
+    const plugin = pluginRows?.[0] || null
     if(!plugin?.enabled){setEnabled(false);return}
     setEnabled(true)
-    const {data}=await supabase.from("plugin_settings").select("*")
-      .eq("restaurant_id",rid).in("plugin_code",["whatsapp","whatsapp-invoice"]).eq("enabled",true).limit(1)
-    setNumber(data?.config?.number||"")
+
+    const {data,error}=await supabase
+      .from("plugin_settings")
+      .select("config")
+      .eq("restaurant_id",rid)
+      .in("plugin_code",["whatsapp-invoice","whatsapp"])
+      .limit(1)
+
+    if(error) console.error("WhatsApp settings:",error)
+    setNumber(data?.[0]?.config?.number || "")
   }
 
   async function save(){
     if(!number.trim()) return
     setSaving(true);setSaved(false)
     const {error}=await supabase.from("plugin_settings").upsert({
-      restaurant_id:rid,plugin_code:"whatsapp",config:{number:number.trim()}
+      restaurant_id:rid,plugin_code:"whatsapp-invoice",config:{number:number.trim()}
     },{onConflict:"restaurant_id,plugin_code"})
     setSaving(false)
     if(error){alert(error.message);return}

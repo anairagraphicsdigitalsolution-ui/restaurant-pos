@@ -37,26 +37,42 @@ async function getRestaurant() {
   if (!user) return
 
   const { data, error } = await supabase
-    .from("restaurants")
-    .select("id")
-    .eq("owner_id", user.id)
-    .single()
+    .from("profiles")
+    .select("restaurant_id, role")
+    .eq("id", user.id)
+    .maybeSingle()
 
-  if (error) {
-    console.log(error)
+  if (error || !data?.restaurant_id) {
+    console.log(error || "Restaurant mapping not found")
     return
   }
 
-  setRestaurantId(data.id)
+  setRestaurantId(data.restaurant_id)
+  const { data: plugin } = await supabase
+    .from("restaurant_plugins")
+    .select("enabled")
+    .eq("restaurant_id", data.restaurant_id)
+    .in("plugin_code", ["reservations-pro", "reservations"])
+    .eq("enabled", true)
+    .limit(1)
+    .maybeSingle()
+  setPluginActive(plugin?.enabled === true)
+  const { data: settings } = await supabase
+    .from("plugin_settings")
+    .select("config")
+    .eq("restaurant_id", data.restaurant_id)
+    .eq("plugin_code", "reservations-pro")
+    .maybeSingle()
+  setPluginConfig(settings?.config || {})
 }
 useEffect(() => {
 
-  if (!restaurantId) return
+  if (!restaurantId || !pluginActive) return
 
   fetchTables()
   fetchReservations()
 
-}, [restaurantId])
+}, [restaurantId, pluginActive])
 
   // 🔥 FETCH TABLES
   async function fetchTables() {
@@ -194,7 +210,7 @@ updated.time
         table_id:"",
         date:"",
         time:"",
-        duration:60,
+        duration:Number(pluginConfig.default_duration_minutes || 90),
         notes:""
       })
       await fetchReservations()
@@ -288,6 +304,18 @@ setEditId(r.id)
     }
   }
 
+
+  if (!pluginActive) {
+    return (
+      <main style={{minHeight:"100vh",padding:30,background:"var(--background)",color:"var(--text)"}}>
+        <div style={{maxWidth:700,margin:"12vh auto",padding:30,borderRadius:22,background:"var(--surface)",border:"1px solid var(--border)",textAlign:"center"}}>
+          <div style={{fontSize:48}}>📅</div>
+          <h1>Advanced Reservations</h1>
+          <p style={{color:"var(--muted)"}}>This plugin is currently OFF. Super Admin can activate Advanced Reservations for this restaurant from Plugin Manager.</p>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <>
@@ -537,7 +565,7 @@ color:"#fff"
 </h3>
             <p style={muted}>📞 {r.phone}</p>
             <p style={muted}>
-🍽️ Table : {r.table_id}
+🍽️ Table : {(tables.find(t=>t.id===r.table_id)?.table_number) || r.table_id || "-"}
 </p>
 
 <hr

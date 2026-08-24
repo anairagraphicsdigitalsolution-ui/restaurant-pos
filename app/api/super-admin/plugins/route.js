@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { featureCodes, FEATURE_CATALOG } from "@/lib/featureCatalog"
+import {
+  featureCodes,
+  FEATURE_CATALOG,
+  CORE_FEATURE_CODES,
+  OPERATIONS_FEATURE_CODES,
+  isRestaurantProFeature
+} from "@/lib/featureCatalog"
+import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
 
 export const runtime = "nodejs"
 
@@ -8,8 +15,10 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-
 function aliasCodes(pluginCode) {
+  if (pluginCode === "whatsapp-invoice" || pluginCode === "whatsapp") {
+    return ["whatsapp-invoice"]
+  }
   return featureCodes(pluginCode)
 }
 
@@ -17,6 +26,63 @@ function db() {
   return createClient(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   })
+}
+
+async function ensureRestaurant(admin, restaurantId) {
+  const { data, error } = await admin
+    .from("restaurants")
+    .select("id")
+    .eq("id", restaurantId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error("Restaurant not found")
+}
+
+async function setRestaurantProMaster(admin, restaurantId, enabled, actorId = null) {
+  const patch = {
+    enabled,
+    ...(actorId ? { activated_by: enabled ? actorId : null } : {}),
+    ...(enabled
+      ? { activated_at: new Date().toISOString(), disabled_at: null }
+      : { disabled_at: new Date().toISOString() })
+  }
+
+  const { data: master, error: findError } = await admin
+    .from("restaurant_plugins")
+    .select("id")
+    .eq("restaurant_id", restaurantId)
+    .eq("plugin_code", "restaurant-pro")
+    .maybeSingle()
+
+  if (findError) throw new Error(findError.message)
+
+  if (master) {
+    const { error } = await admin
+      .from("restaurant_plugins")
+      .update(patch)
+      .eq("id", master.id)
+    if (error) throw new Error(error.message)
+    return
+  }
+
+  const { error } = await admin
+    .from("restaurant_plugins")
+    .insert({
+      restaurant_id: restaurantId,
+      plugin_code: "restaurant-pro",
+      plugin_slug: "restaurant-pro",
+      enabled,
+      config: {},
+      display_name: "Restaurant Pro",
+      category: "Core Hubs",
+      description: "Integration and advanced restaurant features controlled by Super Admin.",
+      feature_kind: "hub",
+      activated_by: enabled ? actorId : null,
+      activated_at: enabled ? new Date().toISOString() : null,
+      disabled_at: enabled ? null : new Date().toISOString()
+    })
+  if (error) throw new Error(error.message)
 }
 
 async function authSuperAdmin(request) {
@@ -55,19 +121,10 @@ async function authSuperAdmin(request) {
     return { error: "Super Admin access required", status: 403 }
   }
 
-  return { admin }
+  return { admin, userId: user.id }
 }
 
-async function ensureRestaurant(admin, restaurantId) {
-  const { data, error } = await admin
-    .from("restaurants")
-    .select("id")
-    .eq("id", restaurantId)
-    .maybeSingle()
 
-  if (error) throw new Error(error.message)
-  if (!data) throw new Error("Restaurant not found")
-}
 
 export async function GET(request) {
   try {
@@ -95,8 +152,14 @@ export async function GET(request) {
 
     if (catalogError) throw new Error(catalogError.message)
 
-    const canonicalCodes = new Set(FEATURE_CATALOG.map(item => item.code).concat(["operations-hub","restaurant-core","restaurant-pro"]))
-    const canonicalCatalog = (catalog || []).filter(item => canonicalCodes.has(item.code))
+    const canonicalCodes = PLUGIN_CODES
+    const canonicalCatalog = PLUGIN_CATALOG.map(item => {
+      const dbRow = (catalog || []).find(row => row.code === item.code)
+      return dbRow || {
+        code:item.code,name:item.name,icon:item.icon,category:item.category,
+        description:item.description,kind:"plugin",active:true
+      }
+    })
 
     if (!restaurantId) {
       const { data: restaurants, error: restaurantsError } = await admin
@@ -114,6 +177,22 @@ export async function GET(request) {
     }
 
     await ensureRestaurant(admin, restaurantId)
+
+    const configFor = String(new URL(request.url).searchParams.get("config_for") || "").trim()
+    if (configFor) {
+      if (!PLUGIN_CODES.has(configFor)) {
+        return NextResponse.json({ success:false, error:"Unknown plugin" }, {status:400})
+      }
+      const { data:settings, error:settingsError } = await admin
+        .from("plugin_settings")
+        .select("config")
+        .eq("restaurant_id", restaurantId)
+        .in("plugin_code", aliasCodes(configFor))
+        .limit(1)
+        .maybeSingle()
+      if (settingsError) throw new Error(settingsError.message)
+      return NextResponse.json({success:true, config:settings?.config||{}})
+    }
 
     const { data, error } = await admin
       .from("restaurant_plugins")
@@ -205,6 +284,48 @@ export async function POST(request) {
 
     await ensureRestaurant(admin, restaurantId)
 
+    if (pluginCode === "restaurant-core") {
+      const { data: coreRow, error: coreError } = await admin
+        .from("restaurant_plugins")
+        .upsert({
+          restaurant_id: restaurantId,
+          plugin_code: "restaurant-core",
+          plugin_slug: "restaurant-core",
+          enabled: true,
+          display_name: "Restaurant Core",
+          category: "Core",
+          description: "Core POS, orders, tables, KDS, billing and delivery master switch.",
+          feature_kind: "core"
+        }, { onConflict: "restaurant_id,plugin_code" })
+        .select("*")
+        .single()
+
+      if (coreError) throw new Error(coreError.message)
+
+      return NextResponse.json({
+        success: true,
+        plugin: coreRow,
+        plugins: [coreRow],
+        message: "Restaurant Core activated."
+      })
+    }
+
+    if (pluginCode === "restaurant-pro") {
+      await setRestaurantProMaster(admin, restaurantId, true, auth.userId || null)
+      const { data: proRows, error: proRowsError } = await admin
+        .from("restaurant_plugins")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .order("plugin_code")
+      if (proRowsError) throw new Error(proRowsError.message)
+
+      return NextResponse.json({
+        success: true,
+        plugin: proRows?.find(row => row.plugin_code === "restaurant-pro") || null,
+        plugins: proRows || []
+      })
+    }
+
     const codes = aliasCodes(pluginCode)
     const results = []
 
@@ -257,6 +378,12 @@ export async function POST(request) {
       }
     }
 
+    // Any Pro integration/feature activated individually makes Restaurant Pro
+    // available, but DOES NOT activate the other Pro features.
+    if (isRestaurantProFeature(pluginCode)) {
+      await setRestaurantProMaster(admin, restaurantId, true, auth.userId || null)
+    }
+
     return NextResponse.json({
       success: true,
       plugin: results.find(row => row.plugin_code === pluginCode) || results[0] || null,
@@ -292,14 +419,57 @@ export async function PATCH(request) {
     const restaurantId = String(body?.restaurant_id || "").trim()
     const id = String(body?.id || "").trim()
 
-    if (!restaurantId || !id || typeof body.enabled !== "boolean") {
+    if (!restaurantId || (!id && !body.plugin_code)) {
       return NextResponse.json(
         { success: false, error: "Invalid plugin update request" },
         { status: 400 }
       )
     }
 
+    // Super Admin is the only role allowed to save restaurant plugin settings.
+    if (body.config && typeof body.config === "object") {
+      const pluginCode = String(body.plugin_code || "").trim()
+      if (!PLUGIN_CODES.has(pluginCode)) {
+        return NextResponse.json({success:false,error:"Unknown plugin"},{status:400})
+      }
+      await ensureRestaurant(admin, restaurantId)
+      const {error:settingsError}=await admin.from("plugin_settings").upsert({
+        restaurant_id:restaurantId,
+        plugin_code:pluginCode,
+        config:body.config
+      },{onConflict:"restaurant_id,plugin_code"})
+      if(settingsError) throw new Error(settingsError.message)
+      return NextResponse.json({success:true,config:body.config})
+    }
+
     await ensureRestaurant(admin, restaurantId)
+
+    // Restaurant Core is a real Super Admin-controlled master switch.
+    if (String(body?.plugin_code || "").trim() === "restaurant-core") {
+      const enabled = body?.enabled === true
+      const { data: coreRow, error: coreError } = await admin
+        .from("restaurant_plugins")
+        .upsert({
+          restaurant_id: restaurantId,
+          plugin_code: "restaurant-core",
+          enabled,
+          installed: true,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "restaurant_id,plugin_code" })
+        .select("*")
+        .single()
+
+      if (coreError) throw new Error(coreError.message)
+
+      return NextResponse.json({
+        success: true,
+        plugin: coreRow,
+        plugins: [coreRow],
+        message: enabled
+          ? "Restaurant Core activated."
+          : "Restaurant Core deactivated. Core POS feature gates are now disabled."
+      })
+    }
 
     const { data: current, error: currentError } = await admin
       .from("restaurant_plugins")
@@ -311,16 +481,67 @@ export async function PATCH(request) {
     if (currentError) throw new Error(currentError.message)
     if (!current) throw new Error("Plugin not found")
 
+    // Other Core feature codes are not independent plugins.
+    // Restaurant Core controls them as a group.
+    if (CORE_FEATURE_CODES.has(current.plugin_code)) {
+      return NextResponse.json({
+        success: false,
+        error: "Core feature modules are controlled by the Restaurant Core plugin."
+      }, {status:400})
+    }
+
+    if (current.plugin_code === "restaurant-pro") {
+      await setRestaurantProMaster(admin, restaurantId, body.enabled, auth.userId || null)
+
+      const { data: proRows, error: proRowsError } = await admin
+        .from("restaurant_plugins")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .order("plugin_code")
+
+      if (proRowsError) throw new Error(proRowsError.message)
+
+      return NextResponse.json({
+        success: true,
+        plugin: proRows?.find(row => row.plugin_code === "restaurant-pro") || null,
+        plugins: proRows || []
+      })
+    }
+
     const codes = aliasCodes(current.plugin_code)
 
     const { data, error } = await admin
       .from("restaurant_plugins")
-      .update({ enabled: body.enabled })
+      .update({
+        enabled: body.enabled,
+        activated_by: body.enabled ? auth.userId || null : null,
+        activated_at: body.enabled ? new Date().toISOString() : null,
+        disabled_at: body.enabled ? null : new Date().toISOString()
+      })
       .eq("restaurant_id", restaurantId)
       .in("plugin_code", codes)
       .select("*")
 
     if (error) throw new Error(error.message)
+
+    if (isRestaurantProFeature(current.plugin_code)) {
+      if (body.enabled) {
+        await setRestaurantProMaster(admin, restaurantId, true, auth.userId || null)
+      } else {
+        const { data: activePro } = await admin
+          .from("restaurant_plugins")
+          .select("plugin_code")
+          .eq("restaurant_id", restaurantId)
+          .eq("enabled", true)
+
+        const hasOtherPro = (activePro || []).some(
+          row => isRestaurantProFeature(row.plugin_code)
+        )
+        if (!hasOtherPro) {
+          await setRestaurantProMaster(admin, restaurantId, false, auth.userId || null)
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

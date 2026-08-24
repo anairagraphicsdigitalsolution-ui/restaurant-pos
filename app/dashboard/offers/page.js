@@ -59,6 +59,7 @@ export default function OffersPage() {
   const [productSearch, setProductSearch] = useState("")
   const [editId, setEditId] = useState(null)
   const [usage, setUsage] = useState({})
+  const [offerConfig,setOfferConfig] = useState({monthly_limit:10})
 
   const [form, setForm] = useState(emptyForm())
 
@@ -71,6 +72,7 @@ export default function OffersPage() {
       fetchOffers()
       fetchMenuItems()
       fetchUsage()
+      fetchOfferConfig()
     }
   }, [restaurantId])
 
@@ -142,6 +144,12 @@ export default function OffersPage() {
     }
 
     setMenuItems(data || [])
+  }
+
+  async function fetchOfferConfig() {
+    const {data}=await supabase.from("plugin_settings").select("config")
+      .eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
+    setOfferConfig({monthly_limit:10,...(data?.config||{})})
   }
 
   async function fetchUsage() {
@@ -274,6 +282,18 @@ export default function OffersPage() {
     ) {
       alert("Percentage discount cannot exceed 100%")
       return
+    }
+
+    if (!editId) {
+      const monthStart=new Date()
+      monthStart.setDate(1); monthStart.setHours(0,0,0,0)
+      const {count}=await supabase.from("offers").select("id",{count:"exact",head:true})
+        .eq("restaurant_id",restaurantId).gte("created_at",monthStart.toISOString())
+      const monthlyLimit=Math.max(0,Number(offerConfig.monthly_limit ?? 10))
+      if (monthlyLimit && Number(count||0) >= monthlyLimit) {
+        alert(`Monthly offer limit reached (${monthlyLimit}). Super Admin can increase the restaurant's offer plan limit.`)
+        return
+      }
     }
 
     setSaving(true)

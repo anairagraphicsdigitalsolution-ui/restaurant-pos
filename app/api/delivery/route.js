@@ -460,21 +460,26 @@ export async function POST(req) {
 
       if (error) return Response.json({success:false,error:error.message},{status:400})
 
-      if (delivery.order_id) {
-        const orderStatus =
-          ["delivered","picked_up"].includes(next)
-            ? (isCod ? "delivered" : "completed")
-            : next === "out_for_delivery"
-              ? "out_for_delivery"
-              : next === "cancelled"
-                ? "cancelled"
-                : "pending"
-
+      /*
+       * Kitchen owns the restaurant order status for delivery orders.
+       *
+       * Flow:
+       *   Kitchen Preparing -> Delivery workflow
+       *   Delivery status -> assigned/out_for_delivery/delivered/settled
+       *   Final Delivery Mark Done -> /api/kitchen/order-status -> done
+       *
+       * Do NOT overwrite orders.status while the rider workflow advances.
+       * Otherwise "Delivered" would make the KDS order appear as a new
+       * terminal/live transition and force a second Mark Done.
+       *
+       * Cancellation remains an explicit order-level cancellation.
+       */
+      if (delivery.order_id && next === "cancelled") {
         await supabaseAdmin
           .from("orders")
-          .update({status:orderStatus})
-          .eq("id",delivery.order_id)
-          .eq("restaurant_id",restaurantId)
+          .update({ status: "cancelled" })
+          .eq("id", delivery.order_id)
+          .eq("restaurant_id", restaurantId)
       }
 
       await addEvent({

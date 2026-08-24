@@ -9,6 +9,7 @@ const tabs = [
   ["billing", "🧾 Billing"],
   ["kitchen", "👨‍🍳 KDS"],
   ["delivery", "🛵 Delivery"],
+  ["loyalty", "⭐ Loyalty"],
   ["digital", "📲 QR / Kiosk"],
   ["reservations", "📅 Reservations"],
   ["captain", "📱 Captain"],
@@ -21,18 +22,25 @@ const tabs = [
   ["enterprise", "🏢 Enterprise"],
 ]
 
+/*
+ * Core tabs are never hidden by Restaurant Pro.
+ * Loyalty is an independent Operations Hub feature.
+ * All other advanced tabs are tied to an actual feature-plugin row and
+ * also inherit the Restaurant Pro master switch through the server gate.
+ */
 const pluginFor = {
-  pos: "pos-core",
-  floor: "table-management",
-  billing: "pos-core",
-  kitchen: "kds-runtime",
-  delivery: "delivery",
+  pos: null,
+  floor: null,
+  billing: null,
+  kitchen: null,
+  delivery: null,
+  loyalty: "loyalty",
   digital: "scan-order-runtime",
   reservations: "reservations-pro",
   captain: "captain-runtime",
   online: "aggregator-runtime",
   crm: "customer-segments",
-  cash: "cash-shift",
+  cash: null,
   reports: "scheduled-reports",
   hardware: "hardware-print-queue",
   marketing: "campaigns",
@@ -80,14 +88,20 @@ export default function AnairaOperationsHub() {
   const [feedbackRequest, setFeedbackRequest] = useState({ order_id: "", customer_id: "", channel: "qr" })
   const [cashMovement, setCashMovement] = useState({ shift_id: "", movement_type: "cash_in", amount: "", reference: "", note: "" })
 
-  const selectedPlugin = plugins[pluginFor[tab]] !== false
+  const selectedPlugin = pluginFor[tab] ? plugins[pluginFor[tab]] === true : true
+  const visibleTabs = tabs.filter(([key]) => !pluginFor[key] || plugins[pluginFor[key]] === true)
   const tableStats = useMemo(() => ({
     available: (data.tables || []).filter(x => x.status === "available").length,
     occupied: (data.tables || []).filter(x => x.status === "occupied").length,
     reserved: (data.tables || []).filter(x => x.status === "reserved").length,
   }), [data.tables])
 
-  useEffect(() => { init() }, [])
+  useEffect(() => {
+    init()
+    const refresh = () => load()
+    window.addEventListener("anaira:plugins-updated", refresh)
+    return () => window.removeEventListener("anaira:plugins-updated", refresh)
+  }, [])
 
   async function init() {
     const { data: userData } = await supabase.auth.getUser()
@@ -133,7 +147,11 @@ export default function AnairaOperationsHub() {
     }
     const entries = await Promise.all(Object.entries(q).map(async ([k, query]) => [k, (await query).data || []]))
     const result = Object.fromEntries(entries)
-    setPlugins(Object.fromEntries((result.plugins || []).map(x => [x.plugin_code, x.enabled === true])))
+    const nextPlugins = Object.fromEntries((result.plugins || []).map(x => [x.plugin_code, x.enabled === true]))
+    setPlugins(nextPlugins)
+    if (pluginFor[tab] && nextPlugins[pluginFor[tab]] !== true) {
+      setTab("floor")
+    }
     delete result.plugins
     setOrders(result.orders || [])
     setMenu(result.menu || [])
@@ -170,7 +188,7 @@ export default function AnairaOperationsHub() {
       <div className="pp-badge">{role || "staff"} • {busy ? "Working…" : "Live"}</div>
     </header>
 
-    <nav className="pp-tabs">{tabs.map(([key,label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <nav className="pp-tabs">{visibleTabs.map(([key,label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
 
     {!selectedPlugin && <div className="pp-lock">🔒 This module is plugin-controlled. Enable <b>{pluginFor[tab]}</b> from Super Admin → Plugins.</div>}
 
@@ -208,6 +226,15 @@ export default function AnairaOperationsHub() {
     {tab === "kitchen" && <section className="pp-grid"><Card title="Live KDS"><div className="pp-form-grid"><Field label="Order"><select value={kds.order_id} onChange={e=>setKds({...kds,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {o.status}</option>)}</select></Field><Field label="Status"><select value={kds.status} onChange={e=>setKds({...kds,status:e.target.value})}><option>new</option><option>accepted</option><option>preparing</option><option>ready</option><option>served</option></select></Field><Field label="Priority"><select value={kds.priority} onChange={e=>setKds({...kds,priority:e.target.value})}><option>normal</option><option>high</option><option>rush</option></select></Field><button onClick={()=>api("kds",kds)}>Update KDS</button></div><div className="pp-list">{(data.kot||[]).map(x=><div className="pp-row" key={x.id}><b>#{String(x.order_id).slice(0,6)}</b><span>{x.status} • {x.priority}</span></div>)}</div></Card><Card title="Kitchen stations"><div className="pp-table-grid">{(data.stations||[]).map(s=><div className="pp-table available" key={s.id}><b>{s.name}</b><small>{s.code||"station"}</small><em>{s.active===false?"Off":"Live"}</em></div>)}</div><a className="pp-link" href="/kitchen">Open full Kitchen Display →</a></Card></section>}
 
     {tab === "delivery" && <section className="pp-grid"><Card title="Assign rider"><div className="pp-form-grid"><Field label="Order"><select value={rider.order_id} onChange={e=>setRider({...rider,order_id:e.target.value})}><option value="">Select delivery order</option>{orders.filter(o=>o.order_mode==="delivery").map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)} • {money(o.total_amount)}</option>)}</select></Field><Field label="Rider"><select value={rider.rider_id} onChange={e=>setRider({...rider,rider_id:e.target.value})}><option value="">Select rider</option>{(data.riders||[]).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></Field><Field label="Address"><input value={rider.address} onChange={e=>setRider({...rider,address:e.target.value})}/></Field><Field label="Delivery charge"><input type="number" value={rider.delivery_charge} onChange={e=>setRider({...rider,delivery_charge:e.target.value})}/></Field><button onClick={()=>api("delivery_assign",rider)}>Assign</button></div></Card><Card title="Delivery board"><div className="pp-list">{(data.assignments||[]).map(a=><div className="pp-row" key={a.id}><b>#{String(a.order_id).slice(0,6)}</b><span>{a.status} • {money(a.delivery_charge)}</span><div className="pp-actions"><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"out_for_delivery"})}>Out</button><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"delivered"})}>Delivered</button><button onClick={()=>api("delivery_status",{assignment_id:a.id,status:"failed",failure_reason:"Customer unavailable"})}>Failed</button></div></div>)}</div></Card></section>}
+
+    {tab === "loyalty" && <section className="pp-grid">
+      <Card title="Loyalty & Offers" subtitle="Independent Operations Hub module — not part of Restaurant Pro.">
+        <div className="pp-actions">
+          <a className="pp-button" href="/dashboard/business?tab=loyalty">Open Loyalty Hub →</a>
+        </div>
+        <p className="pp-muted">Manage points, tiers, rewards, redemptions, campaigns and the customer loyalty ledger from the dedicated Loyalty workspace.</p>
+      </Card>
+    </section>}
 
     {tab === "digital" && <section className="pp-grid"><Card title="Pickup / Delivery Tokens"><div className="pp-form-grid"><Field label="Order"><select value={token.order_id} onChange={e=>setToken({...token,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)}</option>)}</select></Field><Field label="Type"><select value={token.token_type} onChange={e=>setToken({...token,token_type:e.target.value})}><option>pickup</option><option>delivery</option><option>dinein</option></select></Field><Field label="Display name"><input value={token.display_name} onChange={e=>setToken({...token,display_name:e.target.value})}/></Field><button onClick={()=>api("issue_token",token)}>Issue token</button></div><div className="pp-list">{(data.tokens||[]).map(t=><div className="pp-row" key={t.id}><b>{t.token_no}</b><span>{t.display_name||"Customer"} • {t.status}</span><div className="pp-actions"><button onClick={()=>api("token_status",{id:t.id,status:"called"})}>Call</button><button onClick={()=>api("token_status",{id:t.id,status:"ready"})}>Ready</button><button onClick={()=>api("token_status",{id:t.id,status:"completed"})}>Complete</button></div></div>)}</div></Card><Card title="QR / Kiosk / Display"><div className="pp-actions"><a href="/dashboard/qr" className="pp-button">QR Menu</a><a href="/dashboard/restaurant-suite?tab=devices" className="pp-button">Kiosk / Display</a><a href="/dashboard/notifications" className="pp-button">Customer alerts</a></div><p className="pp-muted">QR ordering, kiosk and digital display settings remain plugin-gated and use the same restaurant scope/theme.</p></Card></section>}
 
