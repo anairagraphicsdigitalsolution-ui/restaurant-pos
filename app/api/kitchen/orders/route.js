@@ -26,34 +26,11 @@ export async function GET(req) {
       )
     }
 
-    const [
-      { data: orders, error: ordersError },
-      { data: tables },
-      { data: rooms },
-      { data: orderItems },
-      { data: menuItems }
-    ] = await Promise.all([
-      supabaseAdmin
-        .from("orders")
-        .select("*")
-        .eq("restaurant_id", rid)
-        .order("created_at", { ascending: false }),
-      supabaseAdmin
-        .from("tables")
-        .select("*")
-        .eq("restaurant_id", rid),
-      supabaseAdmin
-        .from("rooms")
-        .select("*")
-        .eq("restaurant_id", rid),
-      supabaseAdmin
-        .from("order_items")
-        .select("*"),
-      supabaseAdmin
-        .from("menu_items")
-        .select("*")
-        .eq("restaurant_id", rid)
-    ])
+    const { data: orders, error: ordersError } = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq("restaurant_id", rid)
+      .order("created_at", { ascending: false })
 
     if (ordersError) {
       return Response.json(
@@ -61,6 +38,34 @@ export async function GET(req) {
         { status: 400 }
       )
     }
+
+    const orderIds = (orders || []).map(order => order.id).filter(Boolean)
+
+    const [
+      { data: tables },
+      { data: rooms },
+      { data: orderItems },
+      { data: menuItems }
+    ] = await Promise.all([
+      supabaseAdmin
+        .from("tables")
+        .select("id,table_number")
+        .eq("restaurant_id", rid),
+      supabaseAdmin
+        .from("rooms")
+        .select("id,room_number")
+        .eq("restaurant_id", rid),
+      orderIds.length
+        ? supabaseAdmin
+            .from("order_items")
+            .select("*")
+            .in("order_id", orderIds)
+        : Promise.resolve({ data: [] }),
+      supabaseAdmin
+        .from("menu_items")
+        .select("id,name")
+        .eq("restaurant_id", rid)
+    ])
 
     const tableMap = Object.fromEntries((tables || []).map(t => [t.id, t.table_number]))
     const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.room_number]))

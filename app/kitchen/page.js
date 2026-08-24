@@ -63,11 +63,6 @@ const [kotSize, setKotSize] = useState("80mm")
           { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${resolvedRestaurantId}` },
           () => fetchOrders(resolvedRestaurantId)
         )
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "order_items" },
-          () => fetchOrders(resolvedRestaurantId)
-        )
         .subscribe()
 
       fallbackTimer = setInterval(() => fetchOrders(resolvedRestaurantId), 15000)

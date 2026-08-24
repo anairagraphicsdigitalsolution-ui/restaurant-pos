@@ -70,7 +70,7 @@ export default function AppUtilities({ restaurantId, role }: Props) {
   useEffect(() => {
     if (!restaurantId || role === "super_admin") return
 
-    let channel: any
+    let channel: any = null
     let mounted = true
 
     async function loadUnread() {
@@ -84,12 +84,15 @@ export default function AppUtilities({ restaurantId, role }: Props) {
 
     async function subscribe() {
       await loadUnread()
+
       const { data } = await supabase
         .from("notifications")
         .select("id,title,message,type,action_url,created_at")
         .eq("restaurant_id", restaurantId)
         .order("created_at", { ascending: false })
         .limit(1)
+
+      if (!mounted) return
       if (data?.[0]) lastNotificationId.current = data[0].id
 
       const handleNewNotification = async (n: any) => {
@@ -136,32 +139,13 @@ export default function AppUtilities({ restaurantId, role }: Props) {
           () => loadUnread()
         )
         .subscribe()
-
-      const fallbackTimer = window.setInterval(async () => {
-        const { data } = await supabase
-          .from("notifications")
-          .select("id,title,message,type,action_url,created_at")
-          .eq("restaurant_id", restaurantId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-        const latest = data?.[0]
-        if (latest && latest.id !== lastNotificationId.current) {
-          const age = Date.now() - new Date(latest.created_at).getTime()
-          if (age < 30000) await handleNewNotification(latest)
-          else lastNotificationId.current = latest.id
-        }
-        await loadUnread()
-      }, 10000)
-
-      return () => window.clearInterval(fallbackTimer)
     }
 
-    let cleanupFallback: (() => void) | undefined
-    subscribe().then((cleanup) => { cleanupFallback = cleanup })
+    void subscribe()
+
     return () => {
       mounted = false
-      if (channel) supabase.removeChannel(channel)
-      cleanupFallback?.()
+      if (channel) void supabase.removeChannel(channel)
     }
   }, [restaurantId, role, notificationsEnabled])
 

@@ -13,10 +13,16 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    init()
+    let channel = null
+
+    async function start() {
+      channel = await init()
+    }
+
+    void start()
 
     return () => {
-      supabase.removeAllChannels()
+      if (channel) void supabase.removeChannel(channel)
     }
   }, [])
 
@@ -54,7 +60,7 @@ export default function StaffPage() {
       /*
        * Realtime order updates
        */
-      supabase
+      return supabase
         .channel(`staff-orders-${rid}`)
         .on(
           "postgres_changes",
