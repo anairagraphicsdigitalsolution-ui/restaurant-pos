@@ -880,7 +880,7 @@ image.style.transform="scale(1)"
 
   <button
     type="button"
-    style={qtyBtn}
+    className="qr-qty-btn" style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
       updateQty(item.id,-1)
@@ -893,7 +893,7 @@ image.style.transform="scale(1)"
 
   <button
     type="button"
-    style={qtyBtn}
+    className="qr-qty-btn" style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
       updateQty(item.id,1)
@@ -1515,9 +1515,48 @@ margin:"14px 0"
         </div>
       ))}
 
+      {recommendedFoods.length > 0 && (
+        <div style={comboModalBox} className="qr-recommendation-box">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <b>✨ You may also like</b>
+            <small>More from this category</small>
+          </div>
+          <div className="qr-recommendation-grid">
+            {recommendedFoods.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className="qr-recommendation-card"
+                onClick={() => {
+                  setSelectedFood(item)
+                  setModalQty(1)
+                  setModalRequest("")
+                  const cfg = item?.combo_config || {}
+                  const firstGroup = cfg?.groups?.[0] || null
+                  setComboSelection(
+                    item?.item_type === "combo" && firstGroup?.min === 1 && firstGroup?.max === 1
+                      ? []
+                      : []
+                  )
+                }}
+              >
+                <img
+                  src={item.image || "/food-placeholder.jpg"}
+                  alt={item.name}
+                />
+                <span className="qr-recommendation-name">{item.name}</span>
+                <span className="qr-recommendation-price">₹{item.price}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={modalQtyBox}>
 
   <button
+    type="button"
+    className="qr-qty-btn qr-modal-qty-btn"
     style={qtyBtn}
     onClick={()=>{
       if(modalQty>1){
@@ -1540,6 +1579,8 @@ margin:"14px 0"
   </div>
 
   <button
+    type="button"
+    className="qr-qty-btn qr-modal-qty-btn"
     style={qtyBtn}
     onClick={()=>setModalQty(modalQty+1)}
   >
@@ -1665,50 +1706,65 @@ transform:translateX(-50%);
 
 
 .qr-menu-grid{
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(5,minmax(0,1fr));
 }
-@media (min-width:901px) {
+@media (min-width:901px){
   .qr-menu-grid{max-width:1280px;margin-left:auto;margin-right:auto;gap:16px;}
 }
-.qr-category-bar{
-  overflow-x:auto;
-  scrollbar-width:none;
-  -webkit-overflow-scrolling:touch;
+@media (min-width:601px) and (max-width:900px){
+  .qr-menu-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:16px 12px;}
+  .qr-menu-grid>div{min-width:0!important;border-radius:16px!important;}
+  .qr-menu-grid img{height:145px!important;min-height:145px!important;object-fit:cover!important;}
+  .qr-menu-grid>div>div{padding:11px 10px 12px!important;gap:7px!important;}
+  .qr-menu-grid h3{font-size:13px!important;line-height:1.25!important;min-height:33px!important;height:33px!important;margin-bottom:4px!important;}
+  .qr-menu-grid span[style*="font-size:18px"]{font-size:15px!important;}
 }
-.qr-category-bar::-webkit-scrollbar{display:none;}
-.qr-search-box{max-width:1280px;margin:0 auto;}
-.qr-header-action:active{transform:scale(.97);}
-@media (max-width:600px){
-  .qr-header-actions{gap:6px !important;}
-  .qr-header-action{padding:0 9px !important;min-height:40px !important;border-radius:12px !important;font-size:12px !important;}
-}
-@media (max-width:900px){
-  .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 10px;}
-  .qr-menu-grid > div{min-width:0 !important;border-radius:13px !important;}
-  .qr-menu-grid img{height:110px !important;min-height:110px !important;object-fit:cover !important;}
-  .qr-menu-grid > div > div{padding:8px 7px !important;gap:5px !important;}
-  .qr-menu-grid h3{font-size:11px !important;line-height:1.2 !important;min-height:27px !important;height:27px !important;margin-bottom:3px !important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:12px !important;}
-  .qr-menu-grid button{padding:4px 7px !important;font-size:9px !important;border-radius:7px !important;}
-}
-@media (max-width:600px){
-  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 8px;}
-  .qr-menu-grid > div{min-width:0 !important;width:100%;border-radius:10px !important;box-shadow:0 5px 14px rgba(0,0,0,.22) !important;}
-  .qr-menu-grid img{width:100% !important;height:76px !important;min-height:76px !important;object-fit:cover !important;}
-  .qr-menu-grid > div > div{padding:5px 4px 6px !important;gap:4px !important;}
-  .qr-menu-grid h3{font-size:9px !important;line-height:1.15 !important;min-height:21px !important;height:21px !important;margin:0 0 2px !important;display:-webkit-box !important;-webkit-line-clamp:2 !important;-webkit-box-orient:vertical !important;overflow:hidden !important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:10px !important;line-height:1 !important;}
-  .qr-menu-grid button{padding:3px 5px !important;font-size:8px !important;line-height:1.1 !important;border-radius:6px !important;min-height:24px !important;}
-  .qr-header{padding:12px !important;}
+@media (min-width:381px) and (max-width:600px){
+  .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;padding:12px 9px;}
+  .qr-menu-grid>div{min-width:0!important;width:100%;border-radius:13px!important;}
+  .qr-menu-grid img{height:118px!important;min-height:118px!important;object-fit:cover!important;}
+  .qr-menu-grid>div>div{padding:8px 7px 9px!important;gap:6px!important;}
+  .qr-menu-grid h3{font-size:11px!important;line-height:1.2!important;min-height:27px!important;height:27px!important;margin:0 0 3px!important;}
+  .qr-menu-grid span[style*="font-size:18px"]{font-size:13px!important;}
 }
 @media (max-width:380px){
-  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 6px;}
-  .qr-menu-grid img{height:110px !important;min-height:110px !important;}
-  .qr-menu-grid > div > div{padding:8px 7px 9px !important;gap:5px !important;}
-  .qr-menu-grid h3{font-size:11px !important;min-height:27px !important;height:27px !important;}
-  .qr-menu-grid span[style*="font-size:18px"]{font-size:12px !important;}
-  .qr-menu-grid button{padding:5px 7px !important;font-size:9px !important;min-height:34px !important;}
+  .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 8px;}
+  .qr-menu-grid>div{min-width:0!important;width:100%;border-radius:13px!important;}
+  .qr-menu-grid img{height:125px!important;min-height:125px!important;object-fit:cover!important;}
+  .qr-menu-grid>div>div{padding:8px 7px 9px!important;gap:6px!important;}
+  .qr-menu-grid h3{font-size:11px!important;line-height:1.2!important;min-height:27px!important;height:27px!important;margin:0 0 3px!important;}
+  .qr-menu-grid span[style*="font-size:18px"]{font-size:13px!important;}
 }
+.qr-qty-btn{
+  width:42px!important;height:42px!important;min-width:42px!important;min-height:42px!important;
+  padding:0!important;border-radius:50%!important;display:inline-flex!important;
+  align-items:center!important;justify-content:center!important;flex:0 0 42px!important;
+  font-size:21px!important;line-height:1!important;font-weight:800!important;
+  box-sizing:border-box!important;touch-action:manipulation;
+}
+.qr-modal-qty-btn{width:50px!important;height:50px!important;min-width:50px!important;min-height:50px!important;flex-basis:50px!important;font-size:25px!important;}
+@media(max-width:600px){
+  .qr-qty-btn{width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;flex-basis:40px!important;font-size:20px!important;}
+  .qr-modal-qty-btn{width:48px!important;height:48px!important;min-width:48px!important;min-height:48px!important;flex-basis:48px!important;font-size:24px!important;}
+}
+@media(max-width:380px){
+  .qr-qty-btn{width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;flex-basis:38px!important;font-size:19px!important;}
+  .qr-modal-qty-btn{width:46px!important;height:46px!important;min-width:46px!important;min-height:46px!important;flex-basis:46px!important;font-size:23px!important;}
+}
+.qr-recommendation-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px;}
+.qr-recommendation-card{
+  min-width:0;border:1px solid rgba(var(--primary-rgb),.16);border-radius:13px;
+  background:rgba(255,255,255,.045);color:#fff;padding:7px;cursor:pointer;
+  display:flex;flex-direction:column;gap:5px;text-align:left;
+}
+.qr-recommendation-card img{width:100%;height:78px;object-fit:cover;border-radius:9px;}
+.qr-recommendation-name{font-size:11px;font-weight:800;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.qr-recommendation-price{font-size:12px;color:var(--primary);font-weight:900;}
+@media(max-width:600px){.qr-recommendation-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.qr-recommendation-card img{height:90px;}}
+@media(max-width:380px){.qr-recommendation-card img{height:75px;}}
+.qr-category-bar{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.qr-category-bar::-webkit-scrollbar{display:none;}
+.qr-search-box{max-width:1280px;margin:0 auto;}
 `}</style>
 
 </div>
@@ -1974,19 +2030,27 @@ const cartBadge = {
   fontWeight:"bold"
 }
 const qtyBtn = {
-  width:26,
-  height:26,
-  fontSize:12,
-  border:"none",
+  width:42,
+  height:42,
+  minWidth:42,
+  minHeight:42,
+  padding:0,
+  fontSize:21,
+  lineHeight:1,
+  border:"1px solid rgba(var(--primary-rgb),.38)",
   borderRadius:"50%",
   background:
 "linear-gradient(135deg,var(--surface),var(--surface-2))",
-border:
-"1px solid rgba(var(--primary-rgb),.35)",
   color:"#fff",
-  fontWeight:"bold",
-  cursor:"pointer"
-  
+  fontWeight:800,
+  cursor:"pointer",
+  display:"inline-flex",
+  alignItems:"center",
+  justifyContent:"center",
+  flexShrink:0,
+  boxSizing:"border-box",
+  touchAction:"manipulation"
+
 }
 const quickBtn = {
   padding:"5px 10px",
