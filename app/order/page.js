@@ -703,6 +703,11 @@ export default function OrderPage() {
             subtotal:
               foodTotal,
 
+            delivery_charge:
+              type === "delivery"
+                ? Number(deliveryCharge || 0)
+                : 0,
+
             total_amount:
               orderTotal,
 

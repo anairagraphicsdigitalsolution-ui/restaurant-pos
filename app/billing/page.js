@@ -1003,6 +1003,11 @@ export default function BillingPage() {
       ? manualDiscountAmount
       : previewDiscount
 
+  // Delivery charge is separate from food-item discounts.
+  const deliveryCharge = Number(
+    currentOrder?.delivery_charge || 0
+  )
+
   const taxableAmount =
     Math.max(
       0,
@@ -1067,7 +1072,8 @@ export default function BillingPage() {
   const calculatedBillTotal = Number(
     (
       taxableAmount +
-      gst
+      gst +
+      deliveryCharge
     ).toFixed(2)
   )
 
@@ -2813,6 +2819,15 @@ export default function BillingPage() {
                     {gst.toFixed(2)}
                   </p>
 
+                )}
+
+                {deliveryCharge > 0 && (
+                  <p>
+                    Delivery Charge:
+                    {" "}
+                    ₹
+                    {deliveryCharge.toFixed(2)}
+                  </p>
                 )}
 
                 <h2>

@@ -604,6 +604,11 @@ export async function POST(req) {
           data.tax || 0
         ),
 
+      delivery_charge:
+        Number(
+          data.delivery_charge || 0
+        ),
+
 
       total:
         Number(
