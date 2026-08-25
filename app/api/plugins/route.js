@@ -12,12 +12,8 @@ async function getAuthorizedContext(userId, restaurantId) {
     .maybeSingle()
 
   if (error || !profile) throw new Error("Profile not found")
-  if (!["admin", "super_admin"].includes(profile.role)) {
-    throw new Error("Not authorized")
-  }
-
-  if (profile.role !== "super_admin" && profile.restaurant_id !== restaurantId) {
-    throw new Error("Not authorized for this restaurant")
+  if (profile.role !== "super_admin") {
+    throw new Error("Super Admin access required")
   }
 
   return profile

@@ -21,7 +21,7 @@ export default function SalesChart({ data = [] }) {
           padding: 10,
           borderRadius: 8,
           border: "1px solid #333",
-          color: "#fff"
+          color: "var(--text)"
         }}>
           <p style={{margin:0}}>📅 {label}</p>
           <p style={{margin:0}}>💰 ₹{payload[0].value}</p>
@@ -86,7 +86,7 @@ const header = {
 
 const title = {
   margin: 0,
-  color: "#fff"
+  color: "var(--text)"
 }
 
 const sub = {

@@ -2087,7 +2087,7 @@ const layout = {
   padding: "88px 40px 50px",
   background:
     "radial-gradient(circle at 10% 0%,var(--surface-2),var(--background) 48%,#050509 100%)",
-  color: "#fff"
+  color: "var(--text)"
 }
 
 const hero = {
@@ -2123,7 +2123,7 @@ const title = {
   fontWeight: 950,
   letterSpacing: -1.5,
   background:
-    "linear-gradient(135deg,#fff,var(--primary),#fff)",
+    "linear-gradient(135deg,var(--text),var(--primary),var(--text))",
   WebkitBackgroundClip:
     "text",
   WebkitTextFillColor:
@@ -2208,7 +2208,7 @@ const input = {
     "rgba(255,255,255,.055)",
   border:
     "1px solid rgba(255,255,255,.10)",
-  color: "#fff",
+  color: "var(--text)",
   fontSize: 14,
   outline: "none"
 }
@@ -2287,7 +2287,7 @@ const dayBtn = {
     "1px solid rgba(255,255,255,.1)",
   background:
     "rgba(255,255,255,.04)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontWeight: 800
 }
@@ -2336,7 +2336,7 @@ const productCard = {
     "rgba(255,255,255,.04)",
   border:
     "1px solid rgba(255,255,255,.08)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer"
 }
 
@@ -2396,7 +2396,7 @@ const ghostBtn = {
     "1px solid rgba(255,255,255,.10)",
   background:
     "rgba(255,255,255,.04)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer"
 }
 
@@ -2564,7 +2564,7 @@ const editBtn = {
     "1px solid rgba(96,165,250,.25)",
   background:
     "rgba(96,165,250,.08)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontWeight: 800
 }
@@ -2576,7 +2576,7 @@ const pauseBtn = {
     "1px solid rgba(255,255,255,.10)",
   background:
     "rgba(255,255,255,.05)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontWeight: 800
 }
@@ -2588,7 +2588,7 @@ const deleteBtn = {
     "1px solid rgba(248,113,113,.25)",
   background:
     "rgba(248,113,113,.07)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontWeight: 800
 }
@@ -2601,7 +2601,7 @@ const coupon = {
     "rgba(245,158,11,.08)",
   border:
     "1px dashed rgba(245,158,11,.3)",
-  color: "#fbbf24",
+  color: "var(--warning)",
   fontSize: 12,
   fontWeight: 900
 }

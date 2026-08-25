@@ -1,14 +1,17 @@
 "use client"
 
 import {useEffect,useState} from "react"
+import {useRouter} from "next/navigation"
 import {supabase} from "@/lib/supabase"
 
 export default function SocialPage(){
+ const router=useRouter()
  const [rid,setRid]=useState(""),[active,setActive]=useState({}),[cfg,setCfg]=useState({}),[platform,setPlatform]=useState("facebook"),[message,setMessage]=useState(""),[image,setImage]=useState(""),[msg,setMsg]=useState("")
  useEffect(()=>{load()},[])
  async function load(){
   const {data:{user}}=await supabase.auth.getUser();if(!user)return
-  const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",user.id).maybeSingle();if(!p?.restaurant_id)return
+  const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle();if(!p?.restaurant_id)return
+  if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
   setRid(p.restaurant_id)
   const {data:r}=await supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id).in("plugin_code",["facebook-integration","instagram-integration"])
   const a={};for(const x of r||[])a[x.plugin_code]=x.enabled===true;setActive(a)

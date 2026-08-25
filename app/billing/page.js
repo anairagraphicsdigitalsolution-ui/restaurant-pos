@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
@@ -7,6 +8,7 @@ import SalesChart from "@/components/SalesChart"
 import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
+import { printHtmlInFrame } from "@/lib/printUtils"
 
 function indiaDateKey(value) {
   if (!value) return ""
@@ -1474,11 +1476,7 @@ export default function BillingPage() {
 
     if (!date) return ""
 
-    return new Date(
-      date
-    ).toLocaleString(
-      "en-IN"
-    )
+    return formatIndiaDateTime(date)
   }
 
   const today = indiaDateKey(new Date())
@@ -1583,85 +1581,85 @@ export default function BillingPage() {
 
   async function generateInvoicePdf() {
     const element = invoiceRef.current
-
     if (!element) {
       alert("Please select an order first.")
       return
     }
 
     try {
-      const canvas = await html2canvas(element, {
-        scale: Math.min(2, window.devicePixelRatio || 1.5),
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        windowWidth: element.scrollWidth,
-      })
-
+      // Render a dedicated printer-width copy instead of capturing the
+      // responsive dashboard card. This keeps A4/A5/58/80mm PDFs consistent
+      // with the actual paper/printer selected by the operator.
       const printDimensions = {
-        "A4": [210, 297],
-        "A5": [148, 210],
-        "THERMAL_80": [80, 200],
-        "THERMAL_58": [58, 200],
-        "CUSTOM": [
+        A4: [210, 297],
+        A5: [148, 210],
+        THERMAL_80: [80, 200],
+        THERMAL_58: [58, 200],
+        CUSTOM: [
           Math.max(40, Number(customPrintWidth) || 210),
           Math.max(60, Number(customPrintHeight) || 297),
         ],
       }
+      const [pageWidth, pageHeight] = printDimensions[printSize] || printDimensions.A4
+      const thermal = printSize === "THERMAL_58" || printSize === "THERMAL_80"
+      const clone = element.cloneNode(true)
+      clone.querySelectorAll("[data-html2canvas-ignore], button, select, input, textarea").forEach(node => node.remove())
+      clone.querySelectorAll("[contenteditable]").forEach(node => node.removeAttribute("contenteditable"))
+      clone.style.cssText = `width:${pageWidth}mm!important;max-width:${pageWidth}mm!important;min-width:0!important;margin:0!important;padding:${thermal ? 3 : 8}mm!important;background:#fff!important;color:#111!important;border:0!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;`
+      const header = clone.querySelector(".billing-invoice-card") || clone
+      header.style.background = "#fff"
+      header.style.color = "#111"
 
-      const [pageWidth, pageHeight] =
-        printDimensions[printSize] || printDimensions.A4
+      const host = document.createElement("div")
+      host.style.position = "fixed"
+      host.style.left = "-100000px"
+      host.style.top = "0"
+      host.style.width = `${pageWidth}mm`
+      host.style.background = "#fff"
+      host.style.color = "#111"
+      host.style.zIndex = "-1"
+      host.appendChild(clone)
+      document.body.appendChild(host)
 
-      const pdf = new jsPDF({
-        orientation: pageWidth > pageHeight ? "landscape" : "portrait",
-        unit: "mm",
-        format: [pageWidth, pageHeight],
+      const canvas = await html2canvas(clone, {
+        scale: Math.min(2, Math.max(1.5, window.devicePixelRatio || 1.5)),
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: Math.max(240, Math.round(pageWidth * 3.7795)),
+        windowWidth: Math.max(240, Math.round(pageWidth * 3.7795)),
       })
+      host.remove()
 
-      const margin = printSize === "THERMAL_58" || printSize === "THERMAL_80" ? 3 : 8
+      const margin = thermal ? 3 : 8
       const usableWidth = pageWidth - margin * 2
       const imageHeight = (canvas.height * usableWidth) / canvas.width
-      const imageData = canvas.toDataURL("image/jpeg", 0.95)
-
-      let remaining = imageHeight
-      let offset = 0
-
-      pdf.addImage(
-        imageData,
-        "JPEG",
-        margin,
-        margin,
-        usableWidth,
-        imageHeight,
-        undefined,
-        "FAST"
-      )
-
-      remaining -= pageHeight - margin * 2
-
-      while (remaining > 0) {
-        offset += pageHeight - margin * 2
-        pdf.addPage()
-        pdf.addImage(
-          imageData,
-          "JPEG",
-          margin,
-          margin - offset,
-          usableWidth,
-          imageHeight,
-          undefined,
-          "FAST"
-        )
-        remaining -= pageHeight - margin * 2
+      const pageContentHeight = pageHeight - margin * 2
+      const actualHeight = thermal ? Math.max(60, imageHeight + margin * 2) : pageHeight
+      const pdf = new jsPDF({
+        orientation: pageWidth > actualHeight ? "landscape" : "portrait",
+        unit: "mm",
+        format: [pageWidth, actualHeight],
+        compress: true,
+      })
+      const imageData = canvas.toDataURL("image/jpeg", 0.94)
+      if (thermal || imageHeight <= pageContentHeight) {
+        pdf.addImage(imageData, "JPEG", margin, margin, usableWidth, imageHeight, undefined, "FAST")
+      } else {
+        let offset = 0
+        let remaining = imageHeight
+        let first = true
+        while (remaining > 0) {
+          if (!first) pdf.addPage([pageWidth, pageHeight])
+          pdf.addImage(imageData, "JPEG", margin, margin - offset, usableWidth, imageHeight, undefined, "FAST")
+          remaining -= pageContentHeight
+          offset += pageContentHeight
+          first = false
+        }
       }
 
-      const invoiceNumber =
-        currentOrder?.invoice_no ||
-        finalizedBill?.invoice_no ||
-        selectedOrder?.slice(0, 8) ||
-        "invoice"
-
-      pdf.save(`invoice-${invoiceNumber}.pdf`)
+      const invoiceNumber = currentOrder?.invoice_no || finalizedBill?.invoice_no || selectedOrder?.slice(0, 8) || "invoice"
+      pdf.save(`${restaurant?.name || "restaurant"}-invoice-${invoiceNumber}.pdf`.replace(/[^a-z0-9._-]+/gi, "-"))
     } catch (error) {
       console.error("PDF GENERATION ERROR:", error)
       alert("Unable to generate invoice PDF on this device.")
@@ -1867,26 +1865,39 @@ export default function BillingPage() {
         ? `${reportDate || "start"}-${reportEndDate || reportDate || "end"}`
         : "all"
       const filename = `sales-report-${suffix}.pdf`
-      if (printAfter) {
-        const blobUrl = pdf.output("bloburl")
-        const printWindow = window.open(blobUrl, "_blank")
-        if (!printWindow) {
-          pdf.save(filename)
-          return
-        }
-        setTimeout(() => {
-          try { printWindow.focus(); printWindow.print() } catch {}
-        }, 900)
-      } else {
-        pdf.save(filename)
-      }
+      // Download the PDF instead of opening a blob in a new tab. On mobile,
+      // third-party PDF viewers can hide navigation/back controls. The app
+      // stays on the same route and the downloaded PDF can still be shared.
+      pdf.save(filename)
     } catch (error) {
       console.error("REPORT PDF GENERATION ERROR:", error)
       alert("Unable to generate the complete report PDF on this device.")
     }
   }
 
-  function printContent(id, selectedPrintSize = printSize) {
+  async function printThermalReport() {
+    try {
+      const el = document.getElementById("report-print")
+      if (!el) throw new Error("Report preview not found")
+      await sendThermalPrint({ type: "sales-report", content: el.innerText || el.textContent || "", data: { size: "80mm" } })
+    } catch (e) { alert(e.message || "Thermal report print failed") }
+  }
+
+  async function printThermalInvoice() {
+    try {
+      const el = document.getElementById("bill-print")
+      if (!el) throw new Error("Invoice preview not found")
+      await sendThermalPrint({
+        type: "receipt",
+        content: el.innerText || el.textContent || "",
+        data: { order_id: selectedOrder, size: printSize === "THERMAL_58" ? "58mm" : "80mm" }
+      })
+    } catch (e) {
+      alert(e.message || "Thermal invoice print failed")
+    }
+  }
+
+  async function printContent(id, selectedPrintSize = printSize) {
 
     const element =
       document.getElementById(id)
@@ -1909,18 +1920,6 @@ export default function BillingPage() {
 
     const content = clone.innerHTML
 
-    const win =
-      window.open(
-        "",
-        "_blank"
-      )
-
-    if (!win) {
-      alert(
-        "Please allow popups to print."
-      )
-      return
-    }
 
     const printDimensions = {
       "A4": ["210mm", "297mm"],
@@ -1941,292 +1940,41 @@ export default function BillingPage() {
         ? "3mm"
         : "8mm"
 
-    win.document.write(
-      `<html>
+    const printHtml = `<html>
         <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width,initial-scale=1" />
           <title>Invoice</title>
           <style>
-            :root {
-              --surface: #ffffff;
-              --surface-2: #ffffff;
-              --surface2: #ffffff;
-              --text: #111111;
-              --muted: #555555;
-              --border: #dddddd;
-              --primary: #b7791f;
-              --primary-rgb: 183,121,31;
-              --warning-rgb: 217,119,6;
-            }
-
-            @page {
-              size: ${printWidth} ${printHeight};
-              margin: 0;
-            }
-
-            * { box-sizing: border-box; }
-
-            html, body {
-              margin: 0;
-              padding: 0;
-              width: ${printWidth};
-              background: #fff;
-            }
-
-            body {
-              font-family: Arial, sans-serif;
-              padding: ${printPadding};
-              color: #111;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            th, td {
-              padding: ${selectedPrintSize.startsWith("THERMAL") ? "5px 3px" : "10px 6px"};
-              border-bottom: 1px solid #ddd;
-              text-align: left;
-            }
-
-            h1, h2, h3, h4, p {
-              max-width: 100%;
-              overflow-wrap: anywhere;
-            }
-
-            .print-powered-by {
-              display:block;
-              margin-top:14px;
-              padding-top:8px;
-              border-top:1px solid #eee;
-              text-align:center;
-              color:#777;
-              font-size:8px;
-              letter-spacing:.2px;
-            }
-
-            .billing-invoice-card {
-              width: 100% !important;
-              max-width: 100% !important;
-              margin: 0 !important;
-              box-shadow: none !important;
-              border: 0 !important;
-            }
-
-
-
-            #report-print,
-            #report-print * {
-              box-sizing: border-box;
-            }
-
-            #report-print {
-              max-height: none !important;
-              height: auto !important;
-              overflow: visible !important;
-              background: #fff !important;
-              color: #111 !important;
-              border: 0 !important;
-              box-shadow: none !important;
-            }
-
-            #report-print .report-table-wrap {
-              max-height: none !important;
-              height: auto !important;
-              overflow: visible !important;
-            }
-
-            #report-print .report-actions {
-              display: none !important;
-            }
-
-            #report-print .report-summary-grid {
-              grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
-            }
-
-            #report-print table {
-              page-break-inside: auto;
-            }
-
-            #report-print tr {
-              page-break-inside: avoid;
-              page-break-after: auto;
-            }
-
-            #report-print thead {
-              display: table-header-group;
-            }
-
-            #report-print h3,
-            #report-print h4 {
-              color: #111 !important;
-            }
-
-            #report-print .report-print-footer {
-              color: #777 !important;
-            }
-
-            @media print {
-              body { width: ${printWidth}; }
-            }
-          
-
-
-.billing-page,
-.billing-page * {
-  box-sizing: border-box;
-}
-
-.billing-page {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  overflow-x: hidden;
-}
-
-.billing-page h1,
-.billing-page h2,
-.billing-page h3,
-.billing-page h4,
-.billing-page p,
-.billing-page span,
-.billing-page strong,
-.billing-page small,
-.billing-page label,
-.billing-page button,
-.billing-page a {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.billing-page .billing-topbar,
-.billing-page .billing-summary-wrap,
-.billing-page .billing-chart-grid,
-.billing-page .billing-main-grid,
-.billing-page .billing-left-panel,
-.billing-page .billing-chart-card,
-.billing-page .billing-card,
-.billing-page .billing-invoice-card {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.billing-page .billing-chart-card canvas,
-.billing-page .billing-chart-card svg {
-  max-width: 100% !important;
-}
-
-.billing-page input,
-.billing-page select,
-.billing-page textarea {
-  min-width: 0;
-  max-width: 100%;
-}
-
-@media(max-width:1200px){
-  .billing-summary-wrap{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-  .billing-main-grid{grid-template-columns:minmax(280px,360px) minmax(0,1fr)!important}
-  .billing-chart-grid{grid-template-columns:1fr!important}
-  .billing-chart-card{min-width:0!important;overflow:hidden!important}
-}
-@media(max-width:900px){
-  .billing-main-grid{grid-template-columns:1fr!important}
-  .billing-left-panel{position:static!important}
-  .billing-summary-wrap{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-}
-@media(max-width:700px){
-  .billing-page{padding:14px!important}
-  .billing-topbar{padding:14px!important;margin-bottom:16px!important;display:grid!important;grid-template-columns:1fr!important}
-  .billing-title{font-size:30px!important;margin-bottom:18px!important;overflow-wrap:anywhere!important}
-  .billing-card{padding:16px!important;border-radius:18px!important;min-width:0!important;overflow:hidden!important}
-  .billing-bill-card{padding:18px!important;border-radius:18px!important}
-  .billing-summary-wrap{grid-template-columns:1fr!important;gap:12px!important}
-  .billing-summary-card{width:100%!important;min-width:0!important;padding:18px!important}
-  .billing-summary-card h2{font-size:24px!important;line-height:1.15!important;margin:8px 0!important;overflow-wrap:anywhere!important;word-break:break-word!important}
-  .billing-summary-card p,.billing-summary-card small{overflow-wrap:anywhere!important;word-break:break-word!important}
-  .billing-input{min-width:0!important;width:100%!important}
-  .billing-action{min-height:46px!important;width:100%!important}
-  .billing-invoice-table{font-size:11px!important;min-width:560px!important}
-  .billing-chart-card{padding:16px!important;min-width:0!important}
-  .billing-chart-card > *{min-width:0!important;max-width:100%!important}
-}
-
-@media(max-width:700px){
-  .billing-bill-jump{
-    width:100%!important;
-    min-width:0!important;
-    margin:0!important;
-  }
-  .billing-bill-section{
-    width:100%!important;
-    max-width:100%!important;
-    scroll-margin-top:12px!important;
-  }
-  .billing-invoice-card{
-    width:100%!important;
-    max-width:100%!important;
-    overflow:hidden!important;
-  }
-  .billing-invoice-table{
-    width:100%!important;
-    min-width:0!important;
-    table-layout:fixed!important;
-    font-size:11px!important;
-  }
-  .billing-invoice-table th,
-  .billing-invoice-table td{
-    padding:7px 5px!important;
-    font-size:11px!important;
-  }
-  .billing-invoice-table th:nth-child(1),
-  .billing-invoice-table td:nth-child(1){width:44%!important}
-  .billing-invoice-table th:nth-child(2),
-  .billing-invoice-table td:nth-child(2){width:14%!important}
-  .billing-invoice-table th:nth-child(3),
-  .billing-invoice-table td:nth-child(3){width:19%!important}
-  .billing-invoice-table th:nth-child(4),
-  .billing-invoice-table td:nth-child(4){width:23%!important}
-  .billing-invoice-toolbar{
-    flex-direction:column!important;
-    align-items:stretch!important;
-    gap:10px!important;
-  }
-  .billing-edit-btn{
-    width:100%!important;
-    min-height:44px!important;
-  }
-}
-
-</style>
+            :root { --text:#111; --muted:#555; --border:#ddd; --primary:#b7791f; }
+            @page { size:${printWidth} ${printHeight}; margin:0; }
+            *{box-sizing:border-box}
+            html,body{margin:0;padding:0;width:${printWidth};background:#fff;color:#111}
+            body{font-family:Arial,sans-serif;padding:${printPadding};font-size:${selectedPrintSize.startsWith("THERMAL") ? "11px" : "13px"};overflow-wrap:anywhere}
+            table{width:100%;border-collapse:collapse;table-layout:fixed}
+            th,td{padding:${selectedPrintSize.startsWith("THERMAL") ? "5px 3px" : "8px 5px"};border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;word-break:break-word}
+            th:nth-child(1),td:nth-child(1){width:46%} th:nth-child(2),td:nth-child(2){width:14%} th:nth-child(3),td:nth-child(3){width:20%} th:nth-child(4),td:nth-child(4){width:20%}
+            h1,h2,h3,h4,p{max-width:100%;overflow-wrap:anywhere}
+            .billing-invoice-card{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;box-shadow:none!important;border:0!important;border-radius:0!important;background:#fff!important;color:#111!important}
+            .billing-invoice-meta{background:#fff!important;color:#111!important;border-color:#ddd!important}
+            .print-powered-by{display:block;margin-top:12px;padding-top:7px;border-top:1px solid #eee;text-align:center;color:#777;font-size:8px}
+            [data-html2canvas-ignore],button,select,input,textarea{display:none!important}
+            #report-print{max-height:none!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#111!important;border:0!important;box-shadow:none!important}
+            #report-print .report-table-wrap{max-height:none!important;height:auto!important;overflow:visible!important}
+            #report-print .report-actions{display:none!important}
+            #report-print thead{display:table-header-group}
+            #report-print tr{page-break-inside:avoid}
+          </style>
         </head>
-        <body>
-          ${content}
-        </body>
+        <body>${content}</body>
       </html>`
-    )
 
-    win.document.close()
-
-    // Wait for the cloned invoice to finish rendering before opening the
-    // system print dialog. This is important on Android/iOS and for logos.
-    const doPrint = async () => {
-      try {
-        if (win.document.fonts?.ready) await win.document.fonts.ready
-        const images = Array.from(win.document.images || [])
-        await Promise.all(images.map((img) => {
-          if (img.complete) return Promise.resolve()
-          return new Promise((resolve) => {
-            img.addEventListener("load", resolve, { once: true })
-            img.addEventListener("error", resolve, { once: true })
-          })
-        }))
-      } catch {}
-      win.focus()
-      win.print()
+    try {
+      await printHtmlInFrame(printHtml, { title: "Invoice", width: printWidth, height: printHeight })
+    } catch (error) {
+      console.error("PRINT ERROR:", error)
+      alert(error?.message || "Unable to print")
     }
-
-    window.setTimeout(doPrint, 150)
   }
 
   return (
@@ -2281,7 +2029,7 @@ export default function BillingPage() {
           margin: 14px 0 18px;
           border: 1px solid rgba(0,0,0,.08);
           border-radius: 14px;
-          background: #f8fafc;
+          background: var(--surface-2);
         }
 
         .billing-print-settings .billing-field-label {
@@ -2672,7 +2420,7 @@ export default function BillingPage() {
                     value={printSize}
                     onChange={e => setPrintSize(e.target.value)}
                     className="billing-input"
-                    style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                    style={{ ...input, color:"var(--surface)", background:"var(--text)", border:"1px solid var(--border)" }}
                   >
                     <option value="A4">A4 — 210 × 297 mm</option>
                     <option value="A5">A5 — 148 × 210 mm</option>
@@ -2692,7 +2440,7 @@ export default function BillingPage() {
                         value={customPrintWidth}
                         onChange={e => setCustomPrintWidth(e.target.value)}
                         className="billing-input"
-                        style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                        style={{ ...input, color:"var(--surface)", background:"var(--text)", border:"1px solid var(--border)" }}
                       />
                     </div>
                     <div>
@@ -2703,7 +2451,7 @@ export default function BillingPage() {
                         value={customPrintHeight}
                         onChange={e => setCustomPrintHeight(e.target.value)}
                         className="billing-input"
-                        style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                        style={{ ...input, color:"var(--surface)", background:"var(--text)", border:"1px solid var(--border)" }}
                       />
                     </div>
                   </>
@@ -2769,7 +2517,7 @@ export default function BillingPage() {
                             <div>
                               {i.menu_items?.name || "Item"}
                               {i.modifiers?.length > 0 && (
-                                <div style={{fontSize:11,color:"#64748b",marginTop:3}}>
+                                <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
                                   + {i.modifiers.map(m => `${m.modifier_name} ₹${Number(m.price || 0).toFixed(0)}`).join(" • ")}
                                 </div>
                               )}
@@ -2867,7 +2615,7 @@ export default function BillingPage() {
                     padding:"12px 14px",
                     border:"1px solid #e5e7eb",
                     borderRadius:12,
-                    background:"#f8fafc",
+                    background:"var(--surface-2)",
                     display:"grid",
                     gap:5,
                     fontSize:13
@@ -2958,7 +2706,7 @@ export default function BillingPage() {
                   marginTop:20,
                   padding:18,
                   borderRadius:18,
-                  background:"#f8fafc",
+                  background:"var(--surface-2)",
                   color:"var(--surface)",
                   display:"grid",
                   gap:12
@@ -2977,7 +2725,7 @@ export default function BillingPage() {
                       value={customerName}
                       onChange={e => setCustomerName(e.target.value)}
                       placeholder="Customer name"
-                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                      style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)"}}
                     />
                     <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:8}}>
                       <input
@@ -2989,7 +2737,7 @@ export default function BillingPage() {
                         }}
                         onBlur={() => lookupCustomerByPhone(customerPhone)}
                         placeholder="Customer mobile number"
-                        style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db",minWidth:0}}
+                        style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)",minWidth:0}}
                       />
                       <button
                         type="button"
@@ -3005,11 +2753,11 @@ export default function BillingPage() {
                       value={customerEmail}
                       onChange={e => setCustomerEmail(e.target.value)}
                       placeholder="Customer email (optional)"
-                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                      style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)"}}
                     />
                     {customerLookup ? <small style={{color:"var(--muted)"}}>Checking customer…</small> : null}
                     {customerFound ? (
-                      <small style={{color:"#15803d",fontWeight:700}}>✓ Existing customer found — details loaded.</small>
+                      <small style={{color:"var(--success)",fontWeight:700}}>✓ Existing customer found — details loaded.</small>
                     ) : customerProfile ? (
                       <small style={{color:"var(--muted)"}}>Existing customer • {Number(customerProfile.total_orders || 0)} orders • ₹{Number(customerProfile.total_spend || 0).toFixed(2)} spent</small>
                     ) : (
@@ -3026,7 +2774,7 @@ export default function BillingPage() {
                     const next = availableOffers.find(o => o.id === e.target.value) || null
                     setSelectedOffer(next)
                   }}
-                  style={{ ...input, color:"#111827", background:"#fff", border:"1px solid #d1d5db" }}
+                  style={{ ...input, color:"var(--surface)", background:"var(--text)", border:"1px solid var(--border)" }}
                 >
                   <option value="">No offer</option>
                   {availableOffers.map(offer => (
@@ -3055,7 +2803,7 @@ export default function BillingPage() {
                         const next = availableLoyaltyRewards.find(r => r.id === e.target.value) || null
                         setSelectedLoyaltyReward(next)
                       }}
-                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                      style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)"}}
                     >
                       <option value="">No loyalty reward</option>
                       {availableLoyaltyRewards.map(reward => (
@@ -3070,7 +2818,7 @@ export default function BillingPage() {
                       ))}
                     </select>
                     {selectedLoyaltyReward ? (
-                      <small style={{color:"#15803d",fontWeight:800}}>
+                      <small style={{color:"var(--success)",fontWeight:800}}>
                         ✓ {selectedLoyaltyReward.name} — ₹{loyaltyRewardDiscount.toFixed(2)} discount • {selectedLoyaltyReward.points_cost} points will be redeemed only after successful payment.
                       </small>
                     ) : (
@@ -3098,13 +2846,13 @@ export default function BillingPage() {
                       value={manualDiscount}
                       onChange={e => setManualDiscount(e.target.value)}
                       placeholder={manualDiscountMode === "percent" ? "0" : "₹0.00"}
-                      style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db"}}
+                      style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)"}}
                     />
                   </label>
                   <select
                     value={manualDiscountMode}
                     onChange={e => setManualDiscountMode(e.target.value)}
-                    style={{...input,color:"#111827",background:"#fff",border:"1px solid #d1d5db",minWidth:0}}
+                    style={{...input,color:"var(--surface)",background:"var(--text)",border:"1px solid var(--border)",minWidth:0}}
                     aria-label="Discount type"
                   >
                     <option value="amount">₹ Amount</option>
@@ -3122,9 +2870,9 @@ export default function BillingPage() {
                   }
                   style={{
                     ...input,
-                    color:"#111827",
-                    background:"#ffffff",
-                    border:"1px solid #d1d5db"
+                    color:"var(--surface)",
+                    background:"var(--text)",
+                    border:"1px solid var(--border)"
                   }}
                 >
 
@@ -3154,9 +2902,9 @@ export default function BillingPage() {
                   aria-label="Paid amount"
                   style={{
                     ...input,
-                    color:"#111827",
+                    color:"var(--surface)",
                     background:"#f3f4f6",
-                    border:"1px solid #d1d5db",
+                    border:"1px solid var(--border)",
                     cursor:"not-allowed"
                   }}
                 />
@@ -3168,9 +2916,9 @@ export default function BillingPage() {
                   placeholder="UTR / Transaction reference (optional)"
                   style={{
                     ...input,
-                    color:"#111827",
-                    background:"#ffffff",
-                    border:"1px solid #d1d5db"
+                    color:"var(--surface)",
+                    background:"var(--text)",
+                    border:"1px solid var(--border)"
                   }}
                 />
 
@@ -3238,6 +2986,15 @@ export default function BillingPage() {
                   disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
                 >
                   🖨 Print Invoice
+                </button>
+
+                <button
+                  onClick={printThermalInvoice}
+                  className="billing-action" style={btnGreen}
+                  type="button"
+                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
+                >
+                  🖨 Thermal 80mm
                 </button>
               </div>
 
@@ -3519,6 +3276,7 @@ export default function BillingPage() {
               >
                 🖨 Print Full Report
               </button>
+                <button onClick={printThermalReport} className="billing-action" style={btnGreen} type="button">🖨 Thermal 80mm</button>
               <button
                 type="button"
                 onClick={() => generateReportPdf(true)}
@@ -3569,7 +3327,7 @@ const layout = {
   padding:30,
   background:
     "radial-gradient(circle at top,var(--surface-2),var(--background),#000)",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const title = {
@@ -3634,7 +3392,7 @@ const card = {
 }
 
 const billCard = {
-  background:"#ffffff",
+  background:"var(--text)",
   color:"#111",
   padding:40,
   borderRadius:30,
@@ -3682,7 +3440,7 @@ const input = {
     "1px solid rgba(var(--primary-rgb),.25)",
 
   background:"var(--surface-2)",
-  color:"#fff",
+  color:"var(--text)",
   minWidth:180,
   outline:"none"
 }
@@ -3697,7 +3455,7 @@ const btnBlue = {
   background:
     "linear-gradient(135deg,var(--info),var(--info))",
 
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:700,
   cursor:"pointer",
   transition:"all .3s ease"
@@ -3776,7 +3534,7 @@ const clearFilterBtn = {
   borderRadius:14,
   border:"1px solid rgba(255,255,255,.10)",
   background:"rgba(255,255,255,.04)",
-  color:"#cbd5e1",
+  color:"var(--border)",
   fontWeight:800,
   cursor:"pointer"
 }

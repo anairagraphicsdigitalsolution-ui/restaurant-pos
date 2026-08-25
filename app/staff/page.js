@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -1145,13 +1146,7 @@ function formatTime(value) {
   if (!value) return "-"
 
   try {
-    return new Date(value).toLocaleTimeString(
-      [],
-      {
-        hour: "2-digit",
-        minute: "2-digit"
-      }
-    )
+    return formatIndiaTime(value)
   } catch {
     return "-"
   }
@@ -1169,7 +1164,7 @@ const loadingPage = {
   justifyContent: "center",
   background:
     "linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
-  color: "#fff",
+  color: "var(--text)",
   padding: 20
 }
 
@@ -1194,7 +1189,7 @@ const layout = {
   padding: 20,
   background:
     "linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
-  color: "#fff",
+  color: "var(--text)",
   minHeight: "100vh"
 }
 
@@ -1349,7 +1344,7 @@ const status = (s) => ({
   fontSize: 12,
   background:
     s === "pending"
-      ? "#facc15"
+      ? "var(--warning)"
       : s === "preparing"
         ? "var(--info)"
         : s === "ready"
@@ -1533,7 +1528,7 @@ const sourceSelectBtn = {
   borderRadius: 10,
   border:
     "1px solid rgba(255,255,255,.12)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontWeight: 700
 }
@@ -1573,7 +1568,7 @@ const menuCard = {
     "1px solid rgba(255,255,255,.09)",
   background:
     "rgba(255,255,255,.04)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer"
 }
 
@@ -1685,7 +1680,7 @@ const qtyBtn = {
     "1px solid rgba(255,255,255,.12)",
   background:
     "rgba(255,255,255,.05)",
-  color: "#fff",
+  color: "var(--text)",
   cursor: "pointer",
   fontSize: 17
 }
@@ -1727,7 +1722,7 @@ const payBtn = {
     "linear-gradient(135deg,var(--success),var(--success))",
   border: "none",
   borderRadius: 11,
-  color: "#fff",
+  color: "var(--text)",
   width: "100%",
   fontWeight: 800,
   fontSize: 15

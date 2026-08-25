@@ -1,8 +1,11 @@
 "use client"
+import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
+import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { printHtmlInFrame } from "@/lib/printUtils"
 
 const TABS = [
   ["overview", "▦ Overview"],
@@ -352,6 +355,26 @@ export default function BusinessOperations() {
     notify(`KOT marked ${status}`)
   }
 
+  async function printKotThermal(kot) {
+    try {
+      const { data: orderItems } = await supabase.from("order_items").select("item_name,quantity,cooking_request").eq("order_id", kot.order_id)
+      const content = [
+        name || "Restaurant",
+        "KITCHEN ORDER TICKET",
+        `KOT #${kot.kot_no || kot.id.slice(0,6).toUpperCase()}`,
+        `Order: ${orders.find(o => o.id === kot.order_id)?.source_label || "Order"}`,
+        formatIndiaDateTime(kot.created_at),
+        "------------------------------",
+        ...(orderItems || []).flatMap(i => [`${i.quantity || 0} x ${i.item_name || "Item"}`, i.cooking_request ? `NOTE: ${i.cooking_request}` : null].filter(Boolean)),
+        "------------------------------",
+        `Status: ${String(kot.status || "new").toUpperCase()}`,
+        "Kitchen Copy"
+      ]
+      await sendThermalPrint({ type: "kot", content: content.join("\n"), data: { order_id: kot.order_id, kot_id: kot.id, size: "80mm" } })
+      notify("Thermal KOT sent to printer")
+    } catch (e) { notify(e.message || "Thermal KOT print failed") }
+  }
+
   async function printKot(kot, reprint = false) {
     const order = orders.find(o => o.id === kot.order_id)
     const { data: orderItems } = await supabase
@@ -372,23 +395,20 @@ export default function BusinessOperations() {
       <div style="width:320px;font-family:Arial,sans-serif;padding:20px;color:#111">
         <div style="text-align:center;border-bottom:2px solid #111;padding-bottom:10px">
           <h2 style="margin:0">KITCHEN ORDER TICKET</h2>
-          <div style="font-size:12px">ANAIRA POS</div>
+          <div style="font-size:14px;font-weight:800">${name || "Restaurant"}</div>
         </div>
         <div style="margin:14px 0;font-size:14px">
           <b>KOT #${kot.kot_no || kot.id.slice(0,6).toUpperCase()}</b><br/>
           ${order?.source_label || "Order"}<br/>
-          ${new Date(kot.created_at).toLocaleString("en-IN")}
+          ${formatIndiaDateTime(kot.created_at)}
         </div>
         <div style="border-top:1px dashed #111;padding-top:10px">${itemsHtml || "<div>No items found</div>"}</div>
         <div style="margin-top:12px"><b>Status:</b> ${String(kot.status || "new").toUpperCase()}</div>
         <p style="margin-top:28px;text-align:center;font-size:11px">Kitchen Copy</p>
       </div>`
-    const win = window.open("", "_blank", "width=420,height=650")
-    if (!win) return notify("Allow pop-ups to print KOT")
-    win.document.write(`<html><body>${html}</body></html>`)
-    win.document.close()
-    win.focus()
-    setTimeout(() => win.print(), 120)
+    try {
+      await printHtmlInFrame(`<div style="width:100%;font-family:Arial,sans-serif;color:#111">${html}</div>`, { title: `KOT ${kot.kot_no || ""}`, width: "80mm", height: "auto" })
+    } catch (e) { return notify(e.message || "Unable to print KOT") }
     const { error } = await supabase.from("kot_tickets").update({
       printed_at: new Date().toISOString(),
       reprint_count: Number(kot.reprint_count || 0) + (reprint ? 1 : 0)
@@ -587,7 +607,7 @@ export default function BusinessOperations() {
       <h1 style={{margin:"8px 0"}}>Operations Hub</h1>
       <p style={{color:"var(--muted)",lineHeight:1.6}}>The central restaurant operations workspace is controlled by Super Admin.</p>
       <p style={{fontSize:12,color:"var(--muted)"}}>This module is locked until Super Admin activates its plugin for this restaurant.</p>
-      <a href="/dashboard" style={{display:"inline-block",marginTop:10,padding:"11px 16px",borderRadius:12,background:"var(--primary)",color:"#fff",textDecoration:"none",fontWeight:800}}>← Back to Dashboard</a>
+      <a href="/dashboard" style={{display:"inline-block",marginTop:10,padding:"11px 16px",borderRadius:12,background:"var(--primary)",color:"var(--text)",textDecoration:"none",fontWeight:800}}>← Back to Dashboard</a>
     </div>
   </main>
 
@@ -602,10 +622,10 @@ export default function BusinessOperations() {
 
         .operations-page{
           --ops-border: var(--border, rgba(148,163,184,.18));
-          --ops-surface: var(--surface, #fff);
+          --ops-surface: var(--surface, var(--text));
           --ops-bg: var(--background, #f6f8fb);
-          --ops-text: var(--text, #0f172a);
-          --ops-muted: var(--muted, #64748b);
+          --ops-text: var(--text, var(--surface));
+          --ops-muted: var(--muted, var(--muted));
         }
         .operations-page .operations-workspace{
           max-width:1480px;
@@ -669,7 +689,7 @@ export default function BusinessOperations() {
         }
         .operations-sidebar-foot b{display:block;font-size:11px;color:var(--ops-text)}
         .operations-sidebar-foot small{display:block;margin-top:2px;font-size:10px;color:var(--ops-muted)}
-        .operations-live-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.10)}
+        .operations-live-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(34,197,94,.10)}
         .operations-main{min-width:0}
         .operations-section-bar{
           display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -941,11 +961,12 @@ export default function BusinessOperations() {
             <div style={filterBar}>{["all","new","preparing","ready","served"].map(f => <button key={f} style={filterBtn(kotFilter === f)} onClick={() => setKotFilter(f)}>{f}</button>)}</div>
             <List>{kots.filter(k => kotFilter === "all" || k.status === kotFilter).map(k =>
               <Row key={k.id}>
-                <div><b>KOT #{k.kot_no || k.id.slice(0,6).toUpperCase()}</b><small>{orders.find(o => o.id === k.order_id)?.source_label || `Order ${k.order_id?.slice(0,8)}`} • {new Date(k.created_at).toLocaleString("en-IN")}</small></div>
+                <div><b>KOT #{k.kot_no || k.id.slice(0,6).toUpperCase()}</b><small>{orders.find(o => o.id === k.order_id)?.source_label || `Order ${k.order_id?.slice(0,8)}`} • {formatIndiaDateTime(k.created_at)}</small></div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                   <select value={k.status} onChange={e => updateKotStatus(k, e.target.value)} style={miniSelect}><option value="new">New</option><option value="preparing">Preparing</option><option value="ready">Ready</option><option value="served">Served</option><option value="cancelled">Cancelled</option></select>
                   <button style={mini} onClick={() => printKot(k, false)}>Print</button>
                   <button style={mini} onClick={() => printKot(k, true)}>Reprint</button>
+                  <button style={mini} onClick={() => printKotThermal(k)}>Thermal 80mm</button>
                 </div>
               </Row>
             )}</List>
@@ -955,7 +976,7 @@ export default function BusinessOperations() {
 
       {tab === "expenses" && <div style={grid}><Card title="Record expense" subtitle="For operating costs and restaurant administration."><form onSubmit={addExpense} style={form}><Field label="Category"><input placeholder="General / Electricity / Transport" value={ef.category} onChange={e => setEf({ ...ef, category: e.target.value })} /></Field><Field label="Description"><input placeholder="Short description" value={ef.description} onChange={e => setEf({ ...ef, description: e.target.value })} /></Field><Field label="Amount"><input type="number" min="0" step="0.01" placeholder="₹0" value={ef.amount} onChange={e => setEf({ ...ef, amount: e.target.value })} /></Field><Field label="Payment method"><select value={ef.payment_method} onChange={e => setEf({ ...ef, payment_method: e.target.value })}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="bank">Bank</option></select></Field><button style={primary}>Save Expense</button></form></Card><Card title={`Expense report • ${money(expenseTotal)}`} subtitle="Latest 100 records"><List>{expenses.map(e => <Row key={e.id}><div><b>{e.category}</b><small>{e.description || "No description"} • {e.expense_date}</small></div><div style={{display:"flex",gap:7,alignItems:"center"}}><strong>{money(e.amount)}</strong><button style={dangerMini} onClick={() => deleteExpense(e.id)}>Delete</button></div></Row>)}</List></Card></div>}
 
-      {tab === "attendance" && <div style={grid}><Card title="My attendance" subtitle="Clock in/out for the current logged-in user."><button style={primary} onClick={clockIn}>🟢 Clock In</button><List>{attendance.slice(0, 30).map(a => <Row key={a.id}><div><b>{new Date(a.clock_in).toLocaleDateString("en-IN")}</b><small>{new Date(a.clock_in).toLocaleTimeString("en-IN")} → {a.clock_out ? new Date(a.clock_out).toLocaleTimeString("en-IN") : "Active"}</small></div>{!a.clock_out && <button style={mini} onClick={() => clockOut(a.id)}>Clock Out</button>}</Row>)}</List></Card><Card title="Attendance overview" subtitle="Restaurant-scoped records"><Metric title="Records loaded" value={attendance.length} hint="Recent attendance entries" /><Metric title="Currently active" value={openAttendance} hint="Open clock-in records" /></Card></div>}
+      {tab === "attendance" && <div style={grid}><Card title="My attendance" subtitle="Clock in/out for the current logged-in user."><button style={primary} onClick={clockIn}>🟢 Clock In</button><List>{attendance.slice(0, 30).map(a => <Row key={a.id}><div><b>{formatIndiaDate(a.clock_in)}</b><small>{formatIndiaTime(a.clock_in)} → {a.clock_out ? formatIndiaTime(a.clock_out) : "Active"}</small></div>{!a.clock_out && <button style={mini} onClick={() => clockOut(a.id)}>Clock Out</button>}</Row>)}</List></Card><Card title="Attendance overview" subtitle="Restaurant-scoped records"><Metric title="Records loaded" value={attendance.length} hint="Recent attendance entries" /><Metric title="Currently active" value={openAttendance} hint="Open clock-in records" /></Card></div>}
 
       {tab === "loyalty" && loyaltyEnabled && (() => {
         const q = loyaltySearch.trim().toLowerCase()
@@ -1026,7 +1047,7 @@ export default function BusinessOperations() {
 
             {loyaltySubTab === 'campaigns' && <div style={grid}>
               <Card title="Create campaign" subtitle="Prepare bonus-point campaigns for seasonal or retention offers."><form onSubmit={addLoyaltyCampaign} style={form}><Field label="Campaign name"><input placeholder="Weekend Double Points" value={campaignForm.name} onChange={e=>setCampaignForm({...campaignForm,name:e.target.value})}/></Field><Field label="Description"><input placeholder="Double points on Saturday and Sunday" value={campaignForm.description} onChange={e=>setCampaignForm({...campaignForm,description:e.target.value})}/></Field><Field label="Bonus points"><input type="number" min="0" value={campaignForm.bonus_points} onChange={e=>setCampaignForm({...campaignForm,bonus_points:e.target.value})}/></Field><div className="loyalty-form2" style={form2}><Field label="Starts"><input type="datetime-local" value={campaignForm.starts_at} onChange={e=>setCampaignForm({...campaignForm,starts_at:e.target.value})}/></Field><Field label="Ends"><input type="datetime-local" value={campaignForm.ends_at} onChange={e=>setCampaignForm({...campaignForm,ends_at:e.target.value})}/></Field></div><button style={primary}>＋ Create Campaign</button></form></Card>
-              <Card title={`Campaigns • ${loyaltyCampaigns.length}`} subtitle="Activate or pause campaigns."><List>{loyaltyCampaigns.map(c=><Row key={c.id}><div><b>{c.name}</b><small>{c.bonus_points} bonus pts • {c.starts_at?new Date(c.starts_at).toLocaleString('en-IN'):'No start'}{c.ends_at?` → ${new Date(c.ends_at).toLocaleString('en-IN')}`:''}</small></div><div style={loyaltyMemberActions}><span style={c.active?activeBadge:inactiveBadge}>{c.active?'Active':'Paused'}</span><button type="button" style={mini} onClick={()=>toggleLoyaltyEntity('loyalty_campaigns',c.id,c.active)}>{c.active?'Pause':'Activate'}</button></div></Row>)}</List></Card>
+              <Card title={`Campaigns • ${loyaltyCampaigns.length}`} subtitle="Activate or pause campaigns."><List>{loyaltyCampaigns.map(c=><Row key={c.id}><div><b>{c.name}</b><small>{c.bonus_points} bonus pts • {c.starts_at?formatIndiaDateTime(c.starts_at):'No start'}{c.ends_at?` → ${formatIndiaDateTime(c.ends_at)}`:''}</small></div><div style={loyaltyMemberActions}><span style={c.active?activeBadge:inactiveBadge}>{c.active?'Active':'Paused'}</span><button type="button" style={mini} onClick={()=>toggleLoyaltyEntity('loyalty_campaigns',c.id,c.active)}>{c.active?'Pause':'Activate'}</button></div></Row>)}</List></Card>
             </div>}
 
             {loyaltySubTab === 'referrals' && <div style={grid}>
@@ -1034,14 +1055,14 @@ export default function BusinessOperations() {
               <Card title={`Referral codes • ${loyaltyReferrals.length}`} subtitle="Restaurant-scoped referral history."><List>{loyaltyReferrals.map(r=>{const c=customers.find(x=>x.id===r.referrer_customer_id); return <Row key={r.id}><div><b>{r.code}</b><small>{c?.name || 'Customer'} • {r.status} • {r.points_awarded || 0} pts</small></div><span style={r.status==='qualified'?activeBadge:inactiveBadge}>{r.status}</span></Row>})}{!loyaltyReferrals.length&&<div style={muted}>No referral codes created yet.</div>}</List></Card>
             </div>}
 
-            {loyaltySubTab === 'transactions' && <div style={grid}><Card title="Points ledger" subtitle="Every earn, redeem, adjustment and expiry event."><List>{loyaltyTransactions.map(tx=>{const c=customers.find(x=>x.id===tx.customer_id); return <Row key={tx.id}><div><b>{c?.name || 'Customer'}</b><small>{tx.note || tx.transaction_type} • {new Date(tx.created_at).toLocaleString('en-IN')}</small></div><strong style={{color:Number(tx.points)>=0?'#34d399':'#fb7185'}}>{Number(tx.points)>=0?'+':''}{tx.points}</strong></Row>})}{!loyaltyTransactions.length&&<div style={muted}>No loyalty transactions yet.</div>}</List></Card><Card title="Redemption history" subtitle="Rewards claimed by customers."><List>{loyaltyRedemptions.map(r=>{const c=customers.find(x=>x.id===r.customer_id); const rw=loyaltyRewards.find(x=>x.id===r.reward_id); return <Row key={r.id}><div><b>{c?.name || 'Customer'}</b><small>{rw?.name || 'Reward'} • {new Date(r.created_at).toLocaleString('en-IN')}</small></div><strong>{r.points} pts</strong></Row>})}{!loyaltyRedemptions.length&&<div style={muted}>No rewards redeemed yet.</div>}</List></Card></div>}
+            {loyaltySubTab === 'transactions' && <div style={grid}><Card title="Points ledger" subtitle="Every earn, redeem, adjustment and expiry event."><List>{loyaltyTransactions.map(tx=>{const c=customers.find(x=>x.id===tx.customer_id); return <Row key={tx.id}><div><b>{c?.name || 'Customer'}</b><small>{tx.note || tx.transaction_type} • {formatIndiaDateTime(tx.created_at)}</small></div><strong style={{color:Number(tx.points)>=0?'#34d399':'#fb7185'}}>{Number(tx.points)>=0?'+':''}{tx.points}</strong></Row>})}{!loyaltyTransactions.length&&<div style={muted}>No loyalty transactions yet.</div>}</List></Card><Card title="Redemption history" subtitle="Rewards claimed by customers."><List>{loyaltyRedemptions.map(r=>{const c=customers.find(x=>x.id===r.customer_id); const rw=loyaltyRewards.find(x=>x.id===r.reward_id); return <Row key={r.id}><div><b>{c?.name || 'Customer'}</b><small>{rw?.name || 'Reward'} • {formatIndiaDateTime(r.created_at)}</small></div><strong>{r.points} pts</strong></Row>})}{!loyaltyRedemptions.length&&<div style={muted}>No rewards redeemed yet.</div>}</List></Card></div>}
 
             {loyaltySubTab === 'analytics' && <div style={stack}><section style={grid4}><Metric title="Repeat members" value={customers.filter(c=>Number(c.total_orders||0)>1).length} hint="More than one order"/><Metric title="Member revenue" value={money(customers.reduce((s,c)=>s+Number(c.total_spend||0),0))} hint="Tracked customer spend"/><Metric title="Avg points/member" value={activeMembers?Math.round(customers.reduce((s,c)=>s+Number(c.loyalty_points||0),0)/activeMembers):0} hint="Current balance"/><Metric title="Redemption rate" value={pointsIssued?`${Math.round(pointsRedeemed/pointsIssued*100)}%`:'0%'} hint="Redeemed / issued"/></section><div style={grid}><Card title="Tier distribution" subtitle="Current customers by points tier"><List>{[...loyaltyTiers].sort((a,b)=>Number(a.min_points)-Number(b.min_points)).map(t=>{const count=customers.filter(c=>getCustomerTier(c.loyalty_points)?.id===t.id).length; return <Row key={t.id}><div><b>{t.name}</b><small>{t.min_points}+ points</small></div><strong>{count}</strong></Row>})}</List></Card><Card title="Loyalty health" subtitle="Quick operational signals"><div style={activityList}><Activity label="Active members" value={activeMembers} tone="success"/><Activity label="Rewards available" value={loyaltyRewards.filter(r=>r.active).length} tone="info"/><Activity label="Campaigns live" value={loyaltyCampaigns.filter(c=>c.active).length} tone="warning"/><Activity label="Referral codes" value={loyaltyReferrals.length} tone="neutral"/></div></Card></div></div>}
           </div>
         )
       })()}
 
-      {tab === "feedback" && <div style={grid}><Card title="Add feedback" subtitle="Store a customer rating or comment."><form onSubmit={addFeedback} style={form}><Field label="Rating"><select value={ff.rating} onChange={e => setFf({ ...ff, rating: e.target.value })}>{[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} / 5</option>)}</select></Field><Field label="Feedback"><textarea rows="5" placeholder="What did the customer say?" value={ff.feedback} onChange={e => setFf({ ...ff, feedback: e.target.value })} /></Field><button style={primary}>Save Feedback</button></form></Card><Card title={`Reviews • ${feedback.length}`} subtitle={avgRating ? `Average ${avgRating.toFixed(1)} / 5` : "No reviews yet"}><List>{feedback.map(f => <div key={f.id} style={review}><b>{"★".repeat(Number(f.rating || 0))}{"☆".repeat(5 - Number(f.rating || 0))}</b><p>{f.feedback || "No written feedback"}</p><small>{new Date(f.created_at).toLocaleString("en-IN")}</small></div>)}</List></Card></div>}
+      {tab === "feedback" && <div style={grid}><Card title="Add feedback" subtitle="Store a customer rating or comment."><form onSubmit={addFeedback} style={form}><Field label="Rating"><select value={ff.rating} onChange={e => setFf({ ...ff, rating: e.target.value })}>{[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} / 5</option>)}</select></Field><Field label="Feedback"><textarea rows="5" placeholder="What did the customer say?" value={ff.feedback} onChange={e => setFf({ ...ff, feedback: e.target.value })} /></Field><button style={primary}>Save Feedback</button></form></Card><Card title={`Reviews • ${feedback.length}`} subtitle={avgRating ? `Average ${avgRating.toFixed(1)} / 5` : "No reviews yet"}><List>{feedback.map(f => <div key={f.id} style={review}><b>{"★".repeat(Number(f.rating || 0))}{"☆".repeat(5 - Number(f.rating || 0))}</b><p>{f.feedback || "No written feedback"}</p><small>{formatIndiaDateTime(f.created_at)}</small></div>)}</List></Card></div>}
 
       {tab === "permissions" && <Card title="Staff permissions" subtitle="Enable access per staff member. Changes are restaurant-scoped."><div style={permissionHelp}>Tip: keep Billing, Settings and Reports restricted to trusted staff. Kitchen staff normally need Kitchen and Orders only.</div><div style={{ overflowX: "auto" }}><table style={table}><thead><tr><th>Staff</th>{PERMS.map(p => <th key={p}>{p}</th>)}</tr></thead><tbody>{staff.map(s => <tr key={s.id}><td><b>{s.email || s.id.slice(0, 8)}</b><small>{s.role}</small></td>{PERMS.map(p => <td key={p}><Permission rid={rid} staff={s.id} perm={p} save={permission} /></td>)}</tr>)}</tbody></table></div></Card>}
 
@@ -1153,37 +1174,37 @@ const featureAction = {
 const featureIcon = { width: 42, height: 42, borderRadius: 12, display: "grid", placeItems: "center", background: "rgba(var(--primary-rgb),.08)" }
 const activityList = { display: "grid", gap: 10 }
 const activity = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 15px", borderRadius: 14, background: "var(--background)", border: "1px solid var(--border)" }
-const dot = { display: "inline-block", width: 8, height: 8, borderRadius: 99, marginRight: 8, background: "#94a3b8" }
-const dotTones = { info: { background: "#60a5fa" }, warning: { background: "#f59e0b" }, success: { background: "#34d399" }, neutral: { background: "#a78bfa" } }
+const dot = { display: "inline-block", width: 8, height: 8, borderRadius: 99, marginRight: 8, background: "var(--muted)" }
+const dotTones = { info: { background: "var(--info)" }, warning: { background: "var(--warning)" }, success: { background: "#34d399" }, neutral: { background: "#a78bfa" } }
 const form = { display: "grid", gap: 12 }
 const field = { display: "grid", gap: 6 }
 const muted = { color: "#a7b4c7", fontSize: 13, lineHeight: 1.6 }
-const primary = { border: 0, borderRadius: 13, padding: "12px 16px", background: "var(--primary)", color: "#07111f", fontWeight: 900, cursor: "pointer" }
-const check = { display: "flex", gap: 8, alignItems: "center", color: "#cbd5e1", fontSize: 13 }
+const primary = { border: 0, borderRadius: 13, padding: "12px 16px", background: "var(--primary)", color: "var(--background)", fontWeight: 900, cursor: "pointer" }
+const check = { display: "flex", gap: 8, alignItems: "center", color: "var(--border)", fontSize: 13 }
 const divider = { border: 0, borderTop: "1px solid rgba(255,255,255,.07)", margin: "20px 0" }
 const list = { display: "grid", gap: 9, maxHeight: 620, overflowY: "auto", paddingRight: 2 }
 const row = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "14px 15px", minHeight: 54, borderRadius: 14, background: "var(--background)", border: "1px solid var(--border)" }
 const group = { padding: 14, borderRadius: 16, background: "rgba(255,255,255,.025)", marginBottom: 10 }
 const badge = { padding: "5px 9px", borderRadius: 999, background: "rgba(16,185,129,.12)", color: "var(--primary)", fontSize: 12, fontWeight: 800 }
-const mini = { border: "1px solid rgba(255,255,255,.12)", background: "transparent", color: "#fff", borderRadius: 10, padding: "8px 10px", cursor: "pointer" }
+const mini = { border: "1px solid rgba(255,255,255,.12)", background: "transparent", color: "var(--text)", borderRadius: 10, padding: "8px 10px", cursor: "pointer" }
 const review = { padding: 14, borderRadius: 14, background: "rgba(255,255,255,.035)" }
 const workflow = { fontWeight: 900, color: "var(--primary)", fontSize: "clamp(14px,2vw,18px)", letterSpacing: 1, lineHeight: 2 }
 const bigNumber = { fontSize: 40, fontWeight: 900, color: "var(--primary)", margin: "8px 0" }
 const table = { width: "100%", borderCollapse: "collapse" }
 const callout = { display: "grid", gap: 5, marginBottom: 16, padding: 14, borderRadius: 15, background: "rgba(251,191,36,.06)", border: "1px solid rgba(251,191,36,.13)", color: "#d7dee9" }
 const permissionHelp = { marginBottom: 16, padding: 13, borderRadius: 14, background: "rgba(96,165,250,.06)", border: "1px solid rgba(96,165,250,.12)", color: "#b8c8df", fontSize: 13, lineHeight: 1.6 }
-const assignmentBtn = { display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",padding:"12px 13px",borderRadius:13,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.025)",color:"#fff",cursor:"pointer",textAlign:"left" }
+const assignmentBtn = { display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",padding:"12px 13px",borderRadius:13,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.025)",color:"var(--text)",cursor:"pointer",textAlign:"left" }
 const assignmentActive = { background:"rgba(var(--primary-rgb),.10)",borderColor:"rgba(var(--primary-rgb),.3)",color:"var(--primary)" }
-const searchInput = { width:"100%", padding:"12px 14px", marginBottom:12, borderRadius:13, border:"1px solid rgba(255,255,255,.1)", background:"rgba(255,255,255,.04)", color:"#fff", outline:"none" }
-const dangerMini = { ...mini, border:"1px solid rgba(239,68,68,.28)", color:"#fca5a5" }
+const searchInput = { width:"100%", padding:"12px 14px", marginBottom:12, borderRadius:13, border:"1px solid rgba(255,255,255,.1)", background:"rgba(255,255,255,.04)", color:"var(--text)", outline:"none" }
+const dangerMini = { ...mini, border:"1px solid rgba(239,68,68,.28)", color:"var(--danger)" }
 const primarySmall = { ...primary, padding:"9px 12px", fontSize:12 }
-const miniSelect = { ...mini, background:"#0f172a", color:"#fff", border:"1px solid rgba(255,255,255,.12)" }
+const miniSelect = { ...mini, background:"var(--surface)", color:"var(--text)", border:"1px solid rgba(255,255,255,.12)" }
 const filterBar = { display:"flex", gap:7, flexWrap:"wrap", marginBottom:12 }
-const filterBtn = (active) => ({ ...mini, textTransform:"capitalize", background: active ? "rgba(16,185,129,.12)" : "transparent", color: active ? "var(--primary)" : "#cbd5e1", borderColor: active ? "rgba(16,185,129,.3)" : "rgba(255,255,255,.1)" })
+const filterBtn = (active) => ({ ...mini, textTransform:"capitalize", background: active ? "rgba(16,185,129,.12)" : "transparent", color: active ? "var(--primary)" : "var(--border)", borderColor: active ? "rgba(16,185,129,.3)" : "rgba(255,255,255,.1)" })
 const contentAnchor = { scrollMarginTop: 18 }
 const loyaltyToolbar = { display:"flex", justifyContent:"space-between", gap:12, alignItems:"center", flexWrap:"wrap", marginBottom:12 }
 const loyaltySubTabs = { display:"flex", gap:8, overflowX:"auto", padding:"4px 2px 14px", scrollbarWidth:"thin" }
-const loyaltySubTabBtn = (active) => ({ border:`1px solid ${active ? "rgba(251,191,36,.38)" : "rgba(255,255,255,.09)"}`, background:active ? "linear-gradient(135deg,rgba(251,191,36,.16),rgba(16,185,129,.10))" : "rgba(255,255,255,.035)", color:active ? "#fbbf24" : "#cbd5e1", padding:"10px 13px", borderRadius:12, cursor:"pointer", whiteSpace:"nowrap", fontWeight:900, boxShadow:active?"0 10px 30px rgba(251,191,36,.08)":"none" })
+const loyaltySubTabBtn = (active) => ({ border:`1px solid ${active ? "rgba(251,191,36,.38)" : "rgba(255,255,255,.09)"}`, background:active ? "linear-gradient(135deg,rgba(251,191,36,.16),rgba(16,185,129,.10))" : "rgba(255,255,255,.035)", color:active ? "var(--warning)" : "var(--border)", padding:"10px 13px", borderRadius:12, cursor:"pointer", whiteSpace:"nowrap", fontWeight:900, boxShadow:active?"0 10px 30px rgba(251,191,36,.08)":"none" })
 const loyaltyHeroCard = { display:"grid", gridTemplateColumns:"1fr auto", gap:20, alignItems:"center", padding:"24px clamp(18px,3vw,30px)", borderRadius:24, background:"linear-gradient(135deg,rgba(251,191,36,.12),rgba(16,185,129,.08),rgba(15,23,42,.85))", border:"1px solid rgba(251,191,36,.18)", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }
 const loyaltyHeroTitle = { margin:"7px 0", fontSize:"clamp(24px,3vw,36px)", lineHeight:1.08, letterSpacing:"-.035em" }
 const loyaltyHeroBadge = { minWidth:190, padding:18, borderRadius:18, background:"rgba(2,6,23,.45)", border:"1px solid rgba(255,255,255,.08)", display:"grid", gap:5 }
@@ -1191,8 +1212,8 @@ const loyaltyHeroBadgeSpan = { color:"#a7b4c7", fontSize:11 }
 const loyaltyMemberActions = { display:"flex", gap:7, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }
 const tierBadge = { padding:"5px 9px", borderRadius:999, background:"rgba(167,139,250,.12)", border:"1px solid rgba(167,139,250,.2)", color:"#c4b5fd", fontSize:11, fontWeight:900 }
 const activeBadge = { padding:"5px 9px", borderRadius:999, background:"rgba(52,211,153,.10)", border:"1px solid rgba(52,211,153,.18)", color:"#6ee7b7", fontSize:11, fontWeight:900 }
-const inactiveBadge = { padding:"5px 9px", borderRadius:999, background:"rgba(148,163,184,.08)", border:"1px solid rgba(148,163,184,.14)", color:"#94a3b8", fontSize:11, fontWeight:900 }
+const inactiveBadge = { padding:"5px 9px", borderRadius:999, background:"rgba(148,163,184,.08)", border:"1px solid rgba(148,163,184,.14)", color:"var(--muted)", fontSize:11, fontWeight:900 }
 const customerWallet = { display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }
 const form2 = { display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:10 }
-const errorCallout = { display:"grid", gap:5, marginBottom:12, padding:13, borderRadius:14, background:"rgba(239,68,68,.07)", border:"1px solid rgba(239,68,68,.2)", color:"#fecaca", fontSize:12, lineHeight:1.5 }
-const toastStyle = { position: "fixed", right: 20, bottom: 20, zIndex: 999, padding: "14px 18px", borderRadius: 14, background: "#0f172a", border: "1px solid rgba(16,185,129,.35)", boxShadow: "0 20px 50px rgba(0,0,0,.4)" }
+const errorCallout = { display:"grid", gap:5, marginBottom:12, padding:13, borderRadius:14, background:"rgba(239,68,68,.07)", border:"1px solid rgba(239,68,68,.2)", color:"var(--danger)", fontSize:12, lineHeight:1.5 }
+const toastStyle = { position: "fixed", right: 20, bottom: 20, zIndex: 999, padding: "14px 18px", borderRadius: 14, background: "var(--surface)", border: "1px solid rgba(16,185,129,.35)", boxShadow: "0 20px 50px rgba(0,0,0,.4)" }

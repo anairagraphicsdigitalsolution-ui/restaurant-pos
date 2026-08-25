@@ -777,7 +777,7 @@ currentBanner===index
         ? "1px solid rgba(var(--primary-rgb),.35)"
         : "1px solid transparent",
 
-    color:"#fff",
+    color:"var(--text)",
 
     boxShadow:
       selectedCategory === cat
@@ -924,7 +924,7 @@ openFood(item)
 "linear-gradient(135deg,var(--surface),var(--surface-2))",
 border:
 "1px solid rgba(var(--primary-rgb),.35)",
-    color:"#fff",
+    color:"var(--text)",
     padding:"8px 14px",
     borderRadius:10,
     fontWeight:"bold",
@@ -951,7 +951,7 @@ border:
       {filteredMenu.length === 0 && (
         <div style={{maxWidth:1280,margin:"8px auto 0",padding:"28px 18px",textAlign:"center",color:"var(--muted)"}}>
           <div style={{fontSize:44,marginBottom:8}}>🍽️</div>
-          <b style={{color:"#fff",fontSize:17}}>No dishes found</b>
+          <b style={{color:"var(--text)",fontSize:17}}>No dishes found</b>
           <div style={{marginTop:6,fontSize:13}}>Try another category or search term.</div>
         </div>
       )}
@@ -1011,7 +1011,7 @@ border:
                   onClick={() => setRating(star)}
                   style={{
                     ...ratingStarButton,
-                    color:star <= (ratingHover||rating) ? "#fbbf24" : "rgba(255,255,255,.22)",
+                    color:star <= (ratingHover||rating) ? "var(--warning)" : "rgba(255,255,255,.22)",
                     transform:star <= (ratingHover||rating) ? "scale(1.08)" : "scale(1)"
                   }}
                 >★</button>
@@ -1195,7 +1195,7 @@ Cooking Instructions
       borderRadius:10,
       border:"1px solid rgba(255,255,255,.1)",
       background:"var(--surface-2)",
-      color:"#fff",
+      color:"var(--text)",
       resize:"none"
     }}
   />
@@ -1313,7 +1313,7 @@ color:"var(--muted)"
     borderRadius:12,
     border:"1px solid rgba(255,255,255,.1)",
     background:"var(--surface-2)",
-    color:"#fff",
+    color:"var(--text)",
     resize:"none"
   }}
 />
@@ -1438,7 +1438,7 @@ margin:"14px 0"
         style={{
           ...btn,
           marginTop:10,
-          background:"#334155"
+          background:"var(--muted)"
         }}
         onClick={() => setShowCart(false)}
       >
@@ -1968,10 +1968,10 @@ const ratingStarsWrap={display:"flex",alignItems:"center",justifyContent:"center
 const ratingStars={display:"flex",alignItems:"center",justifyContent:"center",gap:3}
 const ratingStarButton={border:0,background:"transparent",cursor:"pointer",fontSize:42,lineHeight:1,padding:"2px 4px",transition:"transform .15s ease,color .15s ease",touchAction:"manipulation"}
 const ratingSelected={color:"var(--muted)",fontSize:13,fontWeight:700}
-const ratingTextarea={width:"100%",boxSizing:"border-box",resize:"vertical",minHeight:96,borderRadius:14,border:"1px solid rgba(var(--primary-rgb),.18)",background:"rgba(0,0,0,.22)",color:"#fff",padding:"13px 14px",outline:"none",fontFamily:"inherit",marginTop:12}
+const ratingTextarea={width:"100%",boxSizing:"border-box",resize:"vertical",minHeight:96,borderRadius:14,border:"1px solid rgba(var(--primary-rgb),.18)",background:"rgba(0,0,0,.22)",color:"var(--text)",padding:"13px 14px",outline:"none",fontFamily:"inherit",marginTop:12}
 const ratingButton={marginTop:12,width:"100%",padding:"13px 16px",border:0,borderRadius:14,background:"linear-gradient(135deg,var(--primary),var(--primary-dark,var(--primary)))",color:"#111",fontWeight:900,cursor:"pointer"}
-const ratingErrorBox={marginTop:10,padding:"10px 12px",borderRadius:12,background:"rgba(127,29,29,.35)",border:"1px solid rgba(248,113,113,.25)",color:"#fecaca",fontSize:13}
-const ratingThanks={display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"26px 18px",textAlign:"center",color:"#fff"}
+const ratingErrorBox={marginTop:10,padding:"10px 12px",borderRadius:12,background:"rgba(127,29,29,.35)",border:"1px solid rgba(248,113,113,.25)",color:"var(--danger)",fontSize:13}
+const ratingThanks={display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"26px 18px",textAlign:"center",color:"var(--text)"}
 
 const layout={
 
@@ -1979,7 +1979,7 @@ background:
 
 "radial-gradient(circle at top,#172554,var(--background),#000)",
 
-color:"#fff",
+color:"var(--text)",
 
 minHeight:"100vh",
 
@@ -2125,7 +2125,7 @@ const btn={
   border:
     "1px solid rgba(var(--primary-rgb),.35)",
 
-  color:"#fff",
+  color:"var(--text)",
 
   fontWeight:"bold",
 
@@ -2179,7 +2179,7 @@ const headerActionButton = {
   borderRadius:14,
   border:"1px solid rgba(var(--primary-rgb),.28)",
   background:"linear-gradient(135deg,rgba(var(--surface-rgb),.96),rgba(var(--surface-2-rgb),.92))",
-  color:"#fff",
+  color:"var(--text)",
   display:"inline-flex",
   alignItems:"center",
   justifyContent:"center",
@@ -2227,7 +2227,7 @@ const qtyBtn = {
   borderRadius:"50%",
   background:
 "linear-gradient(135deg,var(--surface),var(--surface-2))",
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:800,
   cursor:"pointer",
   display:"inline-flex",
@@ -2243,7 +2243,7 @@ const quickBtn = {
   borderRadius:20,
   border:"1px solid rgba(var(--primary-rgb),.3)",
   background:"var(--surface)",
-  color:"#fff",
+  color:"var(--text)",
   fontSize:12,
   cursor:"pointer"
 }
@@ -2257,7 +2257,7 @@ const deleteBtn = {
   border:"1px solid rgba(255,255,255,.12)",
   borderRadius:"50%",
   background:"var(--danger)",
-  color:"#fff",
+  color:"var(--text)",
   cursor:"pointer",
   fontSize:18,
   lineHeight:1,
@@ -2285,7 +2285,7 @@ background:"var(--surface-2)"
 
 const categoryBtn = {
   border:"none",
-  color:"#fff",
+  color:"var(--text)",
   padding:"10px 18px",
   borderRadius:30,
   whiteSpace:"nowrap",
@@ -2311,7 +2311,7 @@ const viewMoreBtn = {
   border:"none",
   borderRadius:12,
   background:"rgba(255,255,255,0.08)",
-  color:"#fff",
+  color:"var(--text)",
   cursor:"pointer"
 }
 
@@ -2361,7 +2361,7 @@ outline:"none",
 
 background:"transparent",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:15
 }
@@ -2616,7 +2616,7 @@ fontWeight:"bold",
 
 cursor:"pointer",
 
-color:"#fff",
+color:"var(--text)",
 
 zIndex:999
 }
@@ -2706,7 +2706,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 cursor:"pointer",
 
@@ -2728,7 +2728,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 resize:"vertical",
 
@@ -2755,7 +2755,7 @@ const modalButton={
   border:
     "1px solid rgba(var(--primary-rgb),.35)",
 
-  color:"#fff",
+  color:"var(--text)",
 
   fontWeight:"bold",
 
@@ -2831,7 +2831,7 @@ background:"rgba(var(--surface-2-rgb),.65)",
 
 backdropFilter:"blur(15px)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:28,
 
@@ -2867,7 +2867,7 @@ background:"rgba(0,0,0,.45)",
 
 backdropFilter:"blur(15px)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:28,
 
@@ -2898,7 +2898,7 @@ background:"rgba(var(--primary-rgb),.08)",
 
 border:"1px solid rgba(var(--primary-rgb),.18)",
 
-color:"#f8fafc",
+color:"var(--surface-2)",
 
 fontWeight:700,
 

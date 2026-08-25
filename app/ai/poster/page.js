@@ -181,7 +181,7 @@ const container = {
   padding:20,
   background:"linear-gradient(135deg,var(--background),var(--surface-2))",
   minHeight:"100vh",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const title = {
@@ -206,7 +206,7 @@ const input = {
   borderRadius:12,
   border:"1px solid rgba(255,255,255,0.2)",
   background:"rgba(255,255,255,0.05)",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const btnWrap = {
@@ -220,7 +220,7 @@ const btnPrimary = {
   background:"linear-gradient(135deg,var(--info),#4f46e5)",
   border:"none",
   borderRadius:10,
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const btnGreen = {
@@ -228,15 +228,15 @@ const btnGreen = {
   background:"var(--success)",
   border:"none",
   borderRadius:10,
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const btnGray = {
   padding:10,
-  background:"#334155",
+  background:"var(--muted)",
   border:"none",
   borderRadius:10,
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const resultBox = {
@@ -259,7 +259,7 @@ const overlayText = {
   left:20,
   fontSize:28,
   fontWeight:"700",
-  color:"#fff",
+  color:"var(--text)",
   textShadow:"0 5px 15px rgba(0,0,0,0.7)"
 }
 
@@ -295,5 +295,5 @@ const btnMini = {
   borderRadius:6,
   background:"var(--info)",
   border:"none",
-  color:"#fff"
+  color:"var(--text)"
 }

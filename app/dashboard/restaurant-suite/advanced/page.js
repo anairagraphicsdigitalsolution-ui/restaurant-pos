@@ -755,14 +755,14 @@ export default function AdvancedRestaurantSuite() {
           min-height: 100vh;
           padding: 24px;
           background: var(--background, #050a08);
-          color: var(--text, #f8fafc);
+          color: var(--text, var(--surface-2));
         }
 
         .hero, .panel, .stat {
           background: var(--surface, #0d1712);
           border: 1px solid var(--border, rgba(255,255,255,.1));
           border-radius: var(--radius, 18px);
-          color: var(--text, #f8fafc);
+          color: var(--text, var(--surface-2));
         }
 
         .hero {
@@ -774,7 +774,7 @@ export default function AdvancedRestaurantSuite() {
         }
 
         .eyebrow {
-          color: var(--primary, #d9ad55);
+          color: var(--primary, var(--primary));
           font-size: 11px;
           font-weight: 900;
           letter-spacing: .16em;
@@ -808,19 +808,19 @@ export default function AdvancedRestaurantSuite() {
           border-radius: 10px;
           padding: 10px 13px;
           background: var(--surface-2, #14231b);
-          color: var(--text, #f8fafc);
+          color: var(--text, var(--surface-2));
           font-weight: 800;
         }
 
         button:hover {
-          border-color: var(--primary, #d9ad55);
+          border-color: var(--primary, var(--primary));
           transform: translateY(-1px);
         }
 
         button.active, .form button {
-          background: var(--primary, #d9ad55);
+          background: var(--primary, var(--primary));
           color: var(--primary-foreground, #07110a);
-          border-color: var(--primary, #d9ad55);
+          border-color: var(--primary, var(--primary));
         }
 
         button.secondary {
@@ -841,7 +841,7 @@ export default function AdvancedRestaurantSuite() {
         }
 
         .busy {
-          color: var(--primary, #d9ad55);
+          color: var(--primary, var(--primary));
         }
 
         .grid {
@@ -879,12 +879,12 @@ export default function AdvancedRestaurantSuite() {
           border-radius: 10px;
           border: 1px solid var(--border, rgba(255,255,255,.1));
           background: var(--background, #050a08);
-          color: var(--text, #f8fafc);
+          color: var(--text, var(--surface-2));
           outline: none;
         }
 
         input:focus, select:focus, textarea:focus {
-          border-color: var(--primary, #d9ad55);
+          border-color: var(--primary, var(--primary));
           box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 217,173,85), .12);
         }
 
@@ -898,7 +898,7 @@ export default function AdvancedRestaurantSuite() {
         .check input {
           width: 18px;
           height: 18px;
-          accent-color: var(--primary, #d9ad55);
+          accent-color: var(--primary, var(--primary));
         }
 
         .row {
@@ -938,7 +938,7 @@ export default function AdvancedRestaurantSuite() {
 
         .tableCard strong {
           font-size: 28px;
-          color: var(--primary, #d9ad55);
+          color: var(--primary, var(--primary));
         }
 
         .tableCard small {
@@ -946,17 +946,17 @@ export default function AdvancedRestaurantSuite() {
         }
 
         .tableCard.available {
-          border-color: color-mix(in srgb, var(--success, #4ade80) 40%, var(--border));
+          border-color: color-mix(in srgb, var(--success, var(--success)) 40%, var(--border));
         }
 
         .tableCard.occupied {
-          border-color: color-mix(in srgb, var(--danger, #ef4444) 50%, var(--border));
+          border-color: color-mix(in srgb, var(--danger, var(--danger)) 50%, var(--border));
         }
 
         .link {
           display: block;
           margin-top: 12px;
-          color: var(--primary, #d9ad55);
+          color: var(--primary, var(--primary));
           font-weight: 800;
           text-decoration: none;
         }

@@ -39,7 +39,7 @@ function darken(hex, amount = 0.35) {
 }
 
 function lighten(hex, amount = 0.35) {
-  return mix(hex, "#ffffff", amount)
+  return mix(hex, "var(--text)", amount)
 }
 
 function makeTheme(id, name, description, primary, accent, darkBase, lightMode = false) {
@@ -51,18 +51,18 @@ function makeTheme(id, name, description, primary, accent, darkBase, lightMode =
       name,
       description,
       primary: darkPrimary,
-      secondary: "#ffffff",
+      secondary: "var(--text)",
       accent,
       background: "#f5f7f4",
-      surface: "#ffffff",
-      surface2: mix("#ffffff", accent, 0.07),
+      surface: "var(--text)",
+      surface2: mix("var(--text)", accent, 0.07),
       text: "#172019",
       muted: "#526158",
-      border: mix(darkPrimary, "#ffffff", 0.58),
-      success: "#15803d",
+      border: mix(darkPrimary, "var(--text)", 0.58),
+      success: "var(--success)",
       danger: "#b91c1c",
       warning: "#a16207",
-      info: "#1d4ed8",
+      info: "var(--info)",
       radius: "16px",
       mode: "light",
     }
@@ -76,15 +76,15 @@ function makeTheme(id, name, description, primary, accent, darkBase, lightMode =
     secondary: darken(darkBase, 0.08),
     accent,
     background: darken(darkBase, 0.35),
-    surface: mix(darkBase, "#ffffff", 0.04),
-    surface2: mix(darkBase, "#ffffff", 0.09),
-    text: "#fffaf0",
+    surface: mix(darkBase, "var(--text)", 0.04),
+    surface2: mix(darkBase, "var(--text)", 0.09),
+    text: "var(--text)af0",
     muted: lighten(darkBase, 0.65),
     border: primary,
-    success: "#15803d",
-    danger: "#ef4444",
-    warning: "#f59e0b",
-    info: "#60a5fa",
+    success: "var(--success)",
+    danger: "var(--danger)",
+    warning: "var(--warning)",
+    info: "var(--info)",
     radius: "20px",
     mode: "dark",
   }

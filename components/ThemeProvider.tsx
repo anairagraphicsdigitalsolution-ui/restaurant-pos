@@ -31,33 +31,33 @@ export type ThemeDefinition = {
 }
 
 /**
- * The default workspace is intentionally a clean SaaS-light theme.
- * The original dark POS look remains available as a preset.
+ * The original POS workspace is intentionally the default.
+ * White/light themes are optional presets and never replace the default.
  */
 export const DEFAULT_THEME: ThemeDefinition = {
   id: "classic-default",
-  name: "Anaira SaaS White",
-  description: "Clean professional SaaS workspace with white surfaces, graphite text and emerald actions.",
-  primary: "#047857",
-  secondary: "#0f172a",
-  accent: "#059669",
-  background: "#f6f8f7",
-  surface: "#ffffff",
-  surface2: "#f0f5f2",
-  text: "#101828",
-  muted: "#667085",
-  border: "#d0d5dd",
-  success: "#15803d",
-  danger: "#dc2626",
-  warning: "#b45309",
-  info: "#2563eb",
-  radius: "14px",
-  mode: "light",
-  fontFamily: "Inter, system-ui, sans-serif",
-  headingFont: "Inter, system-ui, sans-serif",
-  headingWeight: 750,
-  shadow: "0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.05)",
-  buttonText: "#ffffff",
+  name: "Classic POS — Emerald Gold",
+  description: "The original premium dark POS workspace with emerald depth, warm gold actions and high-contrast typography.",
+  primary: "#e9a72d",
+  secondary: "#071b12",
+  accent: "#4a9b3c",
+  background: "#020a06",
+  surface: "#0b2118",
+  surface2: "#102b20",
+  text: "#fffaf0",
+  muted: "#b7c7bd",
+  border: "#e9a72d",
+  success: "#4ade80",
+  danger: "#ef4444",
+  warning: "#f59e0b",
+  info: "#60a5fa",
+  radius: "20px",
+  mode: "dark",
+  fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+  headingFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+  headingWeight: 800,
+  shadow: "0 18px 55px rgba(0,0,0,.28), 0 2px 10px rgba(0,0,0,.18)",
+  buttonText: "#08110b",
 }
 
 export const BRAND_THEMES: ThemeDefinition[] = [
@@ -357,8 +357,25 @@ export const BRAND_THEMES: ThemeDefinition[] = [
     mode: "light",
   },
 
-
 ]
+
+// Keep every preset visually consistent at a production/SaaS level while
+// preserving each theme's identity. Missing presentation tokens inherit a
+// safe premium baseline; explicit theme colors are never overwritten.
+export const PRO_BRAND_THEMES: ThemeDefinition[] = BRAND_THEMES.map((theme) => ({
+  ...theme,
+  fontFamily: theme.fontFamily || "Inter, ui-sans-serif, system-ui, sans-serif",
+  headingFont: theme.headingFont || "Inter, ui-sans-serif, system-ui, sans-serif",
+  headingWeight: theme.headingWeight || 800,
+  shadow: theme.shadow || (theme.mode === "light"
+    ? "0 12px 34px rgba(15,23,42,.08), 0 2px 8px rgba(15,23,42,.04)"
+    : "0 18px 55px rgba(0,0,0,.26), 0 2px 10px rgba(0,0,0,.16)"),
+  buttonText: theme.buttonText || (theme.mode === "light" ? "#ffffff" : "#08110b"),
+}))
+
+// BRAND_THEMES is kept as the public catalog for existing consumers.
+// The catalog itself now contains the premium presentation tokens.
+BRAND_THEMES.splice(0, BRAND_THEMES.length, ...PRO_BRAND_THEMES)
 
 type ThemeContextValue = {
   theme: ThemeDefinition
@@ -417,6 +434,9 @@ export function applyTheme(theme: ThemeDefinition) {
   root.dataset.theme = theme.id
   root.dataset.themeMode = theme.mode || "dark"
   root.style.colorScheme = theme.mode === "light" ? "light" : "dark"
+  root.style.setProperty("--theme-transition", "background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease")
+  root.style.setProperty("--button-text", theme.buttonText || (theme.mode === "light" ? "#ffffff" : "#08110b"))
+  root.style.fontFamily = theme.fontFamily || "Inter, ui-sans-serif, system-ui, sans-serif"
 }
 
 function mergeThemeList(customThemes: unknown): ThemeDefinition[] {
@@ -526,7 +546,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (error) {
       console.error("THEME SAVE ERROR:", error)
     }
-  }, [restaurantId])
+  }, [restaurantId, role])
 
   const setTheme = useCallback(async (themeId: string, persistChanges = true) => {
     const next = availableThemes.find((item) => item.id === themeId)

@@ -198,7 +198,7 @@ export default function AIImagePage() {
 
 /* UI */
 
-const container = { padding:20, background:"var(--background)", minHeight:"100vh", color:"#fff" }
+const container = { padding:20, background:"var(--background)", minHeight:"100vh", color:"var(--text)" }
 const title = { fontSize:30, marginBottom:20 }
 
 const card = {
@@ -215,14 +215,14 @@ const input = {
   borderRadius:10,
   border:"1px solid rgba(255,255,255,0.2)",
   background:"transparent",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const btnWrap = { display:"flex", gap:10 }
 
-const btnPrimary = { padding:10, background:"var(--info)", border:"none", borderRadius:10, color:"#fff" }
-const btnGreen = { padding:10, background:"var(--success)", border:"none", borderRadius:10, color:"#fff" }
-const btnGray = { padding:10, background:"#334155", border:"none", borderRadius:10, color:"#fff" }
+const btnPrimary = { padding:10, background:"var(--info)", border:"none", borderRadius:10, color:"var(--text)" }
+const btnGreen = { padding:10, background:"var(--success)", border:"none", borderRadius:10, color:"var(--text)" }
+const btnGray = { padding:10, background:"var(--muted)", border:"none", borderRadius:10, color:"var(--text)" }
 
 const resultBox = { marginTop:20 }
 const img = { width:"100%", borderRadius:12 }
@@ -246,4 +246,4 @@ const historyGrid = { display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:1
 const historyCard = { background:"#111", padding:10 }
 const historyImg = { width:"100%" }
 
-const btnMini = { padding:5, background:"var(--info)", border:"none", color:"#fff" }
+const btnMini = { padding:5, background:"var(--info)", border:"none", color:"var(--text)" }

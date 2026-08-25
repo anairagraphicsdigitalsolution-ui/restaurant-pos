@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -106,9 +107,9 @@ export default function TablesPage() {
       </div>
 
       <div style={styles.legend}>
-        <span><i style={{...styles.dot,background:"#22c55e"}} /> Available</span>
-        <span><i style={{...styles.dot,background:"#ef4444"}} /> Occupied</span>
-        <span><i style={{...styles.dot,background:"#f59e0b"}} /> Ready</span>
+        <span><i style={{...styles.dot,background:"var(--success)"}} /> Available</span>
+        <span><i style={{...styles.dot,background:"var(--danger)"}} /> Occupied</span>
+        <span><i style={{...styles.dot,background:"var(--warning)"}} /> Ready</span>
         <span><i style={{...styles.dot,background:"#8b5cf6"}} /> Billing</span>
       </div>
 
@@ -136,7 +137,7 @@ export default function TablesPage() {
                   <div style={styles.orderBox}>
                     <div><b>Order #{String(status.order.id).slice(0,6)}</b></div>
                     <div style={styles.orderMeta}>{status.order.status} • ₹{Number(status.order.total_amount || 0).toFixed(0)}</div>
-                    <div style={styles.orderMeta}>{new Date(status.order.created_at).toLocaleTimeString()}</div>
+                    <div style={styles.orderMeta}>{formatIndiaTime(status.order.created_at)}</div>
                   </div>
                 ) : (
                   <div style={styles.availableBox}>Ready for the next guest</div>
@@ -161,16 +162,16 @@ const styles = {
   page: {
     minHeight:"100vh",
     padding:"28px",
-    color:"#fff",
-    background:"linear-gradient(180deg,#020617,#07111f)",
+    color:"var(--text)",
+    background:"linear-gradient(180deg,var(--background),var(--background))",
     fontFamily:"Inter,system-ui,sans-serif"
   },
   hero:{display:"flex",justifyContent:"space-between",alignItems:"end",gap:20,marginBottom:22,flexWrap:"wrap"},
-  eyebrow:{color:"#fbbf24",fontSize:12,fontWeight:900,letterSpacing:2},
+  eyebrow:{color:"var(--warning)",fontSize:12,fontWeight:900,letterSpacing:2},
   title:{fontSize:38,margin:"8px 0"},
-  sub:{color:"#94a3b8",margin:0},
-  refresh:{border:"1px solid rgba(251,191,36,.3)",background:"rgba(251,191,36,.08)",color:"#fbbf24",padding:"11px 15px",borderRadius:11,fontWeight:800,cursor:"pointer"},
-  legend:{display:"flex",gap:18,flexWrap:"wrap",color:"#94a3b8",fontSize:12,marginBottom:20},
+  sub:{color:"var(--muted)",margin:0},
+  refresh:{border:"1px solid rgba(251,191,36,.3)",background:"rgba(251,191,36,.08)",color:"var(--warning)",padding:"11px 15px",borderRadius:11,fontWeight:800,cursor:"pointer"},
+  legend:{display:"flex",gap:18,flexWrap:"wrap",color:"var(--muted)",fontSize:12,marginBottom:20},
   dot:{width:9,height:9,borderRadius:"50%",display:"inline-block",marginRight:6},
   grid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:16},
   card:{padding:18,borderRadius:20,background:"#0d1726",border:"1px solid #1e293b",minHeight:220,boxShadow:"0 18px 45px rgba(0,0,0,.22)"},
@@ -179,13 +180,13 @@ const styles = {
   ready:{borderColor:"rgba(245,158,11,.35)"},
   billing:{borderColor:"rgba(139,92,246,.35)"},
   cardTop:{display:"flex",justifyContent:"space-between",gap:12},
-  small:{fontSize:9,color:"#64748b",letterSpacing:1.5},
+  small:{fontSize:9,color:"var(--muted)",letterSpacing:1.5},
   tableNo:{fontSize:30,margin:"4px 0 0"},
-  badge:{fontSize:10,fontWeight:900,color:"#f8fafc",padding:"6px 8px",borderRadius:999,background:"rgba(255,255,255,.08)",height:"fit-content"},
-  seats:{marginTop:15,color:"#94a3b8",fontSize:12},
+  badge:{fontSize:10,fontWeight:900,color:"var(--surface-2)",padding:"6px 8px",borderRadius:999,background:"rgba(255,255,255,.08)",height:"fit-content"},
+  seats:{marginTop:15,color:"var(--muted)",fontSize:12},
   orderBox:{marginTop:16,padding:12,borderRadius:12,background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)"},
-  orderMeta:{fontSize:10,color:"#94a3b8",marginTop:5},
-  availableBox:{marginTop:16,padding:12,borderRadius:12,background:"rgba(34,197,94,.06)",color:"#86efac",fontSize:11},
-  qrButton:{width:"100%",marginTop:13,border:0,borderRadius:10,padding:10,background:"linear-gradient(135deg,#fbbf24,#f59e0b)",color:"#111827",fontWeight:900,cursor:"pointer"},
-  empty:{padding:40,textAlign:"center",color:"#94a3b8",border:"1px dashed #334155",borderRadius:18}
+  orderMeta:{fontSize:10,color:"var(--muted)",marginTop:5},
+  availableBox:{marginTop:16,padding:12,borderRadius:12,background:"rgba(34,197,94,.06)",color:"var(--success)",fontSize:11},
+  qrButton:{width:"100%",marginTop:13,border:0,borderRadius:10,padding:10,background:"linear-gradient(135deg,var(--warning),var(--warning))",color:"var(--surface)",fontWeight:900,cursor:"pointer"},
+  empty:{padding:40,textAlign:"center",color:"var(--muted)",border:"1px dashed var(--muted)",borderRadius:18}
 }

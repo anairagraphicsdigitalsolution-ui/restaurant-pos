@@ -112,8 +112,8 @@ export default function ContactPage() {
 
         body {
           margin: 0;
-          background: #020617;
-          color: #fff;
+          background: var(--background);
+          color: var(--text);
           font-family:
             Inter,
             ui-sans-serif,
@@ -140,9 +140,9 @@ export default function ContactPage() {
             ),
             linear-gradient(
               180deg,
-              #020617 0%,
-              #07111f 50%,
-              #020617 100%
+              var(--background) 0%,
+              var(--background) 50%,
+              var(--background) 100%
             );
         }
 
@@ -176,7 +176,7 @@ export default function ContactPage() {
           align-items: center;
           gap: 11px;
           text-decoration: none;
-          color: #fff;
+          color: var(--text);
         }
 
         .brand img {
@@ -203,7 +203,7 @@ export default function ContactPage() {
         .brand small {
           display: block;
           margin-top: 4px;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 9px;
           font-family: Inter, sans-serif;
           font-weight: 600;
@@ -216,7 +216,7 @@ export default function ContactPage() {
         }
 
         .navLinks a {
-          color: #cbd5e1;
+          color: var(--border);
           text-decoration: none;
           font-size: 13px;
           font-weight: 700;
@@ -224,11 +224,11 @@ export default function ContactPage() {
         }
 
         .navLinks a:hover {
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .navContact {
-          color: #fbbf24 !important;
+          color: var(--warning) !important;
           padding: 9px 14px;
           border: 1px solid rgba(251,191,36,.35);
           border-radius: 10px;
@@ -240,20 +240,20 @@ export default function ContactPage() {
         }
 
         .navBtn {
-          color: #111827 !important;
+          color: var(--surface) !important;
           padding: 11px 16px;
           border-radius: 10px;
           background: linear-gradient(
             135deg,
-            #fbbf24,
-            #f59e0b
+            var(--warning),
+            var(--warning)
           );
         }
 
         .mobileToggle {
           display: none;
           background: transparent;
-          color: #fff;
+          color: var(--text);
           border: 1px solid rgba(255,255,255,.12);
           border-radius: 10px;
           padding: 8px 11px;
@@ -297,12 +297,12 @@ export default function ContactPage() {
         }
 
         .accent {
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .heroText {
           max-width: 660px;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 17px;
           line-height: 1.75;
           margin: 0;
@@ -333,23 +333,23 @@ export default function ContactPage() {
         }
 
         .primary {
-          color: #111827;
+          color: var(--surface);
           background: linear-gradient(
             135deg,
-            #fbbf24,
-            #f59e0b
+            var(--warning),
+            var(--warning)
           );
         }
 
         .secondary {
-          color: #fff;
+          color: var(--text);
           background: rgba(255,255,255,.05);
           border: 1px solid rgba(255,255,255,.12);
         }
 
         .trust {
           margin-top: 22px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 12px;
         }
 
@@ -376,7 +376,7 @@ export default function ContactPage() {
 
         .contactCard > p {
           margin: 0 0 20px;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 13px;
           line-height: 1.7;
         }
@@ -408,14 +408,14 @@ export default function ContactPage() {
 
         .contactItem span,
         .contactItem a {
-          color: #cbd5e1;
+          color: var(--border);
           font-size: 13px;
           line-height: 1.5;
           text-decoration: none;
         }
 
         .contactItem a:hover {
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .location {
@@ -433,7 +433,7 @@ export default function ContactPage() {
 
         .location p {
           margin: 6px 0 0;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 11px;
           line-height: 1.6;
         }
@@ -451,7 +451,7 @@ export default function ContactPage() {
 
         .head h2 {
           margin: 12px 0;
-          color: #fff;
+          color: var(--text);
           font-size: clamp(30px,4vw,46px);
           line-height: 1.05;
           letter-spacing: -.045em;
@@ -459,7 +459,7 @@ export default function ContactPage() {
 
         .head p {
           margin: 0;
-          color: #94a3b8;
+          color: var(--muted);
           line-height: 1.7;
           font-size: 14px;
         }
@@ -498,13 +498,13 @@ export default function ContactPage() {
 
         .product h3 {
           margin: 14px 0 8px;
-          color: #fff;
+          color: var(--text);
           font-size: 15px;
         }
 
         .product p {
           margin: 0;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 12px;
           line-height: 1.65;
         }
@@ -552,12 +552,12 @@ export default function ContactPage() {
         .appBrand small {
           display: block;
           margin-top: 2px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 9px;
         }
 
         .appStatus {
-          color: #4ade80;
+          color: var(--success);
           font-size: 10px;
           font-weight: 800;
         }
@@ -585,13 +585,13 @@ export default function ContactPage() {
         .sideItem {
           padding: 9px 10px;
           border-radius: 9px;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 11px;
           margin-bottom: 3px;
         }
 
         .sideItem.active {
-          color: #fbbf24;
+          color: var(--warning);
           background: rgba(251,191,36,.10);
         }
 
@@ -614,7 +614,7 @@ export default function ContactPage() {
 
         .appContentHead p {
           margin: 0;
-          color: #64748b;
+          color: var(--muted);
           font-size: 11px;
         }
 
@@ -623,7 +623,7 @@ export default function ContactPage() {
           border-radius: 8px;
           background: #111c2c;
           border: 1px solid #243244;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 10px;
         }
 
@@ -643,19 +643,19 @@ export default function ContactPage() {
 
         .statBox span {
           display: block;
-          color: #64748b;
+          color: var(--muted);
           font-size: 9px;
         }
 
         .statBox b {
           display: block;
           margin: 7px 0 4px;
-          color: #fff;
+          color: var(--text);
           font-size: 20px;
         }
 
         .statBox em {
-          color: #4ade80;
+          color: var(--success);
           font-size: 8px;
           font-style: normal;
         }
@@ -683,12 +683,12 @@ export default function ContactPage() {
         }
 
         .panelHead strong {
-          color: #fff;
+          color: var(--text);
           font-size: 11px;
         }
 
         .panelHead span {
-          color: #64748b;
+          color: var(--muted);
           font-size: 9px;
         }
 
@@ -707,18 +707,18 @@ export default function ContactPage() {
         }
 
         .orderRow b {
-          color: #fff;
+          color: var(--text);
           font-size: 10px;
         }
 
         .orderRow small {
           margin-top: 3px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 8px;
         }
 
         .orderRow strong {
-          color: #fff;
+          color: var(--text);
           font-size: 10px;
         }
 
@@ -730,17 +730,17 @@ export default function ContactPage() {
         }
 
         .preparing {
-          color: #fbbf24;
+          color: var(--warning);
           background: rgba(251,191,36,.10);
         }
 
         .newOrder {
-          color: #60a5fa;
+          color: var(--info);
           background: rgba(96,165,250,.10);
         }
 
         .ready {
-          color: #4ade80;
+          color: var(--success);
           background: rgba(74,222,128,.10);
         }
 
@@ -755,12 +755,12 @@ export default function ContactPage() {
           justify-content: space-between;
           padding: 14px 15px;
           border-bottom: 1px solid rgba(255,255,255,.045);
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 10px;
         }
 
         .snapshot b {
-          color: #fff;
+          color: var(--text);
           font-size: 11px;
         }
 
@@ -795,14 +795,14 @@ export default function ContactPage() {
 
         .info h2 {
           margin: 14px 0 10px;
-          color: #fff;
+          color: var(--text);
           font-size: 31px;
           line-height: 1.1;
           letter-spacing: -.035em;
         }
 
         .info > p {
-          color: #94a3b8;
+          color: var(--muted);
           line-height: 1.75;
           font-size: 13px;
         }
@@ -816,19 +816,19 @@ export default function ContactPage() {
         .check {
           display: flex;
           gap: 9px;
-          color: #cbd5e1;
+          color: var(--border);
           font-size: 12px;
         }
 
         .check b {
-          color: #4ade80;
+          color: var(--success);
         }
 
         .formCard {
           padding: 30px;
           border-radius: 22px;
-          background: #fff;
-          color: #0f172a;
+          background: var(--text);
+          color: var(--surface);
           border: 1px solid #e2e8f0;
           box-shadow: 0 20px 55px rgba(0,0,0,.15);
         }
@@ -840,7 +840,7 @@ export default function ContactPage() {
         }
 
         .formCard > p {
-          color: #64748b;
+          color: var(--muted);
           font-size: 13px;
           margin: 0 0 20px;
         }
@@ -854,7 +854,7 @@ export default function ContactPage() {
         label {
           display: grid;
           gap: 6px;
-          color: #334155;
+          color: var(--muted);
           font-size: 11px;
           font-weight: 800;
         }
@@ -863,11 +863,11 @@ export default function ContactPage() {
         textarea,
         select {
           width: 100%;
-          border: 1px solid #cbd5e1;
+          border: 1px solid var(--border);
           border-radius: 10px;
           padding: 12px;
-          background: #fff;
-          color: #0f172a;
+          background: var(--text);
+          color: var(--surface);
           font: inherit;
           font-size: 13px;
           outline: none;
@@ -898,10 +898,10 @@ export default function ContactPage() {
           background:
             linear-gradient(
               135deg,
-              #fbbf24,
-              #f59e0b
+              var(--warning),
+              var(--warning)
             );
-          color: #111827;
+          color: var(--surface);
           font-weight: 900;
           cursor: pointer;
         }
@@ -921,7 +921,7 @@ export default function ContactPage() {
         .footer {
           padding: 28px 0 35px;
           border-top: 1px solid rgba(255,255,255,.07);
-          color: #64748b;
+          color: var(--muted);
           font-size: 12px;
         }
 

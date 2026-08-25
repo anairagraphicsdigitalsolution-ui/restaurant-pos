@@ -441,7 +441,7 @@ function QRCard({ type, label, url, restaurant, canPrint = false, config = {} })
       canvas.width = image.width * scale
       canvas.height = image.height * scale
       const ctx = canvas.getContext("2d")
-      ctx.fillStyle = "#ffffff"
+      ctx.fillStyle = "var(--text)"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(objectUrl)
@@ -488,7 +488,7 @@ function QRCard({ type, label, url, restaurant, canPrint = false, config = {} })
 <style>
   @page { size: A4 portrait; margin: 12mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #fff; font-family: Arial, sans-serif; color: #122017; }
+  body { margin: 0; background: var(--text); font-family: Arial, sans-serif; color: var(--surface); }
   .qr-card { width: 90mm; margin: 20mm auto; border: 1px solid #cbd5cf; border-radius: 5mm; padding: 6mm; text-align: center; }
   .qr-card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .qr-pill { font-size:10px; letter-spacing:1px; font-weight:800; color:#8b5d00; }
@@ -496,9 +496,9 @@ function QRCard({ type, label, url, restaurant, canPrint = false, config = {} })
   .qr-card-logo-line { display:flex; justify-content:center; align-items:center; gap:8px; min-height:36px; }
   .qr-card-logo-line img { width:30px; height:30px; object-fit:contain; border-radius:7px; }
   .qr-label { font-size:18px; }
-  .qr-code-wrap { display:flex; justify-content:center; padding:12px; margin:12px auto 10px; background:#fff; border-radius:12px; width:fit-content; }
+  .qr-code-wrap { display:flex; justify-content:center; padding:12px; margin:12px auto 10px; background:var(--text); border-radius:12px; width:fit-content; }
   .qr-code-wrap svg { width:190px; height:190px; }
-  .scan-title { margin:4px 0; font-size:18px; color:#0a1d15; }
+  .scan-title { margin:4px 0; font-size:18px; color:var(--background); }
   .scan-text { margin:0 auto; max-width:250px; font-size:11px; line-height:1.45; color:#5b6b60; }
   .card-divider { height:1px; background:#e5ebe6; margin:12px 0 9px; }
   .card-branding { display:flex; justify-content:center; align-items:center; gap:6px; font-size:9px; color:#738177; font-weight:700; }
@@ -539,7 +539,7 @@ function QRCard({ type, label, url, restaurant, canPrint = false, config = {} })
 
       <div ref={qrRef} className="qr-code-wrap" style={qrCodeWrap}>
         {url ? (
-          <QRCode value={url} size={Math.max(96,Math.min(320,Math.round(Number(config.qr_size_mm||35)*4.2)))} bgColor="#ffffff" fgColor="#0a1d15" />
+          <QRCode value={url} size={Math.max(96,Math.min(320,Math.round(Number(config.qr_size_mm||35)*4.2)))} bgColor="var(--text)" fgColor="var(--background)" />
         ) : (
           <div style={invalidQr}>Restaurant slug missing</div>
         )}
@@ -587,11 +587,11 @@ const select = { minWidth: 220, padding: "12px 14px", borderRadius: 12, border: 
 const primaryButton = { padding: "12px 18px", border: 0, borderRadius: 12, background: "var(--primary)", color: "#111", fontWeight: 800, cursor: "pointer" }
 const secondaryButton = { padding: "12px 18px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--surface)", color: "var(--text)", fontWeight: 700, cursor: "pointer" }
 const infoBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(var(--primary-rgb),.08)", border: "1px solid rgba(var(--primary-rgb),.22)", color: "var(--text)" }
-const errorBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(239,68,68,.12)", border: "1px solid rgba(239,68,68,.35)", color: "#fca5a5" }
+const errorBox = { padding: 14, marginBottom: 18, borderRadius: 14, background: "rgba(239,68,68,.12)", border: "1px solid rgba(239,68,68,.35)", color: "var(--danger)" }
 const emptyState = { padding: 50, borderRadius: 24, textAlign: "center", background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }
 const summaryCard = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, marginBottom: 24, padding: 22, borderRadius: 24, background: "linear-gradient(135deg,var(--surface),var(--surface-2))", border: "1px solid rgba(var(--primary-rgb),.2)" }
 const restaurantIdentity = { display: "flex", alignItems: "center", gap: 15, minWidth: 0 }
-const restaurantLogoWrap = { width: 64, height: 64, borderRadius: 16, display: "grid", placeItems: "center", background: "#fff", overflow: "hidden", flex: "0 0 auto" }
+const restaurantLogoWrap = { width: 64, height: 64, borderRadius: 16, display: "grid", placeItems: "center", background: "var(--text)", overflow: "hidden", flex: "0 0 auto" }
 const restaurantLogo = { width: "100%", height: "100%", objectFit: "contain" }
 const restaurantLogoFallback = { fontSize: 28 }
 const restaurantName = { margin: "4px 0", fontSize: 24 }
@@ -601,8 +601,8 @@ const countBox = { padding: "10px 14px", borderRadius: 14, background: "rgba(var
 const printSheet = { background: "var(--surface)", borderRadius: 28, padding: 28, border: "1px solid rgba(var(--primary-rgb),.16)" }
 const printHeader = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, paddingBottom: 22, marginBottom: 24, borderBottom: "2px solid rgba(var(--primary-rgb),.22)" }
 const printHeaderBrand = { display: "flex", alignItems: "center", gap: 14 }
-const printRestaurantLogo = { width: 68, height: 68, objectFit: "contain", borderRadius: 14, background: "#fff" }
-const printRestaurantFallback = { width: 68, height: 68, display: "grid", placeItems: "center", borderRadius: 14, background: "#fff", fontSize: 30 }
+const printRestaurantLogo = { width: 68, height: 68, objectFit: "contain", borderRadius: 14, background: "var(--text)" }
+const printRestaurantFallback = { width: 68, height: 68, display: "grid", placeItems: "center", borderRadius: 14, background: "var(--text)", fontSize: 30 }
 const printEyebrow = { fontSize: 10, letterSpacing: 2, color: "var(--primary)", fontWeight: 800 }
 const printRestaurantName = { margin: "3px 0 4px", fontSize: 26 }
 const printTagline = { margin: 0, color: "var(--muted)", fontSize: 12 }
@@ -610,24 +610,24 @@ const anairaLogo = { width: 88, height: 88, objectFit: "contain" }
 const section = { marginBottom: 28 }
 const sectionTitle = { fontSize: 14, letterSpacing: 1.8, color: "var(--primary)", fontWeight: 900, marginBottom: 14 }
 const qrGrid = { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 16 }
-const qrCard = { background: "#fff", color: "#122017", border: "1px solid #d7dfd8", borderRadius: 18, padding: 16, textAlign: "center", boxShadow: "0 10px 24px rgba(0,0,0,.08)", breakInside: "avoid" }
+const qrCard = { background: "var(--text)", color: "var(--surface)", border: "1px solid #d7dfd8", borderRadius: 18, padding: 16, textAlign: "center", boxShadow: "0 10px 24px rgba(0,0,0,.08)", breakInside: "avoid" }
 const qrCardTop = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
 const qrPill = { fontSize: 9, letterSpacing: 1.2, fontWeight: 900, color: "#8b5d00" }
 const qrBrand = { fontSize: 9, fontWeight: 900, color: "#789184", letterSpacing: 1 }
 const qrCardLogoLine = { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 36 }
-const miniRestaurantLogo = { width: 30, height: 30, objectFit: "contain", borderRadius: 7, background: "#fff" }
+const miniRestaurantLogo = { width: 30, height: 30, objectFit: "contain", borderRadius: 7, background: "var(--text)" }
 const miniRestaurantFallback = { fontSize: 22 }
 const qrLabel = { fontSize: 18 }
-const qrCodeWrap = { display: "flex", justifyContent: "center", padding: 12, margin: "12px auto 10px", background: "#fff", borderRadius: 12, width: "fit-content" }
+const qrCodeWrap = { display: "flex", justifyContent: "center", padding: 12, margin: "12px auto 10px", background: "var(--text)", borderRadius: 12, width: "fit-content" }
 const invalidQr = { width: 148, height: 148, display: "grid", placeItems: "center", fontSize: 12, color: "#b91c1c", background: "#fee2e2" }
-const scanTitle = { margin: "4px 0", fontSize: 18, color: "#0a1d15" }
+const scanTitle = { margin: "4px 0", fontSize: 18, color: "var(--background)" }
 const scanText = { margin: "0 auto", maxWidth: 250, fontSize: 11, lineHeight: 1.45, color: "#5b6b60" }
 const cardDivider = { height: 1, background: "#e5ebe6", margin: "12px 0 9px" }
 const cardBranding = { display: "flex", justifyContent: "center", alignItems: "center", gap: 6, fontSize: 9, color: "#738177", fontWeight: 700 }
 const cardBrandLogo = { width: 25, height: 25, objectFit: "contain" }
 const cardActions = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }
 const cardActionSecondary = { padding: "9px 8px", borderRadius: 9, border: "1px solid #cbd5cf", background: "#f8faf9", color: "#183126", fontWeight: 800, fontSize: 11, cursor: "pointer" }
-const cardActionPrimary = { padding: "9px 8px", borderRadius: 9, border: "1px solid #183126", background: "#183126", color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer" }
+const cardActionPrimary = { padding: "9px 8px", borderRadius: 9, border: "1px solid #183126", background: "#183126", color: "var(--text)", fontWeight: 800, fontSize: 11, cursor: "pointer" }
 const emptyPrint = { padding: 60, textAlign: "center", border: "1px dashed rgba(var(--primary-rgb),.3)", borderRadius: 20, color: "var(--muted)" }
 const footerNote = { margin: "20px 0 0", textAlign: "center", color: "var(--muted)", fontSize: 11 }
 
@@ -649,11 +649,11 @@ export const qrPrintResponsiveStyles = `
 }
 @media print {
   @page { size: A4 portrait; margin: 8mm; }
-  html, body { background: #fff !important; color: #122017 !important; }
+  html, body { background: var(--text) !important; color: var(--surface) !important; }
   body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  .qr-print-center { padding: 0 !important; background: #fff !important; color: #122017 !important; }
+  .qr-print-center { padding: 0 !important; background: var(--text) !important; color: var(--surface) !important; }
   .qr-toolbar, .qr-summary, .qr-print-center > .qr-error-box, .qr-print-center > .qr-footer-note { display: none !important; }
-  .qr-print-sheet { display: block !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: #fff !important; }
+  .qr-print-sheet { display: block !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: var(--text) !important; }
   .qr-print-header { margin-bottom: 10mm !important; padding-bottom: 5mm !important; }
   .qr-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap: 6mm !important; }
   .qr-card { border: 1px solid #cbd5cf !important; box-shadow: none !important; border-radius: 4mm !important; padding: 4mm !important; }

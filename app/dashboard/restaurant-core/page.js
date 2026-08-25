@@ -80,7 +80,7 @@ export default function RestaurantCore(){
       <h1 style={{margin:"8px 0"}}>Restaurant Core</h1>
       <p style={{color:"var(--muted)",lineHeight:1.6}}>Core POS, tables, KDS, billing and restaurant operations are controlled by Super Admin.</p>
       <p style={{fontSize:12,color:"var(--muted)"}}>This module is locked until Super Admin activates its plugin for this restaurant.</p>
-      <a href="/dashboard" style={{display:"inline-block",marginTop:10,padding:"11px 16px",borderRadius:12,background:"var(--primary)",color:"#fff",textDecoration:"none",fontWeight:800}}>← Back to Dashboard</a>
+      <a href="/dashboard" style={{display:"inline-block",marginTop:10,padding:"11px 16px",borderRadius:12,background:"var(--primary)",color:"var(--text)",textDecoration:"none",fontWeight:800}}>← Back to Dashboard</a>
     </div>
   </main>
 
@@ -392,11 +392,11 @@ const panelTitle={margin:0,fontSize:19}
 const input={width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:12,border:"1px solid rgba(255,255,255,.1)",background:"rgba(0,0,0,.24)",color:"var(--text)"}
 const buttonGrid={display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:9}
 const button={padding:12,borderRadius:12,border:"1px solid rgba(255,255,255,.08)",background:"var(--surface-2)",color:"var(--text)",fontWeight:900,cursor:"pointer"}
-const danger={...button,borderColor:"rgba(248,113,113,.3)",color:"#fecaca"}
+const danger={...button,borderColor:"rgba(248,113,113,.3)",color:"var(--danger)"}
 const primary={padding:12,borderRadius:12,border:0,background:"var(--primary)",color:"#111",fontWeight:900,cursor:"pointer"}
 const inline={display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}
 const modeGrid={display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:9}
-const modeBtn={padding:13,borderRadius:12,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.04)",color:"#fff",fontWeight:900,cursor:"pointer"}
+const modeBtn={padding:13,borderRadius:12,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.04)",color:"var(--text)",fontWeight:900,cursor:"pointer"}
 const activeMode={...modeBtn,borderColor:"rgba(var(--primary-rgb),.5)",color:"var(--primary)"}
 const muted={color:"var(--muted)",lineHeight:1.6,fontSize:13}
 const link={display:"block",padding:12,borderRadius:12,textDecoration:"none",color:"var(--primary)",background:"rgba(var(--primary-rgb),.06)",border:"1px solid rgba(var(--primary-rgb),.16)",fontWeight:900}

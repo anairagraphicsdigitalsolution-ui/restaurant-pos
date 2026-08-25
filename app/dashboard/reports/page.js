@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaDate, formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -21,16 +22,10 @@ const shortMoney = (n) => {
 const normalize = (value) => String(value || "").toLowerCase().trim()
 
 const formatDate = (date) =>
-  new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-  }).format(date)
+  formatIndiaDate(date, { month: "short" })
 
 const formatTime = (date) =>
-  new Intl.DateTimeFormat("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date)
+  formatIndiaTime(date)
 
 export default function Reports() {
   const [orders, setOrders] = useState([])

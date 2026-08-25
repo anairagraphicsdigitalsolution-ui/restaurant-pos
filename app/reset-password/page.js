@@ -515,7 +515,7 @@ const logo = {
 
   padding: 8,
 
-  background: "#fff",
+  background: "var(--text)",
 
   border:
     "1px solid rgba(var(--primary-rgb),.2)",
@@ -546,7 +546,7 @@ const subBrand = {
 
 const title = {
 
-  color: "#fff",
+  color: "var(--text)",
 
   textAlign: "center",
 
@@ -611,7 +611,7 @@ const passwordInput = {
 
   background: "var(--surface-2)",
 
-  color: "#fff",
+  color: "var(--text)",
 
   outline: "none",
 

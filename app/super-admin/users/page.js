@@ -279,7 +279,7 @@ export default function SuperAdminUsersPage() {
       padding: "35px",
       background:
         "linear-gradient(135deg,var(--background) 0%,var(--surface-2) 50%,var(--surface) 100%)",
-      color: "#fff",
+      color: "var(--text)",
       fontFamily: "Inter, Arial, sans-serif"
     },
     wrap: {
@@ -332,7 +332,7 @@ export default function SuperAdminUsersPage() {
       borderRadius: "12px",
       border: "1px solid rgba(var(--muted-rgb),.25)",
       background: "var(--background)",
-      color: "#fff",
+      color: "var(--text)",
       outline: "none",
       fontSize: "15px"
     },
@@ -486,7 +486,7 @@ export default function SuperAdminUsersPage() {
 
           {created && (
             <div style={styles.result}>
-              <h3 style={{ marginTop: 0, color: "#86efac" }}>
+              <h3 style={{ marginTop: 0, color: "var(--success)" }}>
                 ✅ Account Created
               </h3>
               <p><b>Restaurant:</b> {created.restaurant}</p>
@@ -512,7 +512,7 @@ export default function SuperAdminUsersPage() {
             <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"center",flexWrap:"wrap"}}>
               <div>
                 <div style={{...styles.eyebrow, color:"var(--primary)"}}>MERCHANT PAYMENTS</div>
-                <h2 style={{margin:"8px 0 5px",color:"#fff"}}>💳 Merchant UPI Account</h2>
+                <h2 style={{margin:"8px 0 5px",color:"var(--text)"}}>💳 Merchant UPI Account</h2>
                 <p style={{margin:0,color:"var(--muted)",fontSize:13}}>
                   Connect the selected restaurant's UPI ID from Super Admin.
                 </p>
@@ -523,7 +523,7 @@ export default function SuperAdminUsersPage() {
                 fontSize:12,
                 fontWeight:800,
                 background:payment.plugin_enabled ? "rgba(34,197,94,.12)" : "rgba(239,68,68,.12)",
-                color:payment.plugin_enabled ? "#86efac" : "#fca5a5",
+                color:payment.plugin_enabled ? "var(--success)" : "var(--danger)",
                 border:`1px solid ${payment.plugin_enabled ? "rgba(34,197,94,.25)" : "rgba(239,68,68,.25)"}`
               }}>
                 {payment.plugin_enabled ? "PLUGIN ACTIVE" : "PLUGIN OFF"}
@@ -537,7 +537,7 @@ export default function SuperAdminUsersPage() {
                 borderRadius:12,
                 background:"rgba(245,158,11,.08)",
                 border:"1px solid rgba(245,158,11,.25)",
-                color:"#fbbf24",
+                color:"var(--warning)",
                 fontSize:13
               }}>
                 Activate <b>Merchant Payments & Voice</b> for this restaurant from

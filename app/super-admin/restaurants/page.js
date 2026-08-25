@@ -229,7 +229,7 @@ const layout = {
   minHeight:"100vh",
   padding:30,
   background:"radial-gradient(circle at top,var(--background),#000)",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const header = {
@@ -406,7 +406,7 @@ const deleteButton = {
   padding: "11px 14px",
   borderRadius: 12,
   background: "#7f1d1d",
-  color: "#fff",
+  color: "var(--text)",
   border: "1px solid rgba(248,113,113,.45)",
   fontWeight: 800,
   fontSize: 13,

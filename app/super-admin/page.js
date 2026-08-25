@@ -1004,13 +1004,13 @@ const dropdown={
 
 const premiumHero = { display:"flex", justifyContent:"space-between", gap:28, alignItems:"center", flexWrap:"wrap", padding:"34px clamp(22px,4vw,44px)", borderRadius:32, marginBottom:18, background:"radial-gradient(circle at 80% 20%,rgba(233,167,45,.15),transparent 30%),linear-gradient(135deg,#0b2118,#102b20 60%,#071b12)", border:"1px solid rgba(var(--primary-rgb),.2)", boxShadow:"0 30px 90px rgba(0,0,0,.35)", overflow:"hidden" }
 const eyebrow = { color:"var(--primary)", letterSpacing:2.4, fontSize:11, fontWeight:900 }
-const premiumTitle = { margin:"8px 0 10px", fontSize:"clamp(30px,4vw,52px)", lineHeight:1.02, letterSpacing:"-.04em", color:"#fffaf0" }
+const premiumTitle = { margin:"8px 0 10px", fontSize:"clamp(30px,4vw,52px)", lineHeight:1.02, letterSpacing:"-.04em", color:"var(--text)af0" }
 const premiumSubtitle = { margin:0, maxWidth:720, color:"var(--muted)", lineHeight:1.7 }
 const heroActions = { display:"flex", gap:9, flexWrap:"wrap", marginTop:20 }
 const heroButton = { border:0, borderRadius:13, padding:"12px 16px", background:"var(--primary)", color:"#111", fontWeight:900, cursor:"pointer" }
 const heroGhost = { border:"1px solid rgba(var(--primary-rgb),.28)", borderRadius:13, padding:"12px 16px", background:"rgba(255,255,255,.03)", color:"var(--text)", fontWeight:800, cursor:"pointer" }
 const heroLogoWrap = { display:"grid", placeItems:"center", gap:8, padding:16, minWidth:150, borderRadius:22, background:"rgba(255,255,255,.045)", border:"1px solid rgba(255,255,255,.08)" }
-const heroLogo = { width:92, height:92, objectFit:"contain", borderRadius:18, background:"#fff", padding:7 }
+const heroLogo = { width:92, height:92, objectFit:"contain", borderRadius:18, background:"var(--text)", padding:7 }
 const commandBar = {
   display:"flex",
   justifyContent:"space-between",
@@ -1038,7 +1038,7 @@ const input = {
   borderRadius:16,
   border:"1px solid rgba(var(--primary-rgb),.25)",
   background:"var(--surface-2)",
-  color:"#fff",
+  color:"var(--text)",
   outline:"none",
   fontSize:14,
   width:"100%",
@@ -1074,13 +1074,13 @@ const statIcon = { width:38,height:38,borderRadius:12,display:"grid",placeItems:
 const statHint = { color:"var(--muted)",fontSize:11 }
 const restaurantTop = { display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start" }
 const restaurantMeta = { display:"grid",gap:5,margin:"14px 0",color:"var(--muted)",fontSize:12 }
-const statusPill = (status) => ({ display:"inline-flex",padding:"6px 9px",borderRadius:999,textTransform:"capitalize",fontSize:11,fontWeight:900,background:status==="active"?"rgba(74,222,128,.10)":"rgba(245,158,11,.10)",color:status==="active"?"#86efac":"#fbbf24",border:`1px solid ${status==="active"?"rgba(74,222,128,.22)":"rgba(245,158,11,.22)"}` })
-const errorBanner = { display:"grid", gap:7, marginBottom:16, padding:"14px 16px", borderRadius:16, background:"rgba(239,68,68,.07)", border:"1px solid rgba(239,68,68,.2)", color:"#fecaca", lineHeight:1.5 }
+const statusPill = (status) => ({ display:"inline-flex",padding:"6px 9px",borderRadius:999,textTransform:"capitalize",fontSize:11,fontWeight:900,background:status==="active"?"rgba(74,222,128,.10)":"rgba(245,158,11,.10)",color:status==="active"?"var(--success)":"var(--warning)",border:`1px solid ${status==="active"?"rgba(74,222,128,.22)":"rgba(245,158,11,.22)"}` })
+const errorBanner = { display:"grid", gap:7, marginBottom:16, padding:"14px 16px", borderRadius:16, background:"rgba(239,68,68,.07)", border:"1px solid rgba(239,68,68,.2)", color:"var(--danger)", lineHeight:1.5 }
 const emptyState = { display:"grid", gap:7, placeItems:"center", minHeight:180, padding:28, marginBottom:20, borderRadius:22, background:"rgba(255,255,255,.025)", border:"1px dashed rgba(255,255,255,.12)", color:"var(--muted)", textAlign:"center" }
 const layout = {
   padding:"clamp(16px,3vw,32px)",
   background:"radial-gradient(circle at top,var(--background),#000)",
-  color:"#fff",
+  color:"var(--text)",
   minHeight:"100vh"
 }
 
@@ -1224,14 +1224,14 @@ const subscriptionStatusPill = (status, restaurantStatus) => ({
   fontWeight:900,
   letterSpacing:1,
   background: restaurantStatus === "active" && status === "active" ? "rgba(34,197,94,.10)" : "rgba(245,158,11,.10)",
-  color: restaurantStatus === "active" && status === "active" ? "#86efac" : "#fbbf24",
+  color: restaurantStatus === "active" && status === "active" ? "var(--success)" : "var(--warning)",
   border: `1px solid ${restaurantStatus === "active" && status === "active" ? "rgba(34,197,94,.22)" : "rgba(245,158,11,.22)"}`
 })
 const subscriptionControls = { display:"grid", gridTemplateColumns:"1fr 110px", gap:8, marginTop:10 }
 const subscriptionSelect = { width:"100%", boxSizing:"border-box", padding:"9px 10px", borderRadius:10, border:"1px solid rgba(var(--primary-rgb),.16)", background:"var(--surface-2)", color:"var(--text)", outline:"none", fontSize:12 }
 const subscriptionActions = { display:"flex", gap:8, marginTop:10 }
-const subscriptionApprove = { flex:1, border:"1px solid rgba(34,197,94,.25)", borderRadius:10, padding:"9px 10px", background:"rgba(34,197,94,.08)", color:"#86efac", cursor:"pointer", fontWeight:900 }
-const subscriptionPending = { flex:1, border:"1px solid rgba(245,158,11,.22)", borderRadius:10, padding:"9px 10px", background:"rgba(245,158,11,.06)", color:"#fbbf24", cursor:"pointer", fontWeight:800 }
+const subscriptionApprove = { flex:1, border:"1px solid rgba(34,197,94,.25)", borderRadius:10, padding:"9px 10px", background:"rgba(34,197,94,.08)", color:"var(--success)", cursor:"pointer", fontWeight:900 }
+const subscriptionPending = { flex:1, border:"1px solid rgba(245,158,11,.22)", borderRadius:10, padding:"9px 10px", background:"rgba(245,158,11,.06)", color:"var(--warning)", cursor:"pointer", fontWeight:800 }
 
 const actions = {
   display:"flex",

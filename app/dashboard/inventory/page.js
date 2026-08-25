@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
 import QRCode from "react-qr-code"
@@ -15,6 +16,8 @@ Pie,
 Cell
 } from "recharts"
 import { supabase } from "@/lib/supabase"
+import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { printHtmlInFrame } from "@/lib/printUtils"
 
 export default function Inventory() {
  const [items, setItems] = useState([])
@@ -673,10 +676,18 @@ URL.revokeObjectURL(url)
 
 }
 
-function printInventory(){
+async function printInventory(){
+  const tables = Array.from(document.querySelectorAll("table")).map(t => t.outerHTML).join("<hr/>")
+  const html = `<div style="font-family:Arial,sans-serif;color:#111;padding:8mm"><h2 style="margin:0 0 4px">${restaurant?.name || "Restaurant"}</h2><div style="font-size:12px;margin-bottom:10px">INVENTORY REPORT</div>${tables}</div>`
+  try { await printHtmlInFrame(html, { title: `${restaurant?.name || "Restaurant"} Inventory`, width: "210mm", height: "297mm" }) } catch (e) { alert(e.message || "Unable to print inventory") }
+}
 
-window.print()
-
+async function printInventoryThermal(){
+  try {
+    const rows = (items || []).map(i => `${i.name || "Item"}: ${Number(i.quantity || 0)} ${i.unit || ""}`)
+    await sendThermalPrint({ type: "inventory-report", content: [restaurant?.name || "Restaurant", "INVENTORY REPORT", "------------------------------", ...rows, "------------------------------", `Items: ${items.length}`].join("\n"), data: { size: "80mm" } })
+    alert("Thermal inventory report sent to printer")
+  } catch (e) { alert(e.message || "Thermal inventory print failed") }
 }
 
 const totalItems=
@@ -813,7 +824,7 @@ Track stock, expiry dates, suppliers and kitchen inventory in real time.
 </div>
 
 <div style={dateCard}>
-{new Date().toLocaleDateString()}
+{formatIndiaDate(new Date())}
 </div>
 
 
@@ -887,6 +898,13 @@ onClick={printInventory}
 </button>
 
 <button
+style={actionButton}
+onClick={printInventoryThermal}
+>
+🖨 Thermal 80mm
+</button>
+
+<button
 
 style={actionButton}
 
@@ -926,13 +944,15 @@ onClick={fetchItems}
 
 style={actionButton}
 
-onClick={()=>window.print()}
+onClick={printInventory}
 
 >
 
 🖨 Print
 
 </button>
+
+<button style={actionButton} onClick={printInventoryThermal}>🖨 Thermal 80mm</button>
 
 </div>
 
@@ -1119,7 +1139,7 @@ style={addBtn}
       selectedInventory.quantity <= selectedInventory.min_stock
       ? "var(--danger)"
       : "#14532d",
-    color:"#fff",
+    color:"var(--text)",
     fontWeight:700
   }}
 >
@@ -1500,7 +1520,7 @@ height={60}
 
 <div
 style={{
-background:"#fff",
+background:"var(--text)",
 padding:10,
 borderRadius:10
 }}
@@ -1971,7 +1991,7 @@ usageHistory.map(row=>(
 </td>
 
 <td style={td}>
-{new Date(row.created_at).toLocaleString()}
+{formatIndiaDateTime(row.created_at)}
 </td>
 
 </tr>
@@ -2009,7 +2029,7 @@ const layout = {
   minHeight: "100vh",
   padding: 30,
   background: "linear-gradient(180deg,var(--background),var(--surface-2))",
-  color: "#fff"
+  color: "var(--text)"
 }
 
 
@@ -2029,7 +2049,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:15,
 
@@ -2052,7 +2072,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:15,
 
@@ -2082,7 +2102,7 @@ background:
 
 "linear-gradient(135deg,var(--success),var(--success))",
 
-color:"#fff",
+color:"var(--text)",
 
 }
 /* 🔥 GRID */
@@ -2136,7 +2156,7 @@ fontWeight:700,
 
 fontSize:13,
 
-color:"#fff",
+color:"var(--text)",
 
 background:
 
@@ -2178,7 +2198,7 @@ const actionButton = {
 
   background: "rgba(255,255,255,.02)",
 
-  color: "#f8fafc",
+  color: "var(--surface-2)",
 
   border: "1px solid rgba(236, 175, 7, 0.88)",
 
@@ -2213,7 +2233,7 @@ background:
 
 "linear-gradient(135deg,var(--success),var(--success))",
 
-color:"#fff",
+color:"var(--text)",
 
 fontWeight:700
 
@@ -2233,7 +2253,7 @@ background:
 
 "linear-gradient(135deg,var(--danger),var(--danger))",
 
-color:"#fff",
+color:"var(--text)",
 
 fontWeight:700
 
@@ -2286,7 +2306,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:15,
 
@@ -2309,7 +2329,7 @@ background:
 
 "linear-gradient(135deg,var(--info),var(--info))",
 
-color:"#fff"
+color:"var(--text)"
 
 }
 const progressBg={
@@ -2355,7 +2375,7 @@ background:
 
 "linear-gradient(135deg,var(--info),var(--info))",
 
-color:"#fff",
+color:"var(--text)",
 
 fontWeight:700
 
@@ -2375,7 +2395,7 @@ background:
 
 "linear-gradient(135deg,var(--danger),var(--danger))",
 
-color:"#fff",
+color:"var(--text)",
 
 fontWeight:700
 
@@ -2427,7 +2447,7 @@ background:"rgba(var(--danger-rgb),.15)",
 
 border:"1px solid var(--danger)",
 
-color:"#fecaca",
+color:"var(--danger)",
 
 fontWeight:700
 
@@ -2553,7 +2573,7 @@ const heroTitle = {
   letterSpacing: "-1px",
 
   background:
-    "linear-gradient(90deg,#ffffff,#f8d568,#ffffff)",
+    "linear-gradient(90deg,var(--text),#f8d568,var(--text))",
 
   WebkitBackgroundClip: "text",
 
@@ -2591,7 +2611,7 @@ borderRadius:999,
 
 background:"var(--success)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontWeight:700
 
@@ -2655,7 +2675,7 @@ marginBottom:15,
 background:
 "linear-gradient(135deg,var(--warning),var(--warning))",
 
-color:"#fff"
+color:"var(--text)"
 
 }
 
@@ -2737,7 +2757,7 @@ background:"var(--surface-2)",
 
 border:"1px solid rgba(255,255,255,.08)",
 
-color:"#fff",
+color:"var(--text)",
 
 fontSize:15,
 
@@ -2808,7 +2828,7 @@ border:"1px solid rgba(255,255,255,.08)",
 
 boxShadow:"0 30px 70px rgba(0,0,0,.45)",
 
-color:"#fff"
+color:"var(--text)"
 
 }
 const analyticsWrapper={
@@ -2898,7 +2918,7 @@ fontSize:18,
 
 fontWeight:700,
 
-color:"#f8fafc"
+color:"var(--surface-2)"
 
 }
 const infoGrid={

@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 export default function WebsiteOrdering(){
+ const router=useRouter()
   const [restaurant,setRestaurant]=useState(null)
   const [enabled,setEnabled]=useState(false)
   const [domain,setDomain]=useState("")
@@ -13,8 +15,9 @@ export default function WebsiteOrdering(){
   useEffect(()=>{load()},[])
   async function load(){
     const {data:{user}}=await supabase.auth.getUser();if(!user)return
-    const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",user.id).maybeSingle()
+    const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
     if(!p?.restaurant_id)return
+  if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
     const [{data:r},{data:rows},{data:settings}]=await Promise.all([
       supabase.from("restaurants").select("id,name,slug").eq("id",p.restaurant_id).maybeSingle(),
       supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id),

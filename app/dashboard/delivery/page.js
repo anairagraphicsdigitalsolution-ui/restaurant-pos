@@ -1,6 +1,9 @@
 "use client"
+import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
+import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { printHtmlInFrame } from "@/lib/printUtils"
 import { useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
@@ -48,6 +51,7 @@ export default function DeliveryManagement() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
+  const [restaurant, setRestaurant] = useState(null)
 
   const [zoneForm, setZoneForm] = useState({
     id: "",
@@ -91,6 +95,7 @@ export default function DeliveryManagement() {
       const rows = data.deliveries || []
       setDeliveries(rows)
       setRiders(data.riders || [])
+      if (data.restaurant) setRestaurant(data.restaurant)
       setZones(data.zones || [])
 
       const slip = search.get("slip")
@@ -239,6 +244,21 @@ export default function DeliveryManagement() {
     [deliveries]
   )
 
+  async function printSlipThermal(delivery) {
+    if (!delivery) return
+    const title = delivery.order_mode === "takeaway" ? "TAKEAWAY SLIP" : "DELIVERY SLIP"
+    const collection = delivery.settlement_status === "settled" ? "SETTLED" : ["cash", "cod"].includes(String(delivery.payment_method || "cash").toLowerCase()) ? "PAYMENT TO BE COLLECTED" : "PREPAID"
+    const content = [
+      "ANAIRA", title, delivery.slip_no || "", "------------------------------",
+      delivery.customer_name || "Customer", delivery.phone || "", delivery.address || "Counter pickup", delivery.zone || "",
+      "------------------------------", `Order: #${String(delivery.order_id || "").slice(0,8)}`, `Amount: ${money(delivery.expected_amount)}`,
+      `Payment: ${String(delivery.payment_method || "cash").toUpperCase()}`, `Delivered by: ${delivery.delivery_person_name || delivery.rider_name || "Not assigned"}`,
+      collection, delivery.customer_notes ? `Note: ${delivery.customer_notes}` : "", "------------------------------", formatIndiaDateTime(new Date())
+    ].filter(Boolean).join("\n")
+    try { await sendThermalPrint({ type: "delivery-slip", content, data: { order_id: delivery.order_id, size: "80mm" } }) }
+    catch (e) { setError(e.message || "Thermal delivery print failed") }
+  }
+
   function printSlip(delivery) {
     if (!delivery) return
 
@@ -261,14 +281,7 @@ export default function DeliveryManagement() {
           ? "PAYMENT TO BE COLLECTED"
           : "PREPAID"
 
-    const w = window.open("", "_blank", "width=420,height=720")
-
-    if (!w) {
-      setError("Please allow pop-ups to print the slip.")
-      return
-    }
-
-    w.document.write(`
+    const html = `
       <!doctype html>
       <html>
         <head>
@@ -286,7 +299,7 @@ export default function DeliveryManagement() {
           </style>
         </head>
         <body>
-          <h2>ANAIRA</h2>
+          <h2>${restaurant?.name || "Restaurant"}</h2>
           <div><b>${title}</b></div>
           <div class="muted">${delivery.slip_no || ""}</div>
           <div class="line"></div>
@@ -328,17 +341,13 @@ export default function DeliveryManagement() {
 
           <div class="line"></div>
           <div class="muted">
-            Generated ${new Date().toLocaleString("en-IN")}
+            Generated ${formatIndiaDateTime(new Date())}
           </div>
 
-          <script>
-            window.onload = () => window.print()
-          </script>
         </body>
       </html>
-    `)
-
-    w.document.close()
+    `
+    printHtmlInFrame(html, { title: delivery.slip_no || title, width: "80mm", height: "auto" }).catch(e => setError(e.message || "Unable to print the slip"))
   }
 
   async function assignDeliveryPerson() {
@@ -990,6 +999,7 @@ export default function DeliveryManagement() {
                 >
                   🖨 Print Slip
                 </button>
+                  <button className="printBtn" onClick={() => printSlipThermal(selected)}>🖨 Thermal 80mm</button>
               </div>
 
               <div className="collectionBanner">
@@ -1393,7 +1403,7 @@ export default function DeliveryManagement() {
               var(--surface-2),
               var(--background)
             );
-          color: #fff;
+          color: var(--text);
         }
 
         .deliveryHero,
@@ -1449,7 +1459,7 @@ export default function DeliveryManagement() {
           padding: 11px 14px;
           border: 1px solid rgba(var(--primary-rgb), 0.22);
           background: rgba(var(--primary-rgb), 0.1);
-          color: #fff;
+          color: var(--text);
           font-weight: 800;
           cursor: pointer;
           text-decoration: none;
@@ -1475,7 +1485,7 @@ export default function DeliveryManagement() {
         .message.error {
           border: 1px solid rgba(248, 113, 113, 0.35);
           background: rgba(248, 113, 113, 0.09);
-          color: #fecaca;
+          color: var(--danger);
         }
 
         .message.success {
@@ -1576,7 +1586,7 @@ export default function DeliveryManagement() {
           border-radius: 14px;
           border: 1px solid rgba(255, 255, 255, 0.06);
           background: rgba(255, 255, 255, 0.025);
-          color: #fff;
+          color: var(--text);
           cursor: pointer;
         }
 
@@ -1619,23 +1629,23 @@ export default function DeliveryManagement() {
         }
 
         .status.out_for_delivery {
-          color: #facc15;
+          color: var(--warning);
         }
 
         .status.delivered {
-          color: #4ade80;
+          color: var(--success);
         }
 
         .status.cancelled {
-          color: #f87171;
+          color: var(--danger);
         }
 
         .settledText {
-          color: #4ade80 !important;
+          color: var(--success) !important;
         }
 
         .pendingText {
-          color: #facc15 !important;
+          color: var(--warning) !important;
         }
 
         .empty {
@@ -1646,7 +1656,7 @@ export default function DeliveryManagement() {
 
         .empty strong {
           display: block;
-          color: #fff;
+          color: var(--text);
           margin-bottom: 5px;
         }
 
@@ -1732,7 +1742,7 @@ export default function DeliveryManagement() {
           padding: 10px;
           border-radius: 10px;
           background: #10241c;
-          color: #fff;
+          color: var(--text);
           border: 1px solid rgba(255, 255, 255, 0.12);
         }
 
@@ -1839,12 +1849,12 @@ export default function DeliveryManagement() {
         }
 
         .timeline span.done {
-          color: #4ade80;
+          color: var(--success);
         }
 
         .timeline span.done:before {
           content: "✓ ";
-          color: #4ade80;
+          color: var(--success);
         }
 
         .zonesPanel {
@@ -1917,7 +1927,7 @@ export default function DeliveryManagement() {
         }
 
         .zoneStatus.on {
-          color: #4ade80;
+          color: var(--success);
           background: rgba(74,222,128,.1);
         }
 
@@ -1938,7 +1948,7 @@ export default function DeliveryManagement() {
           border-radius: 8px;
           padding: 6px 9px;
           background: rgba(255,255,255,.04);
-          color: #fff;
+          color: var(--text);
           cursor: pointer;
           font-size: 10px;
           font-weight: 800;
@@ -1950,12 +1960,12 @@ export default function DeliveryManagement() {
         }
 
         .zoneDeleteBtn {
-          color: #fca5a5;
+          color: var(--danger);
         }
 
         .zoneDeleteBtn:hover {
-          border-color: #f87171;
-          color: #f87171;
+          border-color: var(--danger);
+          color: var(--danger);
         }
 
         .zonesEmpty {
@@ -1970,7 +1980,7 @@ export default function DeliveryManagement() {
         }
 
         .zonesEmpty strong {
-          color: #fff;
+          color: var(--text);
         }
 
         .zonesEmpty .emptyIcon {
@@ -2018,7 +2028,7 @@ export default function DeliveryManagement() {
           border-radius: 10px;
           border: 1px solid rgba(255,255,255,.1);
           background: rgba(255,255,255,.04);
-          color: #fff;
+          color: var(--text);
           font-size: 22px;
           cursor: pointer;
         }
@@ -2042,7 +2052,7 @@ export default function DeliveryManagement() {
           border-radius: 11px;
           border: 1px solid rgba(255,255,255,.1);
           background: rgba(255,255,255,.045);
-          color: #fff;
+          color: var(--text);
           outline: none;
           font-size: 13px;
         }

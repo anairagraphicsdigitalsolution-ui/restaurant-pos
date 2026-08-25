@@ -2107,7 +2107,7 @@ export default function OrderPage() {
               var(--background)
             );
 
-          color: #fff;
+          color: var(--text);
         }
 
         /* ==================================================
@@ -2253,7 +2253,7 @@ export default function OrderPage() {
               .035
             );
 
-          color: #fff;
+          color: var(--text);
 
           font-size: 10px;
 
@@ -2294,10 +2294,10 @@ export default function OrderPage() {
 
         .order-type-btn.active-warning {
           border-color:
-            #f59e0b;
+            var(--warning);
 
           color:
-            #f59e0b;
+            var(--warning);
 
           box-shadow:
             0 0 11px
@@ -2311,10 +2311,10 @@ export default function OrderPage() {
 
         .order-type-btn.active-success {
           border-color:
-            #22c55e;
+            var(--success);
 
           color:
-            #22c55e;
+            var(--success);
 
           box-shadow:
             0 0 11px
@@ -2379,7 +2379,7 @@ export default function OrderPage() {
               .04
             );
 
-          color: #fff;
+          color: var(--text);
 
           font-size: 10px;
 
@@ -2446,7 +2446,7 @@ export default function OrderPage() {
             transparent;
 
           color:
-            #fff;
+            var(--text);
 
           text-align:
             left;
@@ -2557,7 +2557,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           outline:
             none;
@@ -2631,7 +2631,7 @@ export default function OrderPage() {
             );
 
           color:
-            #86efac;
+            var(--success);
 
           font-size:
             11px;
@@ -2769,7 +2769,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             9px;
@@ -2857,7 +2857,7 @@ export default function OrderPage() {
             7px;
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             11px;
@@ -2950,7 +2950,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           text-align:
             left;
@@ -3468,7 +3468,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             14px;
@@ -3485,7 +3485,7 @@ export default function OrderPage() {
             15px;
 
           color:
-            #fff;
+            var(--text);
 
           text-align:
             center;
@@ -3602,7 +3602,7 @@ export default function OrderPage() {
             center;
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             12px;
@@ -3639,7 +3639,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             12px;
@@ -3748,7 +3748,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           box-shadow:
             0 35px 100px
@@ -3825,7 +3825,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           cursor:
             pointer;
@@ -3935,7 +3935,7 @@ export default function OrderPage() {
             );
 
           color:
-            #fff;
+            var(--text);
 
           font-size:
             10px;

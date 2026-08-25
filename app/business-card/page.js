@@ -28,11 +28,11 @@ const createElement = (type, shapeType="rect") => ({
   fontWeight:600,
   textAlign:"left",
 
-  color:"#ffffff",
+  color:"var(--text)",
 
   src:"",
   fill:"var(--primary)",
-  stroke:"#ffffff",
+  stroke:"var(--text)",
   strokeWidth:2
 })
 
@@ -52,7 +52,7 @@ const templates = [
 },
 {
   name:"Modern White",
-  bg:"#ffffff"
+  bg:"var(--text)"
 },
 {
   name:"Dark Glass",
@@ -65,7 +65,7 @@ const templates = [
 },
 {
   name:"Doctor",
-  bg:"linear-gradient(135deg,#ffffff,#e5e7eb)"
+  bg:"linear-gradient(135deg,var(--text),#e5e7eb)"
 },
 {
   name:"Lawyer",
@@ -341,7 +341,7 @@ Math.round(
 
   /* ================= UI ================= */
   return (
-    <div style={{display:"flex",height:"100vh",background:"var(--background)",color:"#fff"}}>
+    <div style={{display:"flex",height:"100vh",background:"var(--background)",color:"var(--text)"}}>
 
       {/* LEFT PANEL */}
       <div
@@ -560,7 +560,7 @@ onChange={(e)=>
 />
 <input
 type="color"
-value={active.stroke || "#ffffff"}
+value={active.stroke || "var(--text)"}
 onChange={(e)=>
  update({
   stroke:e.target.value
@@ -634,7 +634,7 @@ onChange={(e)=>
 />
 <input
 type="color"
-value={active.color || "#ffffff"}
+value={active.color || "var(--text)"}
 onChange={(e)=>
  update({
   color:e.target.value
@@ -933,7 +933,7 @@ boxShadow:"0 0 0 1px rgba(var(--primary-rgb),.3)"
     width:16,
 height:16,
 borderRadius:"50%",
-border:"2px solid #fff",
+border:"2px solid var(--text)",
 boxShadow:"0 0 10px rgba(var(--primary-rgb),.5)",
     background:"var(--primary)"
   }}
@@ -956,16 +956,16 @@ borderRadius:"50%"}}/>
   )
 }
 /* UI */
-const container={padding:20,background:"var(--background)",color:"#fff",minHeight:"100vh"}
+const container={padding:20,background:"var(--background)",color:"var(--text)",minHeight:"100vh"}
 const title={fontSize:28}
 const layout={display:"grid",gridTemplateColumns:"1fr 420px",gap:20}
 const panel={background:"rgba(255,255,255,0.05)",padding:20,borderRadius:16,display:"flex",flexDirection:"column",gap:10}
-const input={padding:10,background:"#111",borderRadius:8,color:"#fff"}
+const input={padding:10,background:"#111",borderRadius:8,color:"var(--text)"}
 const preview={display:"flex",justifyContent:"center",alignItems:"center"}
 const card={width:320,height:200,padding:16,borderRadius:16}
-const btn={padding:10,background:"var(--info)",borderRadius:8,color:"#fff"}
+const btn={padding:10,background:"var(--info)",borderRadius:8,color:"var(--text)"}
 const qrStyle={position:"absolute",right:10,bottom:10,width:70}
-const tabBtn=(active)=>({flex:1,padding:8,background:active?"var(--success)":"var(--surface-2)",border:"none",color:"#fff"})
+const tabBtn=(active)=>({flex:1,padding:8,background:active?"var(--success)":"var(--surface-2)",border:"none",color:"var(--text)"})
 const templateGrid={display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}
 const templateCard={background:"#111",padding:10,borderRadius:10,cursor:"pointer"}
 const premiumBtn={

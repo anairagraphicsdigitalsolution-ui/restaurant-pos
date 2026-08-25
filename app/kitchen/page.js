@@ -1,8 +1,11 @@
 "use client"
+import { formatIndiaDateTime, formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
+import { printHtmlInFrame } from "@/lib/printUtils"
+import { sendThermalPrint } from "@/lib/thermalPrintClient"
 
 export default function KitchenPage() {
 
@@ -184,16 +187,36 @@ const [kotSize, setKotSize] = useState("80mm")
         .kot{padding:8px}.center{text-align:center}.title{font-size:20px;font-weight:900;letter-spacing:1px}.restaurant{font-size:16px;font-weight:900;margin-top:4px}.sub{font-size:11px;color:#555;margin-top:4px}.powered{font-size:8px;color:#777;text-align:center;margin-top:8px;letter-spacing:.2px}.line{border-top:1px dashed #111;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;font-weight:800}.item{padding:6px 0;border-bottom:1px dotted #999}.note{font-size:10px;margin-top:3px}.foot{font-size:10px;margin-top:10px}
       </style></head><body><div class="kot">
       <div class="center"><div class="title">KITCHEN ORDER TICKET</div><div class="restaurant">${escapeHtml(restaurant?.name || "Restaurant")}</div><div class="sub">${escapeHtml(restaurant?.address || "")}${restaurant?.phone ? ` • ${escapeHtml(restaurant.phone)}` : ""}</div><div class="sub">${escapeHtml(order?.display || "Order")}</div></div>
-      <div class="line"></div><div><b>Order:</b> ${escapeHtml(order?.display || order?.id)}</div><div><b>Time:</b> ${escapeHtml(order?.created_at ? new Date(order.created_at).toLocaleString("en-IN") : "")}</div>
+      <div class="line"></div><div><b>Order:</b> ${escapeHtml(order?.display || order?.id)}</div><div><b>Time:</b> ${escapeHtml(order?.created_at ? formatIndiaDateTime(order.created_at) : "")}</div>
       <div class="line"></div>${items || "<div>No items</div>"}<div class="line"></div><div class="foot">KOT • ${escapeHtml(String(order?.id || "").slice(0,8))}</div><div class="powered">Powered by Anaira Graphics</div>
       </div><script>window.onload=()=>window.print()</script></body></html>`
   }
 
-  function printKot(order) {
+  async function printKotThermal(order) {
     if (!order) return
-    const w = window.open("", "_blank", "width=480,height=760")
-    if (!w) { alert("Please allow pop-ups to print KOT."); return }
-    w.document.write(buildKotHtml(order, kotSize)); w.document.close()
+    const lines = [
+      "KITCHEN ORDER TICKET",
+      restaurant?.name || "Restaurant",
+      restaurant?.address || "",
+      order?.display || order?.id || "Order",
+      "------------------------------",
+      ...(order?.items || []).flatMap(item => [
+        `${item.name || "Item"} x${item.quantity || 0}`,
+        item.cooking_request ? `NOTE: ${item.cooking_request}` : null
+      ].filter(Boolean)),
+      "------------------------------",
+      `KOT • ${String(order?.id || "").slice(0,8)}`
+    ]
+    try {
+      await sendThermalPrint({ type: "kot", content: lines.join("\n"), data: { order_id: order.id, size: "80mm" } })
+    } catch (e) { alert(e.message || "Thermal KOT print failed") }
+  }
+
+  async function printKot(order) {
+    if (!order) return
+    try {
+      await printHtmlInFrame(buildKotHtml(order, kotSize).replace(/<script>window.onload=\(\)=>window.print\(\)<\/script>/, ""), { title: `KOT ${order?.display || order?.id || ""}`, width: kotSize === "A4" ? "210mm" : kotSize === "A5" ? "148mm" : kotSize === "58mm" ? "58mm" : "80mm", height: "auto" })
+    } catch (e) { alert(e.message || "Unable to print KOT") }
   }
 
   function downloadKot(order) {
@@ -608,7 +631,7 @@ const [kotSize, setKotSize] = useState("80mm")
 
 </div>
               <span style={time}>
-                {new Date(order.created_at).toLocaleTimeString()}
+                {formatIndiaTime(order.created_at)}
               </span>
             </div>
             {order.overall_note && (
@@ -655,6 +678,7 @@ const [kotSize, setKotSize] = useState("80mm")
                 <option>A4</option><option>A5</option><option>58mm</option><option>80mm</option>
               </select>
               <button type="button" onClick={()=>printKot(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",cursor:"pointer"}}>🖨 Print KOT</button>
+              <button type="button" onClick={()=>printKotThermal(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--primary)",background:"var(--primary)",color:"#111",cursor:"pointer",fontWeight:800}}>🖨 Thermal 80mm</button>
               <button type="button" onClick={()=>downloadKot(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",cursor:"pointer"}}>⬇ Download KOT</button>
             </div>
 
@@ -740,9 +764,7 @@ const [kotSize, setKotSize] = useState("80mm")
             fontSize:12
           }}
         >
-          {new Date(
-            order.created_at
-          ).toLocaleString()}
+          {formatIndiaDateTime(order.created_at)}
         </div>
 
       </div>

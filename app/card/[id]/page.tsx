@@ -85,7 +85,7 @@ const container: React.CSSProperties = {
   justifyContent:"center",
   alignItems:"center",
   background:"linear-gradient(135deg,var(--background),var(--surface-2))",
-  color:"#fff",
+  color:"var(--text)",
   padding:20
 }
 
@@ -134,7 +134,7 @@ const btn: React.CSSProperties = {
   padding:"10px 14px",
   background:"var(--info)",
   borderRadius:10,
-  color:"#fff",
+  color:"var(--text)",
   textDecoration:"none"
 }
 
@@ -151,5 +151,5 @@ const shareBtn: React.CSSProperties = {
   background:"var(--success)",
   border:"none",
   borderRadius:12,
-  color:"#fff"
+  color:"var(--text)"
 }

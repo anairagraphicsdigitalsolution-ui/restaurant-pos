@@ -146,8 +146,8 @@ export default function DemoPage() {
 
         body {
           margin: 0;
-          background: #020617;
-          color: #fff;
+          background: var(--background);
+          color: var(--text);
         }
 
         .demoPage {
@@ -166,11 +166,11 @@ export default function DemoPage() {
             ),
             linear-gradient(
               180deg,
-              #020617 0%,
-              #07111f 55%,
-              #020617 100%
+              var(--background) 0%,
+              var(--background) 55%,
+              var(--background) 100%
             );
-          color: #fff;
+          color: var(--text);
           font-family:
             Inter,
             ui-sans-serif,
@@ -209,7 +209,7 @@ export default function DemoPage() {
           align-items: center;
           gap: 11px;
           text-decoration: none;
-          color: #fff;
+          color: var(--text);
           font-weight: 800;
           letter-spacing: -.02em;
         }
@@ -239,7 +239,7 @@ export default function DemoPage() {
         .brandSub {
           display: block;
           margin-top: 4px;
-          color: #94a3b8;
+          color: var(--muted);
           font-family: Inter, sans-serif;
           font-size: 9px;
           font-weight: 600;
@@ -253,18 +253,18 @@ export default function DemoPage() {
         }
 
         .navLinks a {
-          color: #cbd5e1;
+          color: var(--border);
           text-decoration: none;
           font-size: 13px;
           font-weight: 600;
         }
 
         .navLinks a:hover {
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .navContact {
-          color: #fbbf24 !important;
+          color: var(--warning) !important;
           padding: 9px 14px;
           border: 1px solid rgba(251,191,36,.35);
           border-radius: 10px;
@@ -290,11 +290,11 @@ export default function DemoPage() {
 
         .navCta {
           padding: 11px 16px;
-          color: #111827 !important;
+          color: var(--surface) !important;
           background: linear-gradient(
             135deg,
-            #fbbf24,
-            #f59e0b
+            var(--warning),
+            var(--warning)
           );
         }
 
@@ -333,12 +333,12 @@ export default function DemoPage() {
         }
 
         .gold {
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .heroText {
           max-width: 650px;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 18px;
           line-height: 1.75;
         }
@@ -355,24 +355,24 @@ export default function DemoPage() {
         }
 
         .heroCta.primary {
-          color: #111827;
+          color: var(--surface);
           background:
             linear-gradient(
               135deg,
-              #fbbf24,
-              #f59e0b
+              var(--warning),
+              var(--warning)
             );
         }
 
         .heroCta.secondary {
-          color: #fff;
+          color: var(--text);
           background: rgba(255,255,255,.06);
           border: 1px solid rgba(255,255,255,.12);
         }
 
         .trust {
           margin-top: 24px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 13px;
         }
 
@@ -400,7 +400,7 @@ export default function DemoPage() {
           align-items: center;
           gap: 6px;
           padding: 0 10px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 11px;
         }
 
@@ -408,7 +408,7 @@ export default function DemoPage() {
           width: 7px;
           height: 7px;
           border-radius: 50%;
-          background: #334155;
+          background: var(--muted);
         }
 
         .mockBody {
@@ -429,7 +429,7 @@ export default function DemoPage() {
 
         .mockSide strong {
           display: block;
-          color: #fbbf24;
+          color: var(--warning);
           font-size: 13px;
           margin-bottom: 22px;
         }
@@ -437,14 +437,14 @@ export default function DemoPage() {
         .mockItem {
           padding: 9px 10px;
           border-radius: 9px;
-          color: #64748b;
+          color: var(--muted);
           font-size: 11px;
           margin-bottom: 5px;
         }
 
         .mockItem.active {
           background: rgba(251,191,36,.12);
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .mockMain {
@@ -458,7 +458,7 @@ export default function DemoPage() {
         }
 
         .mockSub {
-          color: #64748b;
+          color: var(--muted);
           font-size: 11px;
         }
 
@@ -475,26 +475,26 @@ export default function DemoPage() {
           background:
             linear-gradient(
               145deg,
-              #111827,
-              #0f172a
+              var(--surface),
+              var(--surface)
             );
           border: 1px solid rgba(255,255,255,.06);
         }
 
         .miniCard small {
-          color: #64748b;
+          color: var(--muted);
           font-size: 9px;
         }
 
         .miniCard b {
           display: block;
-          color: #fff;
+          color: var(--text);
           font-size: 20px;
           margin-top: 7px;
         }
 
         .miniCard span {
-          color: #22c55e;
+          color: var(--success);
           font-size: 9px;
         }
 
@@ -515,7 +515,7 @@ export default function DemoPage() {
 
         .sectionHead p {
           margin: 0;
-          color: #94a3b8;
+          color: var(--muted);
           line-height: 1.7;
         }
 
@@ -555,7 +555,7 @@ export default function DemoPage() {
 
         .feature p {
           margin: 0;
-          color: #94a3b8;
+          color: var(--muted);
           font-size: 13px;
           line-height: 1.65;
         }
@@ -582,7 +582,7 @@ export default function DemoPage() {
           border-radius: 11px;
           border: 1px solid transparent;
           background: transparent;
-          color: #94a3b8;
+          color: var(--muted);
           cursor: pointer;
           font-weight: 700;
           font-size: 12px;
@@ -591,7 +591,7 @@ export default function DemoPage() {
         .demoTab.active {
           background: rgba(251,191,36,.12);
           border-color: rgba(251,191,36,.25);
-          color: #fbbf24;
+          color: var(--warning);
         }
 
         .demoPreview {
@@ -612,7 +612,7 @@ export default function DemoPage() {
 
         .previewHead p {
           margin: 0;
-          color: #64748b;
+          color: var(--muted);
           font-size: 13px;
         }
 
@@ -620,7 +620,7 @@ export default function DemoPage() {
           padding: 7px 10px;
           border-radius: 999px;
           background: rgba(34,197,94,.10);
-          color: #4ade80;
+          color: var(--success);
           font-size: 11px;
           font-weight: 800;
         }
@@ -635,12 +635,12 @@ export default function DemoPage() {
         .previewCard {
           padding: 18px;
           border-radius: 17px;
-          background: #0f172a;
+          background: var(--surface);
           border: 1px solid rgba(255,255,255,.06);
         }
 
         .previewCard small {
-          color: #64748b;
+          color: var(--muted);
         }
 
         .previewCard b {
@@ -650,7 +650,7 @@ export default function DemoPage() {
         }
 
         .previewCard span {
-          color: #fbbf24;
+          color: var(--warning);
           font-size: 11px;
         }
 
@@ -668,7 +668,7 @@ export default function DemoPage() {
         }
 
         .stepNo {
-          color: #fbbf24;
+          color: var(--warning);
           font-size: 12px;
           font-weight: 900;
           letter-spacing: .12em;
@@ -680,7 +680,7 @@ export default function DemoPage() {
 
         .step p {
           margin: 0;
-          color: #94a3b8;
+          color: var(--muted);
           line-height: 1.65;
           font-size: 14px;
         }
@@ -713,14 +713,14 @@ export default function DemoPage() {
         .cta p {
           margin: 0 auto 23px;
           max-width: 620px;
-          color: #94a3b8;
+          color: var(--muted);
           line-height: 1.7;
         }
 
         .footer {
           padding: 25px 0 35px;
           border-top: 1px solid rgba(255,255,255,.07);
-          color: #64748b;
+          color: var(--muted);
           font-size: 12px;
         }
 
@@ -770,7 +770,7 @@ export default function DemoPage() {
             display: block;
             background: transparent;
             border: 1px solid rgba(255,255,255,.12);
-            color: #fff;
+            color: var(--text);
             border-radius: 10px;
             padding: 9px 11px;
           }

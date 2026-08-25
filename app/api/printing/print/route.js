@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
+import { validateExternalUrl } from "@/lib/pluginRuntime"
 
 export const runtime="nodejs"
 
@@ -18,8 +19,7 @@ export async function POST(req){
   const {data:settings}=await supabaseAdmin.from("plugin_settings").select("config")
     .eq("restaurant_id",r.restaurantId).eq("plugin_code",printerCode).maybeSingle()
   const cfg=settings?.config||{}
-  const bridge=String(cfg.bridge_url||"").trim()
-  if(!bridge)throw new Error("Printer bridge URL is not configured")
+  const bridge=validateExternalUrl(cfg.bridge_url, { allowPrivate: cfg.allow_private_bridge === true, requireHttps: cfg.allow_private_bridge !== true }).toString()
   const response=await fetch(bridge,{
     method:"POST",
     headers:{"Content-Type":"application/json"},

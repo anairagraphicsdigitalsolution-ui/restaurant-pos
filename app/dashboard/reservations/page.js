@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaTime, indiaDateKey } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -35,7 +36,7 @@ const [restaurantId, setRestaurantId] = useState(null)
   const [selectedReservation, setSelectedReservation] = useState(null)
 
   const normalizePhone = value => String(value || "").replace(/\D/g, "")
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const todayISO = indiaDateKey(new Date())
 
   const getRestaurant = async () => {
     try {
@@ -385,23 +386,23 @@ useEffect(() => {
 .page-kicker:before{content:"";width:26px;height:2px;background:linear-gradient(90deg,var(--primary),var(--warning));border-radius:10px}
 .hero-subtitle{margin:0;color:var(--muted);font-size:14px;max-width:700px;line-height:1.55}
 .live-badge{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);color:#7af2a0;font-weight:900;font-size:11px;letter-spacing:1.1px;box-shadow:0 10px 24px rgba(0,0,0,.16)}
-.live-badge i{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 5px rgba(74,222,128,.10)}
+.live-badge i{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 5px rgba(74,222,128,.10)}
 .reservation-header-bar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 18px;padding:14px 16px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.025));backdrop-filter:blur(22px);box-shadow:0 16px 45px rgba(0,0,0,.20)}
-.reservation-kicker{display:block;font-size:10px;letter-spacing:1.7px;color:var(--muted);font-weight:900;margin-bottom:4px;text-transform:uppercase}.reservation-header-bar strong{display:block;color:#fff;font-size:14px}.reservation-header-bar small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
-.reservation-header-actions{display:flex;gap:8px}.ghost-btn,.refresh-btn,.view-btn,.detail-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;border-radius:11px;padding:9px 13px;font-weight:800;cursor:pointer;transition:.2s}.ghost-btn:hover,.refresh-btn:hover,.view-btn:hover,.detail-actions button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.20)}.refresh-btn:disabled{opacity:.6;cursor:wait}
+.reservation-kicker{display:block;font-size:10px;letter-spacing:1.7px;color:var(--muted);font-weight:900;margin-bottom:4px;text-transform:uppercase}.reservation-header-bar strong{display:block;color:var(--text);font-size:14px}.reservation-header-bar small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.reservation-header-actions{display:flex;gap:8px}.ghost-btn,.refresh-btn,.view-btn,.detail-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--text);border-radius:11px;padding:9px 13px;font-weight:800;cursor:pointer;transition:.2s}.ghost-btn:hover,.refresh-btn:hover,.view-btn:hover,.detail-actions button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.20)}.refresh-btn:disabled{opacity:.6;cursor:wait}
 .stats-grid,.reservations-page .stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important;margin-bottom:12px!important}
 .main-stat{padding:18px 18px 16px!important;border-radius:19px!important;background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.025))!important;border:1px solid rgba(255,255,255,.08)!important;box-shadow:0 18px 45px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.04)!important;position:relative;overflow:hidden}
 .main-stat:after{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,rgba(var(--primary-rgb),.7),rgba(var(--warning-rgb),.45));opacity:.8}
 .main-stat h2{font-size:34px!important;line-height:1!important;margin:0 0 8px!important;letter-spacing:-1px}.main-stat p{margin:0;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.8px}
-.reservation-extra-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 18px}.mini-stat{padding:12px 14px;border-radius:15px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}.mini-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.mini-stat b{display:block;color:#fff;font-size:19px;margin-top:3px}
+.reservation-extra-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 18px}.mini-stat{padding:12px 14px;border-radius:15px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}.mini-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.mini-stat b{display:block;color:var(--text);font-size:19px;margin-top:3px}
 .reservation-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 220px 110px;gap:10px;align-items:center;margin:0 0 18px;padding:10px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);box-shadow:0 14px 35px rgba(0,0,0,.16)}
-.toolbar-search{position:relative;display:flex;align-items:center}.toolbar-icon{position:absolute;left:14px;color:var(--muted);font-size:18px;z-index:2}.toolbar-search input{padding-left:40px!important;padding-right:38px!important}.clear-search{position:absolute;right:9px;width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:#fff;cursor:pointer}.toolbar-filter{display:flex;align-items:center;gap:8px}.toolbar-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:900;white-space:nowrap}.toolbar-filter select{flex:1}.toolbar-result{min-height:48px;display:flex;flex-direction:column;justify-content:center;align-items:center;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)}.toolbar-result b{font-size:18px;color:#fff}.toolbar-result span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.toolbar-search{position:relative;display:flex;align-items:center}.toolbar-icon{position:absolute;left:14px;color:var(--muted);font-size:18px;z-index:2}.toolbar-search input{padding-left:40px!important;padding-right:38px!important}.clear-search{position:absolute;right:9px;width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:var(--text);cursor:pointer}.toolbar-filter{display:flex;align-items:center;gap:8px}.toolbar-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:900;white-space:nowrap}.toolbar-filter select{flex:1}.toolbar-result{min-height:48px;display:flex;flex-direction:column;justify-content:center;align-items:center;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)}.toolbar-result b{font-size:18px;color:var(--text)}.toolbar-result span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
 .form-mode-pill{display:inline-block;margin-left:10px;padding:5px 9px;border-radius:999px;background:rgba(var(--primary-rgb),.10);border:1px solid rgba(var(--primary-rgb),.22);color:var(--primary);font-size:10px;vertical-align:middle}.availability-hint{font-size:11px;color:var(--muted);align-self:center;padding-left:2px}
 .reservations-form{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important;padding:18px!important;border-radius:22px!important;background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.02))!important;border:1px solid rgba(255,255,255,.08)!important;box-shadow:0 24px 55px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.03)!important}
 .reservations-form h2{font-size:20px!important;margin-bottom:2px!important}.reservations-form input,.reservations-form select,.reservations-form textarea{min-height:46px}.reservations-form textarea{min-height:92px!important;resize:vertical}
 .reservation-detail-panel{margin-top:16px;padding:16px 18px;border-radius:18px;background:linear-gradient(135deg,rgba(var(--primary-rgb),.055),rgba(255,255,255,.025));border:1px solid rgba(var(--primary-rgb),.16);display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;justify-content:space-between;gap:18px;align-items:center}.reservation-detail-panel h3{margin:0 0 4px;font-size:20px}.reservation-detail-panel p{margin:0;color:var(--muted);font-size:12px}.detail-actions{display:flex;gap:8px;flex-wrap:wrap}.detail-meta{display:flex;gap:7px;flex-wrap:wrap}.detail-chip{padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#dfe5ee;font-size:11px;font-weight:800}
-.section-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:24px 0 10px;padding:0 2px}.section-heading span{font-size:10px;letter-spacing:1.6px;color:var(--muted);font-weight:900}.section-heading h2{margin:3px 0 0;font-size:23px;color:#fff;letter-spacing:-.4px}.section-heading small{color:var(--muted);font-size:11px}
-.reservations-grid{gap:13px!important}.reservation-card{padding:18px!important;border-radius:20px!important}.reservation-card:hover{transform:translateY(-2px);transition:.2s;border-color:rgba(255,255,255,.13)!important}.reservation-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.guest-identity{display:flex;gap:10px;align-items:center}.guest-avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(var(--primary-rgb),.22),rgba(var(--warning-rgb),.20));border:1px solid rgba(var(--primary-rgb),.22);color:#fff;font-weight:900}.guest-identity h3{margin:0;font-size:15px;color:#fff}.guest-identity span{display:block;color:var(--muted);font-size:10px;margin-top:2px}.status-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px}.status-wrap [style*="text-transform"]{margin-bottom:0!important;padding:6px 10px!important;font-size:9px!important}.view-btn{padding:6px 9px!important;font-size:10px}
+.section-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:24px 0 10px;padding:0 2px}.section-heading span{font-size:10px;letter-spacing:1.6px;color:var(--muted);font-weight:900}.section-heading h2{margin:3px 0 0;font-size:23px;color:var(--text);letter-spacing:-.4px}.section-heading small{color:var(--muted);font-size:11px}
+.reservations-grid{gap:13px!important}.reservation-card{padding:18px!important;border-radius:20px!important}.reservation-card:hover{transform:translateY(-2px);transition:.2s;border-color:rgba(255,255,255,.13)!important}.reservation-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.guest-identity{display:flex;gap:10px;align-items:center}.guest-avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(var(--primary-rgb),.22),rgba(var(--warning-rgb),.20));border:1px solid rgba(var(--primary-rgb),.22);color:var(--text);font-weight:900}.guest-identity h3{margin:0;font-size:15px;color:var(--text)}.guest-identity span{display:block;color:var(--muted);font-size:10px;margin-top:2px}.status-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px}.status-wrap [style*="text-transform"]{margin-bottom:0!important;padding:6px 10px!important;font-size:9px!important}.view-btn{padding:6px 9px!important;font-size:10px}
 .reservation-actions{gap:7px!important}.reservation-actions button{padding:11px!important;border-radius:12px!important;font-size:12px}
 .reservation-header-actions button{min-height:40px}
 @media(max-width:1100px){.reservation-toolbar{grid-template-columns:minmax(0,1fr) 180px 96px}.reservations-form{grid-template-columns:1fr 1fr!important}.reservation-detail-panel{grid-template-columns:1fr 1fr}.hero-title-row{align-items:flex-start}}
@@ -416,7 +417,7 @@ useEffect(() => {
         <div className="live-badge"><i></i> LIVE</div>
       </div>
       <div className="reservation-header-bar">
-        <div><span className="reservation-kicker">LIVE RESERVATION DESK</span><strong>{restaurantId ? "Restaurant connected" : "Connecting…"}</strong>{lastUpdated && <small>Updated {lastUpdated.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</small>}</div>
+        <div><span className="reservation-kicker">LIVE RESERVATION DESK</span><strong>{restaurantId ? "Restaurant connected" : "Connecting…"}</strong>{lastUpdated && <small>Updated {formatIndiaTime(lastUpdated)}</small>}</div>
         <div className="reservation-header-actions">
           {editId && <button type="button" onClick={resetForm} className="ghost-btn">Cancel edit</button>}
           <button type="button" onClick={() => void refreshReservations()} disabled={refreshing} className="refresh-btn">{refreshing ? "Refreshing…" : "↻ Refresh"}</button>
@@ -430,7 +431,7 @@ style={{
 fontSize:42,
 fontWeight:900,
 marginBottom:8,
-color:"#fff"
+color:"var(--text)"
 }}
 >
 {reservations.length}
@@ -758,7 +759,7 @@ const layout = {
   minHeight: "100vh",
   padding: "32px clamp(14px, 3vw, 40px) 48px",
   background: "radial-gradient(circle at 10% 0%, rgba(var(--primary-rgb),.11), transparent 28%), radial-gradient(circle at 88% 18%, rgba(var(--warning-rgb),.07), transparent 25%), linear-gradient(180deg, var(--background), #07090d)",
-  color: "#fff"
+  color: "var(--text)"
 }
 
 const title = {
@@ -766,7 +767,7 @@ const title = {
   fontWeight: 900,
   margin: "2px 0 8px",
   letterSpacing: -1.4,
-  color: "#fff"
+  color: "var(--text)"
 }
 
 const formBox = {
@@ -789,7 +790,7 @@ const input = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,.10)",
   background: "rgba(255,255,255,.045)",
-  color: "#fff",
+  color: "var(--text)",
   fontSize: 14,
   outline: "none",
   backdropFilter: "blur(18px)",
@@ -804,7 +805,7 @@ const select = {
 }
 const optionStyle = {
   background: "#11151c",
-  color: "#fff"
+  color: "var(--text)"
 }
 const saveBtn = {
   padding: "14px 18px",
@@ -885,7 +886,7 @@ const editBtn = {
   border:"1px solid rgba(96,165,250,.30)",
   background:"rgba(var(--info-rgb),.10)",
   backdropFilter:"blur(20px)",
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:700,
   cursor:"pointer"
 }
@@ -896,7 +897,7 @@ const deleteBtn = {
   border:"1px solid rgba(248,113,113,.30)",
   background:"rgba(var(--danger-rgb),.08)",
   backdropFilter:"blur(20px)",
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:700,
   cursor:"pointer"
 }
@@ -907,7 +908,7 @@ const confirmBtn = {
   border:"1px solid rgba(var(--success-rgb),.30)",
   background:"rgba(var(--success-rgb),.08)",
   backdropFilter:"blur(20px)",
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:700,
   cursor:"pointer"
 }
@@ -918,7 +919,7 @@ const cancelBtn = {
   border:"1px solid rgba(var(--danger-rgb),.30)",
   background:"rgba(var(--danger-rgb),.08)",
   backdropFilter:"blur(20px)",
-  color:"#fff",
+  color:"var(--text)",
   fontWeight:700,
   cursor:"pointer"
 }
@@ -944,4 +945,4 @@ const statCard = {
   boxShadow: "0 18px 45px rgba(0,0,0,.35)"
 }
 
-const secondaryBtn = { padding:"16px", borderRadius:18, border:"1px solid rgba(255,255,255,.14)", background:"rgba(255,255,255,.04)", color:"#fff", fontWeight:800, cursor:"pointer" }
+const secondaryBtn = { padding:"16px", borderRadius:18, border:"1px solid rgba(255,255,255,.14)", background:"rgba(255,255,255,.04)", color:"var(--text)", fontWeight:800, cursor:"pointer" }

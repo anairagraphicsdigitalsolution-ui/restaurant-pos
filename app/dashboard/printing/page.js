@@ -1,17 +1,20 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 export default function PrintingPage(){
+ const router=useRouter()
   const [rid,setRid]=useState("")
   const [configs,setConfigs]=useState({})
   const [msg,setMsg]=useState("")
   useEffect(()=>{load()},[])
   async function load(){
     const {data:{user}}=await supabase.auth.getUser();if(!user)return
-    const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",user.id).maybeSingle()
+    const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
     if(!p?.restaurant_id)return
+  if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
     setRid(p.restaurant_id)
     const {data}=await supabase.from("plugin_settings").select("plugin_code,config").eq("restaurant_id",p.restaurant_id)
     const c={};for(const x of data||[])c[x.plugin_code]=x.config||{}

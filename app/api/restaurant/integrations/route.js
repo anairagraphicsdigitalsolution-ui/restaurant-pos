@@ -7,10 +7,15 @@ export const runtime = "nodejs"
 
 const ALLOWED = new Set(["swiggy","zomato"])
 
-async function context(req){
+async function context(req, requireSuperAdmin=false){
   const user = await requireApiUser(req)
   const resolved = await resolveRestaurantForUser(user)
   if(!resolved.restaurantId) throw new Error("Restaurant profile not found")
+  if(requireSuperAdmin){
+    const {data:profile,error}=await supabaseAdmin.from("profiles").select("role").eq("id",user.id).maybeSingle()
+    if(error) throw error
+    if(profile?.role!=="super_admin") throw new Error("Super Admin access required")
+  }
   return {user,restaurantId:resolved.restaurantId}
 }
 
@@ -37,7 +42,7 @@ export async function GET(req){
 
 export async function POST(req){
   try{
-    const {restaurantId}=await context(req)
+    const {restaurantId}=await context(req,true)
     const body=await req.json()
     const provider=safeProvider(body.provider)
     const config=body.config||{}

@@ -34,7 +34,7 @@ export default function WebsiteOrderPage(){
 const shell={minHeight:"100vh",padding:20,background:"var(--background)",color:"var(--text)"}
 const wrap={maxWidth:1100,margin:"0 auto"}
 const hero={display:"flex",gap:15,alignItems:"center",padding:22,borderRadius:20,background:"var(--surface)",border:"1px solid var(--border)",marginBottom:15}
-const logo={width:65,height:65,objectFit:"contain",borderRadius:14,background:"#fff"}
+const logo={width:65,height:65,objectFit:"contain",borderRadius:14,background:"var(--text)"}
 const eyebrow={fontSize:10,fontWeight:900,letterSpacing:1.5,color:"var(--primary)"}
 const grid={display:"grid",gridTemplateColumns:"1fr 330px",gap:15}
 const item={display:"flex",gap:12,padding:15,borderRadius:16,background:"var(--surface)",border:"1px solid var(--border)",marginBottom:10}

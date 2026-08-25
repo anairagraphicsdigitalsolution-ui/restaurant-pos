@@ -491,7 +491,7 @@ if (insertError) {
     style={{
       margin:"10px 0",
       fontSize:42,
-      color:"#fff"
+      color:"var(--text)"
     }}
   >
     Admin Control Center
@@ -542,7 +542,7 @@ if (insertError) {
             <select
               value={selectedCategoryValue}
               onChange={(e)=>handleCategoryChange(e.target.value)}
-              style={{width:"100%",padding:12,borderRadius:12,background:"var(--surface-2)",color:"#fff",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
+              style={{width:"100%",padding:12,borderRadius:12,background:"var(--surface-2)",color:"var(--text)",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
             >
               <option value="">Select category</option>
               {foodCategories.map((cat)=><option key={cat} value={cat}>{cat}</option>)}
@@ -554,7 +554,7 @@ if (insertError) {
                 onChange={(e)=>setNewCategory(e.target.value)}
                 placeholder="Enter new food category"
                 autoFocus
-                style={{width:"100%",padding:12,borderRadius:12,marginTop:8,background:"var(--surface-2)",color:"#fff",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
+                style={{width:"100%",padding:12,borderRadius:12,marginTop:8,background:"var(--surface-2)",color:"var(--text)",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
               />
             )}
             {!!foodCategories.length && categoryMode !== "new" && (
@@ -822,7 +822,7 @@ onClick={()=>editItem(i)}
 style={{
 background:"linear-gradient(135deg,var(--surface),var(--surface-2))",
 border:"1px solid rgba(var(--primary-rgb),.35)",
-color:"#fff",
+color:"var(--text)",
 padding:"10px 18px",
 borderRadius:12,
 cursor:"pointer",
@@ -868,7 +868,7 @@ const layout = {
   background:
     "linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
   minHeight:"100vh",
-  color:"#fff"
+  color:"var(--text)"
 }
 
 const topGrid: CSSProperties = {
@@ -922,7 +922,7 @@ background:"linear-gradient(135deg,color-mix(in srgb, var(--danger) 55%, var(--s
 
 border:"1px solid rgba(248,113,113,.35)",
 
-color:"#fff",
+color:"var(--text)",
 
 padding:"10px 18px",
 
@@ -949,7 +949,7 @@ const fileInput: CSSProperties = {
   padding:10,
   borderRadius:10,
   background:"var(--background)",
-  color:"#fff",
+  color:"var(--text)",
   border:"1px solid var(--surface-2)",
   boxSizing:"border-box"
 }
@@ -1025,7 +1025,7 @@ const Input=({value,set,placeholder}:{
       borderRadius:12,
       background:"var(--background)",
       border:"1px solid var(--surface-2)",
-      color:"#fff",
+      color:"var(--text)",
       fontSize:14,
       outline:"none",
       boxSizing:"border-box"

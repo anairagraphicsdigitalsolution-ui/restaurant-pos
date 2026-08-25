@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaDate } from "@/lib/indiaTime"
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -222,15 +223,12 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       path: "/dashboard/restaurant-pro",
       hubPlugin: "restaurant-pro",
       children: [
-        { name: "Pro Features", path: "/dashboard/restaurant-pro" },
-        { name: "Website Ordering", path: "/dashboard/website-ordering", feature: "website-ordering" },
+        { name: "Pro Plugins", path: "/dashboard/restaurant-pro" },
         { name: "Captain / Waiter", path: "/staff", feature: "captain-app" },
         { name: "Smart Notifications", path: "/dashboard/notifications", feature: "smart-notifications" },
         { name: "Calling Device", path: "/dashboard/calling", feature: "calling-device" },
-        { name: "Offers & Promotions", path: "/dashboard/offers", feature: "offers" },
-        { name: "Printing Center", path: "/dashboard/printing", feature: "thermal-printing" },
-        { name: "Facebook / Instagram", path: "/dashboard/social", feature: "facebook-integration" },
-        { name: "Integrations", path: "/dashboard/restaurant-pro" },
+        { name: "QR Ordering", path: "/dashboard/qr", feature: "qr-ordering-pro" },
+        { name: "QR Print Center", path: "/dashboard/qr?view=print", feature: "qr-print-center" },
       ],
     },
     {
@@ -599,7 +597,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       <div style={profileBox}>
         <p style={email}>{userEmail}</p>
         <span style={roleBadge()}>{role || "Loading…"}</span>
-        {role !== "super_admin" && planName && <span style={planBadge}>{planName}{planEndsAt ? ` · ${new Date(planEndsAt).toLocaleDateString("en-IN")}` : ""}</span>}
+        {role !== "super_admin" && planName && <span style={planBadge}>{planName}{planEndsAt ? ` · ${formatIndiaDate(planEndsAt)}` : ""}</span>}
       </div>
 
       <div style={{ flex: 1 }}>
@@ -695,7 +693,7 @@ const superAdminLogoStyle: CSSProperties = {
   height: 86,
   objectFit: "contain",
   borderRadius: 16,
-  background: "#ffffff",
+  background: "var(--text)",
   padding: 6,
 }
 const logoPlaceholder: CSSProperties = { fontSize: 32 }
@@ -726,7 +724,7 @@ const profileBox: CSSProperties = {
   marginBottom:24
 }
 
-const email: CSSProperties = { fontSize: 12, color: "#fff" }
+const email: CSSProperties = { fontSize: 12, color: "var(--text)" }
 
 const roleBadge = (): CSSProperties => ({
 
@@ -940,7 +938,7 @@ const logoutBtn: CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: "linear-gradient(135deg,var(--danger),var(--danger))",
-  color: "#fff",
+  color: "var(--text)",
   border: "none",
   cursor: "pointer",
   fontWeight: "600",

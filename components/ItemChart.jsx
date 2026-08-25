@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recha
 export default function ItemChart({ data = [] }) {
   return (
     <div style={{background:"#111",padding:20,borderRadius:12}}>
-      <h3 style={{color:"#fff"}}> Top Selling Items</h3>
+      <h3 style={{color:"var(--text)"}}> Top Selling Items</h3>
 
       <ResponsiveContainer width="100%" height={250}>
         <BarChart data={data}>
@@ -23,7 +23,7 @@ export default function ItemChart({ data = [] }) {
     background:"var(--surface-2)",
     border:"1px solid rgba(var(--primary-rgb),.3)",
     borderRadius:"14px",
-    color:"#fff"
+    color:"var(--text)"
   }}
 />
           <Bar dataKey="total" fill="#ddbc01" />

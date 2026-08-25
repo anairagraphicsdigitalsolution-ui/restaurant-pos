@@ -1,4 +1,5 @@
 "use client"
+import { indiaDateKey } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -78,7 +79,7 @@ export default function CashClosing() {
     setLoading(true)
     try {
       const { data: userData } = await supabase.auth.getUser()
-      const businessDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+      const businessDate = indiaDateKey(new Date())
 
       const { error } = await supabase
         .from("cash_closings")

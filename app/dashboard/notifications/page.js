@@ -1,4 +1,5 @@
 "use client"
+import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
@@ -205,7 +206,7 @@ export default function Notifications() {
                 <div>
                   <b>{x.title}</b>
                   <p>{displayMessage}</p>
-                  <small>{new Date(x.created_at).toLocaleString("en-IN")}</small>
+                  <small>{formatIndiaDateTime(x.created_at)}</small>
                   {x.action_url && <div className="open">Open Kitchen →</div>}
                 </div>
               </div>
