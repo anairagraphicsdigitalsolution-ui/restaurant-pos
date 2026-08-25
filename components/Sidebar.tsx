@@ -158,24 +158,15 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
   useEffect(() => {
     if (!restaurantId || role === "super_admin") return
-
-    const channel = supabase
-      .channel(`sidebar-notification-count-${restaurantId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `restaurant_id=eq.${restaurantId}`,
-        },
-        () => setUnreadNotifications(count => count + 1)
-      )
-      .subscribe()
-
-    return () => {
-      void supabase.removeChannel(channel)
+    let mounted = true
+    async function loadUnread() {
+      const { count } = await supabase.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
+      if (mounted) setUnreadNotifications(count || 0)
     }
+    void loadUnread()
+    const handler = () => { if (mounted) setUnreadNotifications(value => value + 1) }
+    window.addEventListener("anaira:notification", handler)
+    return () => { mounted = false; window.removeEventListener("anaira:notification", handler) }
   }, [restaurantId, role])
 
   async function handleLogout() {

@@ -74,79 +74,27 @@ export default function AppUtilities({ restaurantId, role }: Props) {
 
   useEffect(() => {
     if (!restaurantId || role === "super_admin") return
-
-    let channel: any = null
     let mounted = true
-
-    async function loadUnread() {
-      const { count } = await supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("restaurant_id", restaurantId)
-        .is("read_at", null)
+    async function loadInitial() {
+      const { count } = await supabase.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
       if (mounted) setUnread(count || 0)
     }
-
-    async function subscribe() {
-      await loadUnread()
-
-      const { data } = await supabase
-        .from("notifications")
-        .select("id,title,message,type,action_url,created_at")
-        .eq("restaurant_id", restaurantId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-
-      if (!mounted) return
-      if (data?.[0]) lastNotificationId.current = data[0].id
-
-      const handleNewNotification = async (n: any) => {
-        if (!mounted || !n?.id || n.id === lastNotificationId.current) return
-        lastNotificationId.current = n.id
-        if (!n.read_at) setUnread((value) => value + 1)
-        if (!notificationsEnabledRef.current) return
-        setToast(n)
-
-        const audio = audioRef.current
-        if (audio) {
-          try {
-            audio.pause()
-            audio.currentTime = 0
-            audio.muted = false
-            await audio.play()
-          } catch {
-            // Browsers can block sound until a user gesture. The visual toast remains active.
-          }
-        }
-
-        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-          try {
-            new Notification(n.title || "New notification", {
-              body: n.message || "You have a new restaurant notification.",
-              icon: "/Logo.png",
-            })
-          } catch {}
-        }
-
-        window.setTimeout(() => mounted && setToast(null), 7000)
+    void loadInitial()
+    const handler = async (event: Event) => {
+      const n = (event as CustomEvent<any>).detail
+      if (!mounted || !n?.id) return
+      if (!n.read_at) setUnread(value => value + 1)
+      if (!notificationsEnabledRef.current) return
+      setToast(n)
+      const audio = audioRef.current
+      if (audio) { try { audio.pause(); audio.currentTime = 0; audio.muted = false; await audio.play() } catch {} }
+      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        try { new Notification(n.title || "New notification", { body: n.message || "You have a new restaurant notification.", icon: "/Logo.png" }) } catch {}
       }
-
-      channel = supabase
-        .channel(`live-notifications-${restaurantId}`)
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` },
-          (payload) => handleNewNotification(payload.new)
-        )
-        .subscribe()
+      window.setTimeout(() => mounted && setToast(null), 7000)
     }
-
-    void subscribe()
-
-    return () => {
-      mounted = false
-      if (channel) void supabase.removeChannel(channel)
-    }
+    window.addEventListener("anaira:notification", handler)
+    return () => { mounted = false; window.removeEventListener("anaira:notification", handler) }
   }, [restaurantId, role])
 
   useEffect(() => {

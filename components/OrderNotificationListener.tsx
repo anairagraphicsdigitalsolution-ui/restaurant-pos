@@ -107,36 +107,12 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
 
   useEffect(() => {
     if (!user || !restaurantId || role === "super_admin") return
-
-    let cancelled = false
-    let channel: any = null
-
-    async function start() {
-      if (cancelled) return
-      channel = supabase
-        .channel(`restaurant-notifications-${restaurantId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "notifications",
-            filter: `restaurant_id=eq.${restaurantId}`,
-          },
-          payload => {
-            if (!cancelled) showNotice(payload.new as Notice)
-          }
-        )
-        .subscribe()
-
+    const handler = (event: Event) => {
+      const row = (event as CustomEvent<Notice>).detail
+      showNotice(row)
     }
-
-    start()
-
-    return () => {
-      cancelled = true
-      if (channel) void supabase.removeChannel(channel)
-    }
+    window.addEventListener("anaira:notification", handler)
+    return () => window.removeEventListener("anaira:notification", handler)
   }, [user, restaurantId, role, showNotice])
 
   if (!user || !restaurantId || role === "super_admin") return null

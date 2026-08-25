@@ -126,6 +126,20 @@ export default function PluginsPage(){
     setMessage(`✅ ${plugin.name} settings saved for ${selected.name}`)
   }
 
+  async function testPluginConnection(plugin){
+    if(!selected) return
+    try{
+      await saveConfig(plugin)
+      const headers=await authHeaders()
+      const res=await fetch("/api/plugins/test",{method:"POST",headers,body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code})})
+      const data=await res.json()
+      if(!res.ok||!data.success) throw new Error(data.error||"Connection test failed")
+      setMessage(`✅ ${plugin.name}: connection/runtime is ready`)
+    }catch(e){
+      setMessage(`❌ ${plugin.name}: ${e.message}`)
+    }
+  }
+
   async function testWhatsApp(plugin){
     if(plugin.code!=="whatsapp-invoice" || !selected) return
     try{
@@ -380,7 +394,7 @@ export default function PluginsPage(){
                           {on && <button className="plugin-btn" onClick={()=>loadConfig(p)} style={ghost}>⚙ Configure</button>}
                         </div>
                       </div>
-                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} onSave={()=>saveConfig(p)} onTest={()=>testWhatsApp(p)} />}
+                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} onSave={()=>saveConfig(p)} onTest={testPluginConnection} onWhatsAppTest={testWhatsApp} />}
                     </article>
                   })}
                 </div>
@@ -628,6 +642,10 @@ const PLUGIN_SETTINGS = {
         ["base_url","Partner API base URL","text",""],
         ["api_key","API credential","password",""],
         ["webhook_secret","Webhook secret","password",""],
+        ["webhook_signature_header","Webhook signature header","text","x-webhook-signature"],
+        ["webhook_signature_algorithm","Webhook signature algorithm","text","sha256"],
+        ["webhook_signature_prefix","Webhook signature prefix","text","sha256="],
+        ["health_path","Connection test path","text","/"],
         ["environment","Environment","select",["sandbox","production"]],
       ]},
       {title:"Order Sync",fields:[
@@ -646,6 +664,10 @@ const PLUGIN_SETTINGS = {
         ["base_url","Partner API base URL","text",""],
         ["api_key","API credential","password",""],
         ["webhook_secret","Webhook secret","password",""],
+        ["webhook_signature_header","Webhook signature header","text","x-webhook-signature"],
+        ["webhook_signature_algorithm","Webhook signature algorithm","text","sha256"],
+        ["webhook_signature_prefix","Webhook signature prefix","text","sha256="],
+        ["health_path","Connection test path","text","/"],
         ["environment","Environment","select",["sandbox","production"]],
       ]},
       {title:"Order Sync",fields:[
@@ -688,11 +710,11 @@ const PLUGIN_SETTINGS = {
   }
 }
 
-function PluginConfig({plugin,config,setConfig,onSave,onTest}){
+function PluginConfig({plugin,config,setConfig,onSave,onTest,onWhatsAppTest}){
   const schema=PLUGIN_SETTINGS[plugin.code]
   const set=(key,value)=>setConfig(c=>({...c,[key]:value}))
   if(!schema){
-    return <div className="plugin-settings-panel" style={configBox}><div style={miniLabel}>PLUGIN SETTINGS</div><p style={sectionText}>This plugin has no additional configuration fields.</p><button className="plugin-btn" onClick={onSave} style={hubActivate}>Save Settings</button></div>
+    return <div className="plugin-settings-panel" style={configBox}><div style={miniLabel}>PLUGIN RUNTIME</div><p style={sectionText}>This plugin uses the application's canonical runtime. No restaurant-specific credentials are required for this module.</p><div className="plugin-settings-save" style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}><button className="plugin-btn" onClick={onSave} style={hubActivate}>💾 Save Settings</button><button className="plugin-btn" onClick={()=>onTest(plugin)} style={success}>🧪 Test Runtime</button></div></div>
   }
   return <div style={configBox}>
     <div style={miniLabel}>RESTAURANT-SPECIFIC SETTINGS · {schema.title.toUpperCase()}</div>
@@ -713,7 +735,8 @@ function PluginConfig({plugin,config,setConfig,onSave,onTest}){
     </div>)}
     <div className="plugin-settings-save" style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
       <button className="plugin-btn" onClick={onSave} style={hubActivate}>💾 Save {schema.title}</button>
-      {plugin.code==="whatsapp-invoice" && <button className="plugin-btn" onClick={onTest} style={success}>🧪 Send Test WhatsApp</button>}
+      <button className="plugin-btn" onClick={()=>onTest(plugin)} style={success}>🧪 Test Connection</button>
+      {plugin.code==="whatsapp-invoice" && <button className="plugin-btn" onClick={onWhatsAppTest} style={success}>📨 Send Test WhatsApp</button>}
       <button className="plugin-btn" onClick={()=>setConfig({})} style={ghost}>Reset Form</button>
     </div>
   </div>

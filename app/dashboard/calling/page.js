@@ -123,13 +123,15 @@ export default function CallingDevicePage(){
 
   useEffect(()=>{
     if(!restaurantId||!enabled)return
-    const channel=supabase.channel(`calling-${restaurantId}`)
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications",filter:`restaurant_id=eq.${restaurantId}`},payload=>{
-        const row=payload.new
-        if(!row?.id||seen.current.has(row.id))return
-        seen.current.add(row.id);setNotices(n=>[row,...n].slice(0,30));speak(row)
-      }).subscribe()
-    return()=>{void supabase.removeChannel(channel)}
+    const handler=(event)=>{
+      const row=event?.detail
+      if(!row?.id||seen.current.has(row.id))return
+      seen.current.add(row.id)
+      setNotices(n=>[row,...n].slice(0,30))
+      speak(row)
+    }
+    window.addEventListener("anaira:notification",handler)
+    return()=>window.removeEventListener("anaira:notification",handler)
   },[restaurantId,enabled,speak])
 
   function test(){

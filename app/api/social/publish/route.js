@@ -19,9 +19,13 @@ export async function POST(req){
     const platform=String(body.platform||"").toLowerCase()
     if(!["facebook","instagram"].includes(platform))throw new Error("Unsupported social platform")
 
+    const pluginCode = `${platform}-integration`
+    const {data:plugin}=await supabaseAdmin.from("restaurant_plugins").select("enabled")
+      .eq("restaurant_id",restaurantId).eq("plugin_code",pluginCode).maybeSingle()
+    if (plugin?.enabled !== true) throw new Error(`${platform} integration plugin is not active for this restaurant`)
     const {data:settings}=await supabaseAdmin.from("plugin_settings")
       .select("config").eq("restaurant_id",restaurantId)
-      .eq("plugin_code",`${platform}-integration`).maybeSingle()
+      .eq("plugin_code",pluginCode).maybeSingle()
     const cfg=settings?.config||{}
     if(!cfg.access_token||!cfg.account_id)throw new Error(`Configure ${platform} integration first`)
 

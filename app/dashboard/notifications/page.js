@@ -128,72 +128,39 @@ export default function Notifications() {
 
   useEffect(() => {
     if (!restaurantId) return
-    const channel = supabase
-      .channel(`notification-center-${restaurantId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `restaurant_id=eq.${restaurantId}`,
-        },
-        payload => {
-          if(settings.in_app!==false) setNotifications(prev => [payload.new, ...prev].slice(0, 100))
-          playNotificationSound()
-          if(settings.browser===true){
-            const nativeShown = showNativeNotification(payload.new)
-            if(!nativeShown && typeof Notification!=="undefined" && Notification.permission==="granted"){
-              try{
-                const n=new Notification(payload.new?.title||"Restaurant notification",{body:payload.new?.message||"",tag:`anaira-${payload.new?.id||Date.now()}`,requireInteraction:true})
-                n.onclick=()=>{window.focus();if(payload.new?.action_url)window.location.href=payload.new.action_url;n.close()}
-              }catch{}
-            }
-          }
-
-          if (payload.new?.type === "order") {
-            // The notification trigger fires immediately after the order INSERT,
-            // while totals may be finalized a moment later. Re-read the order.
-            setTimeout(async () => {
-              const match = String(payload.new.message || "").match(/Order #([a-f0-9]{8})/i)
-              const shortId = match?.[1]?.toLowerCase()
-              if (!shortId) return
-
-              const { data: orders } = await supabase
-                .from("orders")
-                .select("id,total_amount,subtotal,tax_amount,discount_amount")
-                .eq("restaurant_id", restaurantId)
-
-              const found = (orders || []).find(o => String(o.id).slice(0, 8).toLowerCase() === shortId)
-              if (!found) return
-
-              let total = Number(found.total_amount || 0)
-              if (!total) {
-                const { data: items } = await supabase
-                  .from("order_items")
-                  .select("quantity,unit_price,line_total")
-                  .eq("order_id", found.id)
-
-                total = (items || []).reduce(
-                  (sum, item) =>
-                    sum +
-                    (Number(item.line_total || 0) ||
-                      Number(item.unit_price || 0) * Number(item.quantity || 0)),
-                  0
-                )
-              }
-
-              setOrderTotals(prev => ({
-                ...prev,
-                [shortId]: { ...found, total_amount: total }
-              }))
-            }, 500)
-          }
+    const handler = (event) => {
+      const row = event?.detail
+      if (!row?.id) return
+      if(settings.in_app!==false) setNotifications(prev => [row, ...prev.filter(x => x.id !== row.id)].slice(0, 100))
+      playNotificationSound()
+      if(settings.browser===true){
+        const nativeShown = showNativeNotification(row)
+        if(!nativeShown && typeof Notification!=="undefined" && Notification.permission==="granted"){
+          try{
+            const n=new Notification(row.title||"Restaurant notification",{body:row.message||"",tag:`anaira-${row.id}`,requireInteraction:true})
+            n.onclick=()=>{window.focus();if(row.action_url)window.location.href=row.action_url;n.close()}
+          }catch{}
         }
-      )
-      .subscribe()
-
-    return () => { void supabase.removeChannel(channel) }
+      }
+      if (row.type === "order") {
+        setTimeout(async () => {
+          const match = String(row.message || "").match(/Order #([a-f0-9]{8})/i)
+          const shortId = match?.[1]?.toLowerCase()
+          if (!shortId) return
+          const { data: orders } = await supabase.from("orders").select("id,total_amount,subtotal,tax_amount,discount_amount").eq("restaurant_id", restaurantId)
+          const found = (orders || []).find(o => String(o.id).slice(0, 8).toLowerCase() === shortId)
+          if (!found) return
+          let total = Number(found.total_amount || 0)
+          if (!total) {
+            const { data: items } = await supabase.from("order_items").select("quantity,unit_price,line_total").eq("order_id", found.id)
+            total = (items || []).reduce((sum, item) => sum + (Number(item.line_total || 0) || Number(item.unit_price || 0) * Number(item.quantity || 0)), 0)
+          }
+          setOrderTotals(prev => ({ ...prev, [shortId]: { ...found, total_amount: total } }))
+        }, 500)
+      }
+    }
+    window.addEventListener("anaira:notification", handler)
+    return () => window.removeEventListener("anaira:notification", handler)
   }, [restaurantId,settings])
 
   async function read(id) {

@@ -31,28 +31,33 @@ export type ThemeDefinition = {
 }
 
 /**
- * The original Anaira/NH3 POS look is intentionally preserved as the
- * first/default theme. All other themes are optional presets.
+ * The default workspace is intentionally a clean SaaS-light theme.
+ * The original dark POS look remains available as a preset.
  */
 export const DEFAULT_THEME: ThemeDefinition = {
   id: "classic-default",
-  name: "Classic Default",
-  description: "Original Anaira POS dark-gold interface.",
-  primary: "#fbbf24",
+  name: "Anaira SaaS White",
+  description: "Clean professional SaaS workspace with white surfaces, graphite text and emerald actions.",
+  primary: "#047857",
   secondary: "#0f172a",
-  accent: "#22c55e",
-  background: "#020617",
-  surface: "#111827",
-  surface2: "#1f2937",
-  text: "#ffffff",
-  muted: "#94a3b8",
-  border: "#fbbf24",
-  success: "#22c55e",
-  danger: "#ef4444",
-  warning: "#f59e0b",
-  info: "#60a5fa",
-  radius: "20px",
-  mode: "dark",
+  accent: "#059669",
+  background: "#f6f8f7",
+  surface: "#ffffff",
+  surface2: "#f0f5f2",
+  text: "#101828",
+  muted: "#667085",
+  border: "#d0d5dd",
+  success: "#15803d",
+  danger: "#dc2626",
+  warning: "#b45309",
+  info: "#2563eb",
+  radius: "14px",
+  mode: "light",
+  fontFamily: "Inter, system-ui, sans-serif",
+  headingFont: "Inter, system-ui, sans-serif",
+  headingWeight: 750,
+  shadow: "0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.05)",
+  buttonText: "#ffffff",
 }
 
 export const BRAND_THEMES: ThemeDefinition[] = [

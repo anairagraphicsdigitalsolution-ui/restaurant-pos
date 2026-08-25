@@ -48,8 +48,12 @@ export async function POST(req){
     const credentials={
       base_url:String(config.base_url||"").trim(),
       api_key:String(config.api_key||"").trim(),
-      webhook_secret:String(config.webhook_secret||"").trim()
+      webhook_secret:String(config.webhook_secret||"").trim(),
+      webhook_signature_header:String(config.webhook_signature_header||"x-webhook-signature").trim(),
+      webhook_signature_algorithm:String(config.webhook_signature_algorithm||"sha256").trim(),
+      webhook_signature_prefix:config.webhook_signature_prefix ?? "sha256="
     }
+    const active=Boolean(credentials.base_url && credentials.api_key && credentials.webhook_secret)
 
     const {data,error}=await supabaseAdmin
       .from("aggregator_integrations")
@@ -57,7 +61,7 @@ export async function POST(req){
         restaurant_id:restaurantId,
         provider,
         outlet_code:outletCode,
-        active:true,
+        active,
         credentials
       },{onConflict:"restaurant_id,provider"})
       .select("id,provider,outlet_code,active,last_sync_at")

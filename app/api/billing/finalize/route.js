@@ -23,6 +23,8 @@ function cleanMethod(value) {
 
 export async function POST(req) {
 
+  let idempotencyReservation = null
+
   try {
 
     // ==========================================================
@@ -141,6 +143,53 @@ export async function POST(req) {
         { status: 400 }
       )
 
+    }
+
+    // Optional explicit idempotency key. Frontends should reuse the same key
+    // when retrying the same finalize click/network request. Existing callers
+    // without a key continue to use the order-level paid-state idempotency.
+    const idempotencyKey = String(req.headers.get("x-idempotency-key") || body?.idempotency_key || "").trim().slice(0, 180)
+    if (idempotencyKey) {
+      const { data: existingKey } = await supabaseAdmin
+        .from("billing_idempotency_keys")
+        .select("status,response,order_id,restaurant_id")
+        .eq("restaurant_id", order.restaurant_id)
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle()
+
+      if (existingKey?.response && existingKey.status === "completed") {
+        return Response.json(existingKey.response)
+      }
+      if (existingKey?.status === "processing") {
+        return Response.json({ success: false, error: "This billing request is already being processed. Please wait." }, { status: 409 })
+      }
+
+      const { data: reservation, error: reservationError } = await supabaseAdmin
+        .from("billing_idempotency_keys")
+        .insert({
+          restaurant_id: order.restaurant_id,
+          order_id: order.id,
+          idempotency_key: idempotencyKey,
+          status: "processing",
+          created_by: user.id
+        })
+        .select("id")
+        .single()
+
+      if (reservationError) {
+        if (String(reservationError.code) === "23505") {
+          const { data: retryRow } = await supabaseAdmin
+            .from("billing_idempotency_keys")
+            .select("status,response")
+            .eq("restaurant_id", order.restaurant_id)
+            .eq("idempotency_key", idempotencyKey)
+            .maybeSingle()
+          if (retryRow?.status === "completed" && retryRow.response) return Response.json(retryRow.response)
+          return Response.json({ success: false, error: "This billing request is already being processed. Please wait." }, { status: 409 })
+        }
+        throw reservationError
+      }
+      idempotencyReservation = reservation?.id || null
     }
 
 
@@ -715,13 +764,40 @@ export async function POST(req) {
     }
 
 
-    return Response.json({
-      success: true,
-      bill
-    })
+    const finalResponse = { success: true, bill }
+
+    // KOT integration is primarily trigger-backed at order creation. The
+    // idempotent upserts below also repair legacy orders created before the
+    // KOT trigger existed, without creating duplicates.
+    await supabaseAdmin.from("kitchen_order_tickets").upsert({
+      restaurant_id: order.restaurant_id,
+      order_id: order.id,
+      status: "new",
+      priority: "normal"
+    }, { onConflict: "order_id" })
+    await supabaseAdmin.from("kot_tickets").upsert({
+      restaurant_id: order.restaurant_id,
+      order_id: order.id,
+      status: "new"
+    }, { onConflict: "order_id" })
+
+    if (idempotencyReservation) {
+      await supabaseAdmin
+        .from("billing_idempotency_keys")
+        .update({ status: "completed", response: finalResponse, updated_at: new Date().toISOString() })
+        .eq("id", idempotencyReservation)
+    }
+
+    return Response.json(finalResponse)
 
 
   } catch (error) {
+
+    if (idempotencyReservation) {
+      try {
+        await supabaseAdmin.from("billing_idempotency_keys").update({ status: "failed", response: null, updated_at: new Date().toISOString() }).eq("id", idempotencyReservation)
+      } catch {}
+    }
 
     console.error(
       "FINALIZE BILL ERROR:",

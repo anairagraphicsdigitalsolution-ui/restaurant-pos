@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "audit:migrations": "node scripts/audit-migrations.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

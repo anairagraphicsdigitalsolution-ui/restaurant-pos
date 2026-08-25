@@ -8,6 +8,7 @@ import {
   isRestaurantProFeature
 } from "@/lib/featureCatalog"
 import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
+import { sanitizeConfigForClient, mergeConfigPreservingSecrets } from "@/lib/pluginRuntime"
 
 export const runtime = "nodejs"
 
@@ -191,7 +192,7 @@ export async function GET(request) {
         .limit(1)
         .maybeSingle()
       if (settingsError) throw new Error(settingsError.message)
-      return NextResponse.json({success:true, config:settings?.config||{}})
+      return NextResponse.json({success:true, config:sanitizeConfigForClient(settings?.config||{})})
     }
 
     const { data, error } = await admin
@@ -433,13 +434,41 @@ export async function PATCH(request) {
         return NextResponse.json({success:false,error:"Unknown plugin"},{status:400})
       }
       await ensureRestaurant(admin, restaurantId)
+      const {data:existingSettings,error:existingSettingsError}=await admin.from("plugin_settings")
+        .select("config").eq("restaurant_id",restaurantId).eq("plugin_code",pluginCode).maybeSingle()
+      if(existingSettingsError) throw new Error(existingSettingsError.message)
+      const mergedConfig=mergeConfigPreservingSecrets(existingSettings?.config||{},body.config)
       const {error:settingsError}=await admin.from("plugin_settings").upsert({
         restaurant_id:restaurantId,
         plugin_code:pluginCode,
-        config:body.config
+        config:mergedConfig
       },{onConflict:"restaurant_id,plugin_code"})
       if(settingsError) throw new Error(settingsError.message)
-      return NextResponse.json({success:true,config:body.config})
+
+      // Keep external aggregator runtime in sync with the single Super Admin
+      // configuration surface. The provider is only activated when all
+      // required credentials are present; saving an incomplete form never
+      // creates a falsely-connected integration.
+      if (["zomato-integration","swiggy-integration"].includes(pluginCode)) {
+        const provider=pluginCode.replace("-integration","")
+        const credentials={
+          base_url:String(mergedConfig.base_url||"").trim(),
+          api_key:String(mergedConfig.api_key||"").trim(),
+          webhook_secret:String(mergedConfig.webhook_secret||"").trim(),
+          webhook_signature_header:String(mergedConfig.webhook_signature_header||"x-webhook-signature").trim(),
+          webhook_signature_algorithm:String(mergedConfig.webhook_signature_algorithm||"sha256").trim(),
+          webhook_signature_prefix:mergedConfig.webhook_signature_prefix ?? "sha256="
+        }
+        const outletCode=String(mergedConfig.outlet_id||"").trim()
+        const ready=Boolean(outletCode && credentials.base_url && credentials.api_key && credentials.webhook_secret)
+        if (outletCode) {
+          const {error:integrationError}=await admin.from("aggregator_integrations").upsert({
+            restaurant_id:restaurantId,provider,outlet_code:outletCode,active:ready,credentials
+          },{onConflict:"restaurant_id,provider"})
+          if(integrationError) throw new Error(integrationError.message)
+        }
+      }
+      return NextResponse.json({success:true,config:sanitizeConfigForClient(mergedConfig)})
     }
 
     await ensureRestaurant(admin, restaurantId)
@@ -447,6 +476,12 @@ export async function PATCH(request) {
     // Restaurant Core is a real Super Admin-controlled master switch.
     if (String(body?.plugin_code || "").trim() === "restaurant-core") {
       const enabled = body?.enabled === true
+      if (!enabled) {
+        return NextResponse.json({
+          success: false,
+          error: "Restaurant Core is a protected master plugin and cannot be deactivated. Disable optional plugins individually instead."
+        }, { status: 400 })
+      }
       const { data: coreRow, error: coreError } = await admin
         .from("restaurant_plugins")
         .upsert({
@@ -481,6 +516,13 @@ export async function PATCH(request) {
     if (currentError) throw new Error(currentError.message)
     if (!current) throw new Error("Plugin not found")
 
+    if (current.plugin_code === "operations-hub") {
+      return NextResponse.json({
+        success:false,
+        error:"Operations Hub is a protected system service and cannot be deactivated."
+      }, {status:400})
+    }
+
     // Other Core feature codes are not independent plugins.
     // Restaurant Core controls them as a group.
     if (CORE_FEATURE_CODES.has(current.plugin_code)) {
@@ -491,7 +533,27 @@ export async function PATCH(request) {
     }
 
     if (current.plugin_code === "restaurant-pro") {
-      await setRestaurantProMaster(admin, restaurantId, body.enabled, auth.userId || null)
+      const enabled = body.enabled === true
+      await setRestaurantProMaster(admin, restaurantId, enabled, auth.userId || null)
+
+      if (!enabled) {
+        const { data: allRows, error: allRowsError } = await admin
+          .from("restaurant_plugins")
+          .select("id,plugin_code")
+          .eq("restaurant_id", restaurantId)
+        if (allRowsError) throw new Error(allRowsError.message)
+        const proCodes = (allRows || [])
+          .map(row => row.plugin_code)
+          .filter(code => isRestaurantProFeature(code))
+        if (proCodes.length) {
+          const { error: disableError } = await admin
+            .from("restaurant_plugins")
+            .update({ enabled:false, disabled_at:new Date().toISOString(), activated_by:null })
+            .eq("restaurant_id", restaurantId)
+            .in("plugin_code", proCodes)
+          if (disableError) throw new Error(disableError.message)
+        }
+      }
 
       const { data: proRows, error: proRowsError } = await admin
         .from("restaurant_plugins")
@@ -586,6 +648,18 @@ export async function DELETE(request) {
     }
 
     await ensureRestaurant(admin, restaurantId)
+
+    const { data: row, error: rowError } = await admin
+      .from("restaurant_plugins")
+      .select("plugin_code")
+      .eq("id", id)
+      .eq("restaurant_id", restaurantId)
+      .maybeSingle()
+    if (rowError) throw new Error(rowError.message)
+    if (!row) throw new Error("Plugin not found")
+    if (["operations-hub","restaurant-core","restaurant-pro"].includes(row.plugin_code)) {
+      return NextResponse.json({success:false,error:"Core system plugins cannot be deleted."},{status:400})
+    }
 
     const { error } = await admin
       .from("restaurant_plugins")

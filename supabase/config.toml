@@ -1,0 +1,19 @@
+project_id = "vgzwzvmuylsoqjkqfcnw"
+
+[api]
+enabled = true
+
+[db]
+major_version = 17
+
+[studio]
+enabled = true
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true
+
+[realtime]
+enabled = true
