@@ -30,6 +30,11 @@ export default function AppUtilities({ restaurantId, role }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioUnlocked = useRef(false)
   const lastNotificationId = useRef<string | null>(null)
+  const notificationsEnabledRef = useRef(notificationsEnabled)
+
+  useEffect(() => {
+    notificationsEnabledRef.current = notificationsEnabled
+  }, [notificationsEnabled])
 
   useEffect(() => {
     const audio = new Audio("/alert.mp3")
@@ -98,8 +103,8 @@ export default function AppUtilities({ restaurantId, role }: Props) {
       const handleNewNotification = async (n: any) => {
         if (!mounted || !n?.id || n.id === lastNotificationId.current) return
         lastNotificationId.current = n.id
-        setUnread((value) => value + 1)
-        if (!notificationsEnabled) return
+        if (!n.read_at) setUnread((value) => value + 1)
+        if (!notificationsEnabledRef.current) return
         setToast(n)
 
         const audio = audioRef.current
@@ -133,11 +138,6 @@ export default function AppUtilities({ restaurantId, role }: Props) {
           { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` },
           (payload) => handleNewNotification(payload.new)
         )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` },
-          () => loadUnread()
-        )
         .subscribe()
     }
 
@@ -147,7 +147,7 @@ export default function AppUtilities({ restaurantId, role }: Props) {
       mounted = false
       if (channel) void supabase.removeChannel(channel)
     }
-  }, [restaurantId, role, notificationsEnabled])
+  }, [restaurantId, role])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

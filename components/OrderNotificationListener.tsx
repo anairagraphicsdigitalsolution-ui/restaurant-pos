@@ -50,9 +50,7 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
   const [permission, setPermission] = useState<string>(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   )
-  const initialized = useRef(false)
   const seenIds = useRef(new Set<string>())
-  const lastCreatedAt = useRef<string | null>(null)
   const audioUnlocked = useRef(false)
 
   const unlockAudio = useCallback(() => {
@@ -112,20 +110,9 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
 
     let cancelled = false
     let channel: any = null
-    let pollTimer: number | null = null
 
     async function start() {
-      const { data: latest } = await supabase
-        .from("notifications")
-        .select("id,created_at")
-        .eq("restaurant_id", restaurantId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-
       if (cancelled) return
-      if (latest?.[0]) lastCreatedAt.current = latest[0].created_at
-      initialized.current = true
-
       channel = supabase
         .channel(`restaurant-notifications-${restaurantId}`)
         .on(
@@ -142,38 +129,12 @@ export default function OrderNotificationListener({ user, restaurantId, role }: 
         )
         .subscribe()
 
-      const poll = async () => {
-        if (cancelled) return
-        let query = supabase
-          .from("notifications")
-          .select("id,title,message,action_url,created_at,type")
-          .eq("restaurant_id", restaurantId)
-          .order("created_at", { ascending: true })
-          .limit(20)
-
-        if (lastCreatedAt.current) {
-          query = query.gt("created_at", lastCreatedAt.current)
-        }
-
-        const { data } = await query
-        if (cancelled) return
-
-        for (const row of data || []) {
-          if (!lastCreatedAt.current || row.created_at > lastCreatedAt.current) {
-            lastCreatedAt.current = row.created_at
-          }
-          showNotice(row as Notice)
-        }
-      }
-
-      pollTimer = window.setInterval(poll, 30000)
     }
 
     start()
 
     return () => {
       cancelled = true
-      if (pollTimer) window.clearInterval(pollTimer)
       if (channel) void supabase.removeChannel(channel)
     }
   }, [user, restaurantId, role, showNotice])
