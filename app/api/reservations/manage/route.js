@@ -86,6 +86,7 @@ export async function POST(req) {
     const guests = Math.max(1, Number(body?.guests || 1))
     const maxGuests = Math.max(1, Number(cfg.max_guests || 20))
     const minNotice = Math.max(0, Number(cfg.min_notice_minutes || 0))
+    const tableId = String(body?.table_id || "").trim()
 
     if (!tableId || !startAt || !endAt || !body?.name || (cfg.require_phone !== false && !body?.phone)) {
       return Response.json({ success: false, error: "Complete reservation details are required" }, { status: 400 })

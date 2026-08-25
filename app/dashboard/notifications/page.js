@@ -79,6 +79,42 @@ export default function Notifications() {
     }
   }
 
+  function playNotificationSound(){
+    if(settings.sound!==true || typeof window==="undefined") return
+    try{
+      if(window.Android && typeof window.Android.notifyTone === "function") {
+        window.Android.notifyTone()
+        return
+      }
+      const AudioCtx=window.AudioContext||window.webkitAudioContext
+      if(!AudioCtx) return
+      const ctx=new AudioCtx()
+      const start=ctx.currentTime
+      const gain=ctx.createGain()
+      gain.gain.setValueAtTime(0.0001,start)
+      gain.gain.exponentialRampToValueAtTime(0.16,start+0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001,start+0.7)
+      gain.connect(ctx.destination)
+      const a=ctx.createOscillator(), b=ctx.createOscillator()
+      a.type="sine"; b.type="sine"
+      a.frequency.setValueAtTime(880,start); a.frequency.setValueAtTime(1175,start+0.18)
+      b.frequency.setValueAtTime(659,start); b.frequency.setValueAtTime(880,start+0.18)
+      a.connect(gain); b.connect(gain)
+      a.start(start); b.start(start); a.stop(start+0.7); b.stop(start+0.7)
+      a.onended=()=>{try{void ctx.close()}catch{}}
+    }catch{}
+  }
+
+  function showNativeNotification(row){
+    try {
+      if(typeof window !== "undefined" && window.Android && typeof window.Android.notify === "function") {
+        window.Android.notify(String(row?.title || "Restaurant notification"), String(row?.message || "You have a new restaurant alert."), String(row?.action_url || ""))
+        return true
+      }
+    } catch {}
+    return false
+  }
+
   async function enableAlerts() {
     try {
       const value = await Notification.requestPermission()
@@ -104,8 +140,15 @@ export default function Notifications() {
         },
         payload => {
           if(settings.in_app!==false) setNotifications(prev => [payload.new, ...prev].slice(0, 100))
-          if(settings.browser===true && typeof Notification!=="undefined" && Notification.permission==="granted"){
-            try{new Notification(payload.new?.title||"Restaurant notification",{body:payload.new?.message||""})}catch{}
+          playNotificationSound()
+          if(settings.browser===true){
+            const nativeShown = showNativeNotification(payload.new)
+            if(!nativeShown && typeof Notification!=="undefined" && Notification.permission==="granted"){
+              try{
+                const n=new Notification(payload.new?.title||"Restaurant notification",{body:payload.new?.message||"",tag:`anaira-${payload.new?.id||Date.now()}`,requireInteraction:true})
+                n.onclick=()=>{window.focus();if(payload.new?.action_url)window.location.href=payload.new.action_url;n.close()}
+              }catch{}
+            }
           }
 
           if (payload.new?.type === "order") {

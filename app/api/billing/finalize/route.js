@@ -89,7 +89,7 @@ export async function POST(req) {
       .from("orders")
 
       .select(
-        "id,restaurant_id,invoice_no,payment_status"
+        "id,restaurant_id,invoice_no,payment_status,subtotal,discount_amount,tax_amount,total_amount,paid_amount,payment_method,offer_id,customer_id,delivery_charge"
       )
 
       .eq(
@@ -141,6 +141,38 @@ export async function POST(req) {
         { status: 400 }
       )
 
+    }
+
+
+    // ==========================================================
+    // IDEMPOTENT RETRY
+    // ==========================================================
+    // If the first finalize already committed but the browser retried the
+    // request (for example after a slow/network response), return the stored
+    // invoice instead of asking the operator to finalize the same bill again.
+    if (String(order.payment_status || "").toLowerCase() === "paid") {
+      return Response.json({
+        success: true,
+        bill: {
+          order_id: order.id,
+          invoice_no: order.invoice_no || null,
+          subtotal: Number(order.subtotal || 0),
+          discount: Number(order.discount_amount || 0),
+          tax: Number(order.tax_amount || 0),
+          delivery_charge: Number(order.delivery_charge || 0),
+          total: Number(order.total_amount || 0),
+          paid_amount: Number(order.paid_amount || 0),
+          payment_received: 0,
+          payment_status: "paid",
+          payment_method: order.payment_method || cleanMethod(body?.payment_method),
+          offer_id: order.offer_id || null,
+          customer_id: order.customer_id || null,
+          subtotal_amount: Number(order.subtotal || 0),
+          discount_amount: Number(order.discount_amount || 0),
+          tax_amount: Number(order.tax_amount || 0),
+          total_amount: Number(order.total_amount || 0)
+        }
+      })
     }
 
 
@@ -447,7 +479,13 @@ export async function POST(req) {
           null,
         p_loyalty_reward_id:
           body?.loyalty_reward_id ||
-          null
+          null,
+
+        p_manual_discount_amount:
+          Number(body?.manual_discount_amount || 0),
+
+        p_manual_discount_mode:
+          String(body?.manual_discount_mode || "amount")
       }
     )
 

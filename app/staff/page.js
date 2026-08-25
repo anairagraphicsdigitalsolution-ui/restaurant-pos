@@ -9,6 +9,7 @@ export default function StaffPage() {
   const [orders, setOrders] = useState([])
   const [activeTab, setActiveTab] = useState("orders")
   const [posEnabled, setPosEnabled] = useState(false)
+  const [captainEnabled, setCaptainEnabled] = useState(false)
   const [showAllOrders, setShowAllOrders] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -58,6 +59,7 @@ export default function StaffPage() {
 
       await loadOrders(rid)
       await checkPOS(rid)
+      await checkCaptain(rid)
 
       /*
        * Realtime order updates
@@ -106,6 +108,25 @@ export default function StaffPage() {
       console.error("POS CHECK ERROR:", error)
       setPosEnabled(false)
     }
+  }
+
+
+  async function checkCaptain(rid) {
+    const { data, error } = await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", rid)
+      .eq("plugin_code", "captain-app")
+      .eq("enabled", true)
+      .maybeSingle()
+
+    if (error) {
+      console.error("CAPTAIN PLUGIN ERROR:", error)
+      setCaptainEnabled(false)
+      return
+    }
+
+    setCaptainEnabled(Boolean(data?.enabled))
   }
 
   async function loadOrders(id) {

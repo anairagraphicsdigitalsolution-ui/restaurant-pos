@@ -1,7 +1,73 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
+
+function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value))) }
+
+function nativeAvailable() {
+  return typeof window !== "undefined" && !!window.Android && typeof window.Android.speak === "function"
+}
+
+function browserSpeak(text, { language, volume, rate, repeat, onDone, onError }) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    onError?.("Speech synthesis is unavailable on this browser/device.")
+    return false
+  }
+  const synth = window.speechSynthesis
+  synth.cancel()
+  let index = 0
+  let finished = false
+
+  const voicesForLanguage = () => {
+    const voices = synth.getVoices ? synth.getVoices() : []
+    const lang = String(language || "hi-IN").toLowerCase()
+    return voices.find(v => String(v.lang || "").toLowerCase() === lang)
+      || voices.find(v => String(v.lang || "").toLowerCase().startsWith(lang.split("-")[0]))
+      || voices.find(v => String(v.lang || "").toLowerCase().startsWith("hi"))
+      || voices.find(v => String(v.lang || "").toLowerCase().startsWith("en"))
+      || voices[0]
+  }
+
+  const run = () => {
+    if (index >= repeat) { if (!finished) { finished = true; onDone?.() }; return }
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = language
+    utterance.volume = volume
+    utterance.rate = rate
+    const voice = voicesForLanguage()
+    if (voice) utterance.voice = voice
+    utterance.onend = () => { index += 1; window.setTimeout(run, 350) }
+    utterance.onerror = event => { if (!finished) { finished = true; onError?.(event?.error || "Speech synthesis failed") } }
+    synth.speak(utterance)
+  }
+
+  if (synth.getVoices && !synth.getVoices().length) {
+    const handler = () => { synth.removeEventListener?.("voiceschanged", handler); run() }
+    synth.addEventListener?.("voiceschanged", handler)
+    window.setTimeout(run, 500)
+  } else run()
+  return true
+}
+
+function speakAnnouncement(text, cfg, callbacks = {}) {
+  const repeat = clamp(cfg.repeat ?? 3, 1, 5)
+  const language = cfg.language || "hi-IN"
+  const volume = clamp(cfg.volume ?? 1, 0, 1)
+  const rate = clamp(cfg.rate ?? .9, .5, 2)
+
+  if (nativeAvailable()) {
+    try {
+      // Custom Android WebView bridge. MainActivity can expose this method through @JavascriptInterface.
+      window.Android.speak(String(text), String(language), Number(rate), Number(volume), Number(repeat))
+      callbacks.onDone?.()
+      return true
+    } catch (error) {
+      console.warn("Native TTS bridge failed; falling back to browser speech", error)
+    }
+  }
+  return browserSpeak(String(text), { language, volume, rate, repeat, ...callbacks })
+}
 
 export default function CallingDevicePage(){
   const [restaurantId,setRestaurantId]=useState("")
@@ -11,10 +77,12 @@ export default function CallingDevicePage(){
   const [repeat,setRepeat]=useState(3)
   const [volume,setVolume]=useState(1)
   const [rate,setRate]=useState(.9)
-  const [language,setLanguage]=useState("en-IN")
+  const [language,setLanguage]=useState("hi-IN")
   const [phrase,setPhrase]=useState("New order received. Order {order_number} has arrived.")
   const [events,setEvents]=useState({new_order:true,order_ready:false,waiter_call:true})
+  const [voiceStatus,setVoiceStatus]=useState("Ready")
   const seen=useRef(new Set())
+  const configRef=useRef({enabled:true,repeat:3,volume:1,rate:.9,language:"hi-IN",phrase:"New order received. Order {order_number} has arrived.",events:{new_order:true,order_ready:false,waiter_call:true}})
 
   useEffect(()=>{init()},[])
 
@@ -25,21 +93,33 @@ export default function CallingDevicePage(){
     const rid=profile?.restaurant_id
     if(!rid)return
     setRestaurantId(rid)
-
-    const {data:row}=await supabase.from("restaurant_plugins").select("enabled")
-      .eq("restaurant_id",rid).in("plugin_code",["calling-device","calling-runtime"]).eq("enabled",true).limit(1).maybeSingle()
+    const {data:row}=await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).in("plugin_code",["calling-device","calling-runtime"]).eq("enabled",true).limit(1).maybeSingle()
     setEnabled(row?.enabled===true)
-    const {data:settings}=await supabase.from("plugin_settings").select("config")
-      .eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
+    const {data:settings}=await supabase.from("plugin_settings").select("config").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
     const cfg=settings?.config||{}
-    setVoice(cfg.enabled !== false)
-    setRepeat(Math.max(1,Number(cfg.repeat||3)))
-    setVolume(Math.max(0,Math.min(1,Number(cfg.volume ?? 1))))
-    setRate(Math.max(.5,Math.min(2,Number(cfg.rate||.9))))
-    setLanguage(cfg.language||"en-IN")
-    setPhrase(cfg.phrase||"New order received. Order {order_number} has arrived.")
-    setEvents({new_order:cfg.new_order!==false,order_ready:cfg.order_ready===true,waiter_call:cfg.waiter_call!==false})
+    const next={enabled:cfg.enabled !== false,repeat:clamp(cfg.repeat||3,1,5),volume:clamp(cfg.volume ?? 1,0,1),rate:clamp(cfg.rate||.9,.5,2),language:cfg.language||"hi-IN",phrase:cfg.phrase||"New order received. Order {order_number} has arrived.",events:{new_order:cfg.new_order!==false,order_ready:cfg.order_ready===true,waiter_call:cfg.waiter_call!==false}}
+    configRef.current=next
+    setVoice(next.enabled);setRepeat(next.repeat);setVolume(next.volume);setRate(next.rate);setLanguage(next.language);setPhrase(next.phrase);setEvents(next.events)
   }
+
+  const speak = useCallback((row)=>{
+    const cfg=configRef.current
+    if(!cfg.enabled)return false
+    const type=String(row.type||"order")
+    if(type==="order" && !cfg.events.new_order)return false
+    if((type==="success" || type==="order_ready") && !cfg.events.order_ready)return false
+    if((type==="waiter_call" || type==="waiter") && !cfg.events.waiter_call)return false
+    const raw=String(row.message||"A new order has arrived in the kitchen.")
+    const orderMatch=raw.match(/Order\s+#?([a-z0-9-]{3,})/i)
+    const orderNumber=orderMatch?.[1]||""
+    const text=type==="order" ? cfg.phrase.replaceAll("{order_number}",orderNumber) : `${row.title||"Restaurant alert"}. ${raw}`
+    setVoiceStatus("Speaking…")
+    return speakAnnouncement(text,cfg,{onDone:()=>setVoiceStatus("Ready"),onError:e=>{setVoiceStatus(String(e));console.error(e)}})
+  },[])
+
+  useEffect(()=>{
+    configRef.current={...configRef.current,enabled:voice,repeat,volume,rate,language,phrase,events}
+  },[voice,repeat,volume,rate,language,phrase,events])
 
   useEffect(()=>{
     if(!restaurantId||!enabled)return
@@ -47,57 +127,39 @@ export default function CallingDevicePage(){
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications",filter:`restaurant_id=eq.${restaurantId}`},payload=>{
         const row=payload.new
         if(!row?.id||seen.current.has(row.id))return
-        seen.current.add(row.id)
-        setNotices(n=>[row,...n].slice(0,30))
-        speak(row)
+        seen.current.add(row.id);setNotices(n=>[row,...n].slice(0,30));speak(row)
       }).subscribe()
     return()=>{void supabase.removeChannel(channel)}
-  },[restaurantId,enabled,repeat,voice,volume])
-
-  function speak(row){
-    if(!voice||typeof window==="undefined"||!("speechSynthesis" in window))return
-    const type=String(row.type||"order")
-    if(type==="order" && !events.new_order) return
-    if(type==="success" && !events.order_ready) return
-    const raw=String(row.message||"A new order has arrived in the kitchen.")
-    const orderMatch=raw.match(/Order\s+#?([a-f0-9]{4,})/i)
-    const orderNumber=orderMatch?.[1]||""
-    const prefix=phrase.replace("{order_number}",orderNumber)
-    const text=prefix && type==="order" ? prefix : `${row.title||"New order received"}. ${raw}`
-    window.speechSynthesis.cancel()
-    let i=0
-    const run=()=>{
-      if(i>=repeat)return
-      const u=new SpeechSynthesisUtterance(text)
-      u.lang=language
-      u.volume=volume
-      u.rate=rate
-      u.onend=()=>{i++;setTimeout(run,250)}
-      window.speechSynthesis.speak(u)
-    }
-    run()
-  }
+  },[restaurantId,enabled,speak])
 
   function test(){
-    speak({title:"New order received",message:"A new order has arrived in the kitchen."})
+    const ok=speak({type:"order",title:"New order received",message:"A new order has arrived in the kitchen."})
+    if(!ok)setVoiceStatus("Voice is disabled or unavailable")
+  }
+
+  function unlock(){
+    try { const C=window.AudioContext||window.webkitAudioContext; if(C){const c=new C();if(c.state==="suspended")void c.resume();setTimeout(()=>c.close(),250)} } catch {}
+    if("speechSynthesis" in window) window.speechSynthesis.getVoices()
   }
 
   if(!enabled)return <main style={shell}><div style={card}><h2>Calling Device is not active</h2><p>Super Admin must activate Calling Device in Plugins.</p></div></main>
 
-  return <main style={shell}><div style={wrap}>
-    <header style={header}><div><div style={eyebrow}>RESTAURANT PRO · CALLING</div><h1 style={title}>Calling Device</h1><p style={muted}>Use this browser/device as the restaurant voice calling station.</p></div><span style={live}>● LIVE</span></header>
+  return <main style={shell} onPointerDown={unlock}><div style={wrap}>
+    <header style={header}><div><div style={eyebrow}>RESTAURANT PRO · CALLING</div><h1 style={title}>Calling Device</h1><p style={muted}>Works in browser and Capacitor Android. Android uses the native TTS bridge when installed, with browser speech as fallback.</p></div><span style={live}>● LIVE</span></header>
     <section style={card}>
       <h2>Voice Settings</h2>
       <label style={row}><span>Voice announcements</span><input type="checkbox" checked={voice} onChange={e=>setVoice(e.target.checked)}/></label>
+      <label style={row}><span>Language</span><select value={language} onChange={e=>setLanguage(e.target.value)}><option value="hi-IN">Hindi (India)</option><option value="en-IN">English (India)</option><option value="en-US">English (US)</option></select></label>
       <label style={row}><span>Repeat announcement</span><select value={repeat} onChange={e=>setRepeat(Number(e.target.value))}>{[1,2,3,4,5].map(x=><option key={x} value={x}>{x} times</option>)}</select></label>
       <label style={row}><span>Volume</span><input type="range" min="0.2" max="1" step=".1" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label>
+      <label style={row}><span>Speech rate</span><input type="range" min=".5" max="1.5" step=".1" value={rate} onChange={e=>setRate(Number(e.target.value))}/></label>
       <button style={button} onClick={test}>🔊 Test Voice</button>
-      <p style={muted}>Browser audio must be unlocked once by user interaction. For a dedicated hardware speaker, keep this page open on the device connected to that speaker.</p>
+      <div style={status}>Voice status: <b>{voiceStatus}</b></div>
+      <p style={muted}>Tap Test Voice once after opening the page to unlock audio. On Android, the native bridge provides reliable device TTS when the APK contains it.</p>
     </section>
     <section style={card}><h2>Recent Calls</h2>{!notices.length?<p style={muted}>Waiting for new order/notification events…</p>:notices.map(n=><div key={n.id} style={notice}><b>{n.title}</b><span>{n.message}</span></div>)}</section>
   </div></main>
 }
-
 const shell={minHeight:"100vh",padding:28,background:"var(--background)",color:"var(--text)"}
 const wrap={maxWidth:900,margin:"0 auto",display:"grid",gap:16}
 const header={padding:24,borderRadius:22,background:"var(--surface)",border:"1px solid var(--border)",display:"flex",justifyContent:"space-between",gap:12}
@@ -108,4 +170,5 @@ const muted={color:"var(--muted)",lineHeight:1.6}
 const live={color:"#22c55e",fontWeight:900}
 const row={display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:"1px solid var(--border)"}
 const button={border:0,borderRadius:11,padding:"11px 15px",background:"var(--primary)",color:"#111",fontWeight:900,cursor:"pointer",marginTop:15}
+const status={marginTop:12,padding:10,borderRadius:10,background:"var(--surface-2)",fontSize:12}
 const notice={display:"grid",gap:3,padding:12,borderBottom:"1px solid var(--border)"}
