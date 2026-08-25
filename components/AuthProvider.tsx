@@ -38,7 +38,7 @@ function requiredFeatureForPath(pathname: string) {
   // Offers is a legacy/core restaurant feature and must remain accessible.
   // Combo Meals is embedded inside Offers, so it must not be redirected by
   // SaaS feature gating either. Other premium modules remain gated.
-  if (pathname.startsWith("/dashboard/reservations")) return "reservations"
+  if (pathname.startsWith("/dashboard/reservations")) return "reservations-pro"
   if (pathname.startsWith("/dashboard/reports")) return "analytics"
   // The Restaurant Admin QR area is intentionally controlled by the
   // independent QR Print Center plugin. Advanced QR Ordering remains
@@ -258,12 +258,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         profile.role === "admin" &&
         requiredFeature
       ) {
+        const featureCodes = requiredFeature === "reservations-pro"
+          ? ["reservations-pro", "reservations"]
+          : requiredFeature === "qr-print-center"
+            ? ["qr-print-center"]
+            : requiredFeature === "analytics"
+              ? ["analytics"]
+              : [requiredFeature]
+
         const { data: pluginRow, error: pluginError } = await supabase
           .from("restaurant_plugins")
-          .select("enabled")
+          .select("plugin_code, enabled")
           .eq("restaurant_id", profile.restaurantId)
-          .eq("plugin_code", requiredFeature)
+          .in("plugin_code", featureCodes)
           .eq("enabled", true)
+          .limit(1)
           .maybeSingle()
 
         if (pluginError) {
