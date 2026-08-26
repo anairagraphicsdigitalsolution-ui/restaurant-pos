@@ -178,6 +178,12 @@ export default function ThemeBrandingPage() {
   const [selected, setSelected] = useState(activeTheme.id)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
+  const [adminPolicy, setAdminPolicy] = useState({
+    themeBrandingEnabled: true,
+    allowBranding: false,
+    allowTheme: false,
+    themeScope: "none",
+  })
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -190,11 +196,43 @@ export default function ThemeBrandingPage() {
   }, [restaurantId])
 
   async function loadRestaurant(id) {
-    const { data, error } = await supabase
-      .from("restaurants")
-      .select("id,name,logo,theme_config")
-      .eq("id", id)
-      .maybeSingle()
+    const [
+      { data, error },
+      { data: themePlugin },
+      { data: themeSettings },
+      { data: restaurantSettingsPlugin },
+      { data: restaurantSettings },
+    ] = await Promise.all([
+      supabase
+        .from("restaurants")
+        .select("id,name,logo,theme_config")
+        .eq("id", id)
+        .maybeSingle(),
+      supabase
+        .from("restaurant_plugins")
+        .select("enabled")
+        .eq("restaurant_id", id)
+        .eq("plugin_code", "theme-branding")
+        .maybeSingle(),
+      supabase
+        .from("plugin_settings")
+        .select("config")
+        .eq("restaurant_id", id)
+        .eq("plugin_code", "theme-branding")
+        .maybeSingle(),
+      supabase
+        .from("restaurant_plugins")
+        .select("enabled")
+        .eq("restaurant_id", id)
+        .eq("plugin_code", "restaurant-settings")
+        .maybeSingle(),
+      supabase
+        .from("plugin_settings")
+        .select("config")
+        .eq("restaurant_id", id)
+        .eq("plugin_code", "restaurant-settings")
+        .maybeSingle(),
+    ])
 
     if (error) {
       console.error("THEME RESTAURANT LOAD ERROR:", error)
@@ -207,6 +245,35 @@ export default function ThemeBrandingPage() {
     setRestaurant(data)
     setLogo(data.logo || "")
     setPreview(data.logo || "")
+
+    const settingsConfig = restaurantSettings?.config || {}
+    const themeConfig = themeSettings?.config || {}
+    const configuredScope = String(
+      settingsConfig.admin_theme_change_scope ||
+      themeConfig.theme_scope ||
+      "none"
+    ).toLowerCase()
+    // Legacy repair: some older rows had the permission checkbox ON while the
+    // scope remained "none". That combination locked the Admin incorrectly.
+    // Treat an enabled checkbox with no valid scope as BOTH and let the next
+    // Super Admin save persist the normalized value.
+    const effectiveThemeScope =
+      settingsConfig.allow_admin_theme_changes === true &&
+      !["restaurant","qr","both"].includes(configuredScope)
+        ? "both"
+        : configuredScope
+
+    setAdminPolicy({
+      themeBrandingEnabled: themePlugin?.enabled === true,
+      allowBranding:
+        restaurantSettingsPlugin?.enabled === true &&
+        settingsConfig.allow_admin_branding_changes === true,
+      allowTheme:
+        restaurantSettingsPlugin?.enabled === true &&
+        settingsConfig.allow_admin_theme_changes === true &&
+        ["restaurant","qr","both"].includes(effectiveThemeScope),
+      themeScope: effectiveThemeScope,
+    })
 
     const savedThemes = Array.isArray(data.theme_config?.themes)
       ? data.theme_config.themes
@@ -252,8 +319,8 @@ export default function ThemeBrandingPage() {
 
       const generatedThemes = [
         makeTheme(
-          "brand-auto-premium",
-          "Logo Premium",
+          "logo-premium-custom",
+          "Logo Premium — Custom",
           "Your logo palette converted into a luxury dark restaurant interface.",
           colors.primary,
           colors.accent,
@@ -284,8 +351,8 @@ export default function ThemeBrandingPage() {
       ])
 
       setGenerated(nextThemes)
-      setSelected("brand-auto-premium")
-      setMessage("3 premium branding themes generated. Your original Classic Default theme is still available.")
+      setSelected("logo-premium-custom")
+      setMessage("3 premium branding themes generated. The main Logo Premium theme remains available alongside the generated variants.")
     } catch (error) {
       console.error("THEME GENERATION ERROR:", error)
       setMessage("Unable to analyze this logo. Please use a PNG, JPG or WEBP image.")
@@ -293,6 +360,15 @@ export default function ThemeBrandingPage() {
   }
 
   async function chooseTheme(themeId) {
+    if (!adminPolicy.themeBrandingEnabled) {
+      setMessage("Theme & Branding is disabled by Super Admin.")
+      return
+    }
+    if (!adminPolicy.allowTheme) {
+      setMessage("Super Admin has not given Admin permission to change themes.")
+      return
+    }
+
     setSelected(themeId)
 
     const safeThemes = uniqueThemes([
@@ -300,12 +376,23 @@ export default function ThemeBrandingPage() {
       ...generated,
     ])
 
-    await setThemeList(safeThemes, themeId, true)
+    try {
+      await setThemeList(safeThemes, themeId, true)
+      setMessage(`Theme changed for ${adminPolicy.themeScope === "both" ? "Restaurant + QR" : adminPolicy.themeScope.toUpperCase()}.`)
+    } catch (error) {
+      setMessage(error?.message || "Theme change was rejected by Super Admin policy.")
+      setSelected(activeTheme.id)
+    }
   }
 
   async function saveBranding() {
     if (!restaurantId) {
       setMessage("Restaurant is not linked to this account.")
+      return
+    }
+
+    if (!adminPolicy.allowBranding && file) {
+      setMessage("Super Admin has not given Admin permission to edit branding.")
       return
     }
 
@@ -315,7 +402,7 @@ export default function ThemeBrandingPage() {
     try {
       let logoUrl = logo
 
-      if (file) {
+      if (file && adminPolicy.allowBranding) {
         const ext = file.name.split(".").pop()?.toLowerCase() || "png"
         const fileName = `${restaurantId}/logo-${Date.now()}.${ext}`
 
@@ -338,36 +425,23 @@ export default function ThemeBrandingPage() {
           .publicUrl
       }
 
-      const themeList = uniqueThemes([
-        ...BRAND_THEMES,
-        ...generated,
-      ])
+      if (adminPolicy.allowBranding) {
+        const { error } = await supabase
+          .from("restaurants")
+          .update({
+            logo: logoUrl || null,
+          })
+          .eq("id", restaurantId)
 
-      const selectedTheme =
-        themeList.find((item) => item.id === selected) ||
-        DEFAULT_THEME
+        if (error) throw error
 
-      const { error } = await supabase
-        .from("restaurants")
-        .update({
-          logo: logoUrl || null,
-          theme_config: {
-            selected: selectedTheme.id,
-            themes: themeList,
-            updated_at: new Date().toISOString(),
-          },
-        })
-        .eq("id", restaurantId)
-
-      if (error) throw error
-
-      setLogo(logoUrl)
-      setPreview(logoUrl)
-      setFile(null)
-
-      await setThemeList(themeList, selectedTheme.id, true)
-
-      setMessage("Branding, logo and theme saved successfully.")
+        setLogo(logoUrl)
+        setPreview(logoUrl)
+        setFile(null)
+        setMessage("Branding and logo saved successfully.")
+      } else {
+        setMessage("Theme permissions are managed by Super Admin. Theme changes use the Theme selection cards.")
+      }
     } catch (error) {
       console.error("THEME SAVE ERROR:", error)
       setMessage(error?.message || "Unable to save branding.")
@@ -386,6 +460,16 @@ export default function ThemeBrandingPage() {
 
   return (
     <div style={page} className="theme-page">
+      {!adminPolicy.themeBrandingEnabled && (
+        <div style={{...messageBox, borderColor:"#ef4444", color:"#fecaca"}}>
+          🔒 Theme & Branding is disabled by Super Admin.
+        </div>
+      )}
+      {adminPolicy.themeBrandingEnabled && !adminPolicy.allowTheme && (
+        <div style={{...messageBox, borderColor:"var(--border)", color:"var(--muted)"}}>
+          🔐 Theme changes are locked by Super Admin. You can view the available themes, but cannot change them.
+        </div>
+      )}
       <div style={hero}>
         <div>
           <div style={eyebrow}>WHITE-LABEL BRANDING</div>

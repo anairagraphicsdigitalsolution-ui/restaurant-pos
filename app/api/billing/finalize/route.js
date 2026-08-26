@@ -148,17 +148,34 @@ export async function POST(req) {
     // Optional explicit idempotency key. Frontends should reuse the same key
     // when retrying the same finalize click/network request. Existing callers
     // without a key continue to use the order-level paid-state idempotency.
+    // Idempotency is per PAYMENT ATTEMPT, not per order. An order can be
+    // partially paid and finalized again later for its remaining balance.
+    // Reusing `billing-finalize:<order>` would replay the first partial
+    // response forever and prevent the second payment from reaching the RPC.
     const idempotencyKey = String(req.headers.get("x-idempotency-key") || body?.idempotency_key || "").trim().slice(0, 180)
     if (idempotencyKey) {
       const { data: existingKey } = await supabaseAdmin
         .from("billing_idempotency_keys")
-        .select("status,response,order_id,restaurant_id")
+        .select("id,status,response,order_id,restaurant_id")
         .eq("restaurant_id", order.restaurant_id)
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle()
 
       if (existingKey?.response && existingKey.status === "completed") {
-        return Response.json(existingKey.response)
+        const priorBill = existingKey.response?.bill || existingKey.response
+        const priorStatus = String(priorBill?.payment_status || "").toLowerCase()
+
+        // A completed *paid* request is a true idempotent replay.
+        if (priorStatus === "paid") {
+          return Response.json(existingKey.response)
+        }
+
+        // A completed partial/unpaid response is not a terminal finalize.
+        // Remove only the idempotency marker; payment rows remain untouched.
+        await supabaseAdmin
+          .from("billing_idempotency_keys")
+          .delete()
+          .eq("id", existingKey.id)
       }
       if (existingKey?.status === "processing") {
         return Response.json({ success: false, error: "This billing request is already being processed. Please wait." }, { status: 409 })

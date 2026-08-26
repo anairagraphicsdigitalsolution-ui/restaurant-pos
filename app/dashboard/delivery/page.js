@@ -4,7 +4,7 @@ import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 import { useEffect, useMemo, useState } from "react"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
 import { printHtmlInFrame } from "@/lib/printUtils"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 
 const money = (v) =>
@@ -32,6 +32,7 @@ const collectionLabel = (s) =>
   }[s] || "Collection pending")
 
 export default function DeliveryManagement() {
+  const router = useRouter()
   const search = useSearchParams()
 
   const [deliveries, setDeliveries] = useState([])
@@ -438,15 +439,15 @@ export default function DeliveryManagement() {
 
     try {
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/kitchen/order-status", {
+      const response = await fetch("/api/delivery", {
         method: "POST",
         headers: {
           ...headers,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          order_id: selected.order_id,
-          status: "done",
+          action: "complete",
+          delivery_id: selected.id,
         }),
         cache: "no-store",
       })
@@ -457,6 +458,7 @@ export default function DeliveryManagement() {
         throw new Error(result.error || "Unable to mark order done")
       }
 
+      setSelected(result.delivery || selected)
       // Billing screen restores the selected order from this key.
       window.localStorage.setItem(
         "anaira_pos_selected_order",

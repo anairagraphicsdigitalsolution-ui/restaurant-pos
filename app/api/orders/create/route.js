@@ -1,5 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
+import { printOrderSlip } from "@/lib/orderSlipPrinter"
 import { getWhatsAppConfig, normalizeWhatsAppNumber, sendWhatsAppMessage } from "@/lib/whatsappServer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
 
@@ -32,6 +34,11 @@ function normalizeItems(items) {
 }
 
 export async function POST(req) {
+  const oversized = rejectOversizedRequest(req)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "public-order", 20)
+  if (!limit.ok) return rateLimitResponse(limit)
+
   try {
     const body = await req.json()
 
@@ -74,13 +81,20 @@ export async function POST(req) {
       return Response.json(
         {
           success: false,
-          error: orderError.message || "Order failed"
+          error: "Order could not be created. Please try again."
         },
         { status: 400 }
       )
     }
 
     const orderId = orderResult?.order_id
+    let print = { attempted: false, printed: false, reason: "no_order" }
+    if (orderId && orderResult?.restaurant_id) {
+      // Printing is best-effort: an unavailable printer must never cancel a
+      // successful QR/website order. The same server-side slip is used for
+      // table, room and website orders so every source gets a KOT.
+      print = await printOrderSlip(orderId, orderResult.restaurant_id)
+    }
     let customerWhatsappUrl = null
     let restaurantWhatsappUrl = null
     let whatsapp = { restaurantNotification: false, customerConfirmation: false }
@@ -233,6 +247,7 @@ export async function POST(req) {
     return Response.json({
       success: true,
       order: orderResult,
+      print,
       whatsapp,
       restaurant_whatsapp_url: restaurantWhatsappUrl,
       customer_whatsapp_url: customerWhatsappUrl,
@@ -244,7 +259,7 @@ export async function POST(req) {
     return Response.json(
       {
         success: false,
-        error: error.message || "Order failed"
+        error: "Order could not be created. Please try again."
       },
       { status: 400 }
     )

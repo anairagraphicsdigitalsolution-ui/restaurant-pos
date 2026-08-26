@@ -1,9 +1,12 @@
 "use client"
 
+import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
+
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
+import { BRAND_THEMES, DEFAULT_THEME } from "@/components/ThemeProvider"
 
 const categoryMeta = {
   "Core Hubs":["🧭","Core Hubs"],
@@ -109,6 +112,7 @@ export default function PluginsPage(){
 
   const [configOpen,setConfigOpen]=useState("")
   const [config,setConfig]=useState({})
+  const [themeOptions,setThemeOptions]=useState(BRAND_THEMES)
   async function loadConfig(plugin){
     if(!selected)return
     setConfigOpen(plugin.code)
@@ -116,13 +120,53 @@ export default function PluginsPage(){
     const res=await fetch(`/api/super-admin/plugins?restaurant_id=${encodeURIComponent(selected.id)}&config_for=${encodeURIComponent(plugin.code)}`,{headers,cache:"no-store"})
     const data=await res.json()
     setConfig(data.config||{})
+    if (plugin.code === "theme-branding") {
+      const custom = Array.isArray(data.theme_catalog) ? data.theme_catalog : []
+      const options = [
+        ...BRAND_THEMES,
+        ...custom.filter(item => !BRAND_THEMES.some(base => base.id === item?.id)),
+      ]
+      setThemeOptions(options)
+    }
   }
   async function saveConfig(plugin){
     if(!selected)return
     const headers=await authHeaders()
-    const res=await fetch("/api/super-admin/plugins",{method:"PATCH",headers,body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code,config})})
+    const configToSave = { ...config }
+    if (plugin.code === "restaurant-settings") {
+      if (configToSave.allow_admin_theme_changes === true &&
+          !["restaurant","qr","both"].includes(String(configToSave.admin_theme_change_scope || "").toLowerCase())) {
+        configToSave.admin_theme_change_scope = "both"
+      }
+      if (configToSave.allow_admin_theme_changes !== true) {
+        configToSave.admin_theme_change_scope = "none"
+      }
+      setConfig(configToSave)
+    }
+    const res=await fetch("/api/super-admin/plugins",{
+      method:"PATCH",
+      headers,
+      body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code,config:configToSave})
+    })
     const data=await res.json()
     if(!res.ok||!data.success) throw new Error(data.error||"Configuration save failed")
+    if (plugin.code === "theme-branding" && config.theme_id) {
+      const theme = themeOptions.find(item => item.id === config.theme_id) || DEFAULT_THEME
+      const themeRes = await fetch("/api/super-admin/plugins",{
+        method:"PATCH",
+        headers,
+        body:JSON.stringify({
+          restaurant_id:selected.id,
+          plugin_code:"theme-branding",
+          theme_selection:{
+            selected:theme.id,
+            theme
+          }
+        })
+      })
+      const themeData = await themeRes.json()
+      if(!themeRes.ok||!themeData.success) throw new Error(themeData.error||"Restaurant theme assignment failed")
+    }
     setMessage(`✅ ${plugin.name} settings saved for ${selected.name}`)
   }
 
@@ -165,8 +209,8 @@ export default function PluginsPage(){
 
   async function toggle(plugin){
     if(!selected) return
-    if (plugin.code === "operations-hub" || CORE_FEATURE_CODES.has(plugin.code)) {
-      setMessage("Operations Hub is always available. Core feature modules are controlled by Restaurant Core.")
+    if (CORE_FEATURE_CODES.has(plugin.code)) {
+      setMessage("Restaurant Core feature modules are controlled by the Restaurant Core master switch.")
       return
     }
     const row=plugin.plugin
@@ -296,8 +340,8 @@ export default function PluginsPage(){
 
               <div className="hub-cards">
                 {merged.filter(p=>hubCodes.has(p.code)).map(p=>{
-                  const alwaysOn = p.code === "operations-hub"
-                  const on = alwaysOn ? true : p.plugin?.enabled===true
+                  const alwaysOn = false
+                   const on = p.plugin?.enabled===true
                   return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
                     <div style={hubIcon}>{p.icon||"🧩"}</div>
                     <div style={{flex:1,minWidth:0}}>
@@ -374,8 +418,8 @@ export default function PluginsPage(){
 
                 <div className="plugin-cards">
                   {filtered.map(p=>{
-                    const alwaysOn = OPERATIONS_FEATURE_CODES.has(p.code)
-                    const on=alwaysOn ? true : p.plugin?.enabled===true
+                    const alwaysOn = false
+                     const on=p.plugin?.enabled===true
                     const [catIcon,catLabel]=categoryMeta[p.category]||["🧩",p.category]
                     return <article key={p.code} style={{...pluginCard,...(on?pluginOn:{})}}>
                       <div style={cardTop}>
@@ -394,7 +438,7 @@ export default function PluginsPage(){
                           {on && <button className="plugin-btn" onClick={()=>loadConfig(p)} style={ghost}>⚙ Configure</button>}
                         </div>
                       </div>
-                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} onSave={()=>saveConfig(p)} onTest={testPluginConnection} onWhatsAppTest={testWhatsApp} />}
+                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} themeOptions={themeOptions} onSave={()=>saveConfig(p)} onTest={testPluginConnection} onWhatsAppTest={testWhatsApp} onVoiceTest={()=>testCallingVoice(config,setMessage)} />}
                     </article>
                   })}
                 </div>
@@ -435,6 +479,39 @@ const PLUGIN_SETTINGS = {
         ["deposit_value","Deposit value","number",0],
         ["cancellation_hours","Free cancellation before (hours)","number",4],
       ]},
+    ]
+  },
+  "operations-hub": {
+    title:"Operations Hub Settings",
+    sections:[
+      {title:"Optional Controls",fields:[
+        ["expenses_enabled","Expenses","toggle",true],
+        ["cash_closing_enabled","Cash Closing","toggle",true],
+      ]},
+    ]
+  },
+  "theme-branding": {
+    title:"Theme & Branding Settings",
+    sections:[
+      {title:"Restaurant Theme Control",fields:[
+        ["theme_id","Theme to assign to this restaurant","theme_select",DEFAULT_THEME.id],
+        ["theme_scope","Where should the selected restaurant theme apply?","select",["restaurant","qr","both"]],
+      ]},
+      {title:"Branding",fields:[
+        ["show_restaurant_logo","Show restaurant logo across restaurant surfaces","toggle",true],
+        ["show_brand_name","Show restaurant brand name","toggle",true],
+      ]},
+    ]
+  },
+  "restaurant-settings": {
+    title:"Restaurant Settings",
+    sections:[
+      {title:"Restaurant Configuration",fields:[
+        ["allow_admin_branding_changes","Allow restaurant Admin to edit branding","toggle",false],
+        ["allow_admin_theme_changes","Allow restaurant Admin to change the active theme","toggle",false],
+        ["admin_theme_change_scope","Allow Admin to change theme for","select",["none","restaurant","qr","both"]],
+        ["allow_admin_operational_settings","Allow restaurant Admin to change operational settings","toggle",true],
+      ]}
     ]
   },
   "qr-ordering-pro": {
@@ -540,11 +617,14 @@ const PLUGIN_SETTINGS = {
     ]
   },
   "offers": {
-    title:"Offers & Promotions Settings",
+    title:"Offers & Combos Settings",
     sections:[
-      {title:"Offer Rules",fields:[
+      {title:"Feature Access",fields:[
+        ["offers_enabled","Offers","toggle",true],
+        ["combos_enabled","Combos","toggle",true],
         ["monthly_limit","Monthly offer creation limit","number",10],
-        ["allow_combo","Allow combo offers","toggle",true],
+      ]},
+      {title:"Offer Rules",fields:[
         ["allow_discount","Allow percentage/fixed discounts","toggle",true],
         ["auto_apply","Automatically apply eligible offer","toggle",false],
         ["allow_stack","Allow stacking multiple offers","toggle",false],
@@ -710,9 +790,43 @@ const PLUGIN_SETTINGS = {
   }
 }
 
-function PluginConfig({plugin,config,setConfig,onSave,onTest,onWhatsAppTest}){
+function testCallingVoice(config = {}, setMessage = () => {}) {
+  unlockCallingAudio()
+  const ok = speakCallingAnnouncement(
+    "New order received. Order TEST 001 has arrived in the kitchen.",
+    {
+      language: config?.language || "hi-IN",
+      volume: Number(config?.volume ?? 1),
+      rate: Number(config?.rate ?? .9),
+      repeat: Number(config?.repeat ?? 1),
+    },
+    {
+      onError: error => setMessage(`❌ Calling voice: ${error}`),
+    }
+  )
+  if (!ok) setMessage("❌ Calling voice is unavailable on this device.")
+  else setMessage("🔊 Calling voice test started.")
+}
+
+function PluginConfig({plugin,config,setConfig,themeOptions=[],onSave,onTest,onWhatsAppTest,onVoiceTest}){
   const schema=PLUGIN_SETTINGS[plugin.code]
-  const set=(key,value)=>setConfig(c=>({...c,[key]:value}))
+  const set=(key,value)=>setConfig(c=>{
+    const next={...c,[key]:value}
+
+    // Theme permission is a two-part policy: the master checkbox and the
+    // scope. If Super Admin enables the permission without choosing a scope,
+    // default the scope to BOTH instead of silently leaving the Admin locked.
+    if (plugin.code === "restaurant-settings" && key === "allow_admin_theme_changes") {
+      if (value === true && String(c.admin_theme_change_scope || "none").toLowerCase() === "none") {
+        next.admin_theme_change_scope = "both"
+      }
+      if (value === false) {
+        next.admin_theme_change_scope = "none"
+      }
+    }
+
+    return next
+  })
   if(!schema){
     return <div className="plugin-settings-panel" style={configBox}><div style={miniLabel}>PLUGIN RUNTIME</div><p style={sectionText}>This plugin uses the application's canonical runtime. No restaurant-specific credentials are required for this module.</p><div className="plugin-settings-save" style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}><button className="plugin-btn" onClick={onSave} style={hubActivate}>💾 Save Settings</button><button className="plugin-btn" onClick={()=>onTest(plugin)} style={success}>🧪 Test Runtime</button></div></div>
   }
@@ -724,9 +838,28 @@ function PluginConfig({plugin,config,setConfig,onSave,onTest,onWhatsAppTest}){
         {section.fields.map(([key,label,type,defaultValue])=>{
           const value=config[key] ?? defaultValue
           if(type==="toggle") return <label key={key} className="plugin-setting-toggle" style={settingRow}><span>{label}</span><input type="checkbox" checked={Boolean(value)} onChange={e=>set(key,e.target.checked)}/></label>
+          if(type==="theme_select") {
+            const selected = value || defaultValue || DEFAULT_THEME.id
+            return <label key={key} style={field}>
+              <span>{label}</span>
+              <select value={selected} onChange={e=>set(key,e.target.value)} style={searchInput}>
+                {themeOptions.map(x=><option key={x.id} value={x.id}>{x.name}{x.id===DEFAULT_THEME.id?" — MAIN THEME":""}</option>)}
+              </select>
+              <small style={{color:"var(--muted)",lineHeight:1.4}}>
+                Super Admin assignment. This is the theme the restaurant receives until an allowed Admin changes it.
+              </small>
+            </label>
+          }
           if(type==="select") {
              const options=Array.isArray(defaultValue)?defaultValue:[]
-             const selected=Array.isArray(value)?(value[0]??options[0]??""):(value??options[0]??"")
+             let selected=Array.isArray(value)?(value[0]??options[0]??""):(value??options[0]??"")
+             // A legacy configuration may have the permission checkbox ON but
+             // the scope still set to none. Show BOTH in that case so the
+             // saved UI matches the effective permission.
+             if (plugin.code === "restaurant-settings" && key === "admin_theme_change_scope" &&
+                 config.allow_admin_theme_changes === true && String(selected).toLowerCase() === "none") {
+               selected = "both"
+             }
              return <label key={key} style={field}><span>{label}</span><select value={selected} onChange={e=>set(key,e.target.value)} style={searchInput}>{options.map(x=><option key={String(x)} value={x}>{x}</option>)}</select></label>
            }
           return <label key={key} style={field}><span>{label}</span>{type==="textarea"?<textarea rows={3} value={value||""} onChange={e=>set(key,e.target.value)} style={searchInput}/>:<input type={type==="number"?"number":type} value={value??""} onChange={e=>set(key,type==="number"?Number(e.target.value):e.target.value)} style={searchInput}/>}</label>
@@ -736,6 +869,7 @@ function PluginConfig({plugin,config,setConfig,onSave,onTest,onWhatsAppTest}){
     <div className="plugin-settings-save" style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
       <button className="plugin-btn" onClick={onSave} style={hubActivate}>💾 Save {schema.title}</button>
       <button className="plugin-btn" onClick={()=>onTest(plugin)} style={success}>🧪 Test Connection</button>
+      {plugin.code==="calling-device" && <button className="plugin-btn" onClick={onVoiceTest} style={success}>🔊 Test Voice</button>}
       {plugin.code==="whatsapp-invoice" && <button className="plugin-btn" onClick={onWhatsAppTest} style={success}>📨 Send Test WhatsApp</button>}
       <button className="plugin-btn" onClick={()=>setConfig({})} style={ghost}>Reset Form</button>
     </div>

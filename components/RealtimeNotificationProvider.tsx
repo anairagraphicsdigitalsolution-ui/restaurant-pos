@@ -14,18 +14,30 @@ type Notice = {
 }
 
 export default function RealtimeNotificationProvider() {
-  const started = useRef(false)
+  const channelRef = useRef<any>(null)
+  const restaurantRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (started.current) return
-    started.current = true
     let cancelled = false
-    let channel: any = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let authSubscription: { unsubscribe: () => void } | null = null
 
-    async function start() {
+    const cleanupChannel = async () => {
+      const channel = channelRef.current
+      channelRef.current = null
+      restaurantRef.current = null
+      if (channel) await supabase.removeChannel(channel)
+    }
+
+    const start = async () => {
+      if (cancelled) return
+
       const { data: sessionData } = await supabase.auth.getSession()
       const user = sessionData?.session?.user || null
-      if (!user || cancelled) return
+      if (!user) {
+        retryTimer = setTimeout(start, 1000)
+        return
+      }
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -34,9 +46,16 @@ export default function RealtimeNotificationProvider() {
         .maybeSingle()
 
       const restaurantId = profile?.restaurant_id
-      if (!restaurantId || profile?.role === "super_admin" || cancelled) return
+      if (!restaurantId || profile?.role === "super_admin") {
+        retryTimer = setTimeout(start, 1500)
+        return
+      }
 
-      channel = supabase
+      if (channelRef.current && restaurantRef.current === restaurantId) return
+      await cleanupChannel()
+      if (cancelled) return
+
+      const channel = supabase
         .channel(`anaira-central-notifications-${restaurantId}`)
         .on(
           "postgres_changes",
@@ -51,13 +70,31 @@ export default function RealtimeNotificationProvider() {
             window.dispatchEvent(new CustomEvent("anaira:notification", { detail: payload.new as Notice }))
           }
         )
-        .subscribe()
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") return
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            retryTimer = setTimeout(start, 2000)
+          }
+        })
+
+      channelRef.current = channel
+      restaurantRef.current = restaurantId
     }
 
+    const auth = supabase.auth.onAuthStateChange((_event) => {
+      if (retryTimer) clearTimeout(retryTimer)
+      // Supabase recommends deferring follow-up work from the auth callback.
+      retryTimer = setTimeout(start, 0)
+    })
+    authSubscription = auth.data.subscription
+
     void start()
+
     return () => {
       cancelled = true
-      if (channel) void supabase.removeChannel(channel)
+      if (retryTimer) clearTimeout(retryTimer)
+      authSubscription?.unsubscribe()
+      void cleanupChannel()
     }
   }, [])
 

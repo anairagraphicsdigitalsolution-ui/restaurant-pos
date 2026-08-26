@@ -34,6 +34,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   const [planEndsAt, setPlanEndsAt] = useState("")
   const [hubPlugins, setHubPlugins] = useState<Record<string, boolean>>({})
   const [featurePlugins, setFeaturePlugins] = useState<Record<string, boolean>>({})
+  const [operationsSettings, setOperationsSettings] = useState<Record<string, any>>({})
   const [openAdminMenus, setOpenAdminMenus] = useState<Record<string, boolean>>({})
   const [manualClosedMenus, setManualClosedMenus] = useState<Record<string, boolean>>({})
   const [restaurantId, setRestaurantId] = useState<string | null>(null)
@@ -101,10 +102,20 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       const live = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
       setPlanName(plan?.name || "")
       setPlanEndsAt(planData?.subscription?.ends_at || "")
-      const { data: pluginRows } = await supabase
-        .from("restaurant_plugins")
-        .select("plugin_code,enabled")
-        .eq("restaurant_id", profile.restaurant_id)
+      const [{ data: pluginRows }, { data: operationsSettingRows }] = await Promise.all([
+        supabase
+          .from("restaurant_plugins")
+          .select("plugin_code,enabled")
+          .eq("restaurant_id", profile.restaurant_id),
+        supabase
+          .from("plugin_settings")
+          .select("plugin_code,config")
+          .eq("restaurant_id", profile.restaurant_id)
+          .eq("plugin_code", "operations-hub")
+      ])
+
+      const opsConfig = operationsSettingRows?.[0]?.config || {}
+      setOperationsSettings(opsConfig)
 
       const pluginState: Record<string, boolean> = {}
       for (const row of pluginRows || []) {
@@ -146,11 +157,25 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       // Loyalty remains independent from Restaurant Pro.
       resolved["loyalty"] = pluginState["loyalty"] === true
 
+      // Appearance / branding is an independent Super Admin-controlled plugin.
+      resolved["theme-branding"] = pluginState["theme-branding"] === true
+      resolved["restaurant-settings"] = pluginState["restaurant-settings"] === true
+
+      // Operations Hub is the master. Cash Closing is one of the only
+      // independently switchable children of that master.
+      resolved["cash-closing"] =
+        pluginState["operations-hub"] === true &&
+        opsConfig.cash_closing_enabled !== false
+
+      resolved["expenses"] =
+        pluginState["operations-hub"] === true &&
+        opsConfig.expenses_enabled !== false
+
       setPlanFeatures(resolved)
       setFeaturePlugins(resolved)
 
       setHubPlugins({
-        "operations-hub": true,
+        "operations-hub": pluginState["operations-hub"] === true,
         "restaurant-core": coreOn,
         "restaurant-pro": proMasterOn
       })
@@ -211,7 +236,8 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         { name: "Customers", path: "/dashboard/business?tab=customers", feature: "crm" },
         { name: "Modifiers", path: "/dashboard/business?tab=modifiers", feature: "combos-variants" },
         { name: "KOT", path: "/dashboard/business?tab=kot", feature: "kds" },
-        { name: "Expenses", path: "/dashboard/business?tab=expenses", feature: "analytics" },
+        { name: "Expenses", path: "/dashboard/business?tab=expenses", feature: "expenses" },
+        { name: "Cash Closing", path: "/dashboard/cash-closing", feature: "cash-closing" },
         { name: "Attendance", path: "/dashboard/business?tab=attendance", feature: "staff-attendance" },
         { name: "Loyalty", path: "/dashboard/business?tab=loyalty", feature: "loyalty" },
         { name: "Feedback", path: "/dashboard/business?tab=feedback", feature: "feedback-reviews" },
@@ -311,9 +337,9 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       name: "Settings & Branding",
       icon: "🎨",
       path: "/dashboard/theme",
+      feature: "theme-branding",
       children: [
         { name: "Theme & Branding", path: "/dashboard/theme" },
-        { name: "Cash Closing", path: "/dashboard/cash-closing", feature: "cash-closing" },
       ]
     },
   ]

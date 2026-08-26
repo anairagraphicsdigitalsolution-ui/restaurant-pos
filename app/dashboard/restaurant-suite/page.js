@@ -1,4 +1,6 @@
 "use client"
+
+import { indiaDateKey } from "@/lib/indiaTime"
 import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
@@ -31,7 +33,7 @@ export default function RestaurantSuite() {
   async function load(r=rid){
     if(!r)return
     setLoading(true)
-    const today=new Date().toISOString().slice(0,10)
+    const today=indiaDateKey()
     const results=await Promise.all([
       supabase.from("orders").select("id,source_label,order_mode,status,total_amount,payment_status,created_at").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(200),
       supabase.from("order_tokens").select("*").eq("restaurant_id",r).eq("token_date",today).order("token_no"),

@@ -1,8 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
+import { rateLimit, rateLimitResponse } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
 
 export async function GET(req) {
+  const limit = rateLimit(req, "qr-context", 120)
+  if (!limit.ok) return rateLimitResponse(limit)
   try {
     const { searchParams } = new URL(req.url)
 
@@ -120,11 +123,42 @@ export async function GET(req) {
       )
     }
 
-    const { data: themeRow } = await supabaseAdmin
-      .from("restaurants")
-      .select("theme_config")
-      .eq("id", restaurantId)
-      .maybeSingle()
+    const [
+      { data: themeRow },
+      { data: themePlugin },
+      { data: themeSettings },
+      { data: brandingPlugin },
+      { data: operationsHubPlugin },
+    ] = await Promise.all([
+      supabaseAdmin.from("restaurants").select("theme_config").eq("id", restaurantId).maybeSingle(),
+      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "operations-hub").maybeSingle(),
+    ])
+
+    const themeBrandingEnabled = themePlugin?.enabled === true
+    const themeScope = String(themeSettings?.config?.theme_scope || "both").toLowerCase()
+    const qrThemeEnabled = themeBrandingEnabled && ["qr","both"].includes(themeScope)
+    const brandingEnabled = brandingPlugin?.enabled === true
+    const feedbackEnabled = operationsHubPlugin?.enabled === true
+
+    const publicThemeConfig = qrThemeEnabled ? (themeRow?.theme_config || null) : null
+
+    // Offers & Combos master plugin. The master switch must be ON; the two
+    // capabilities are then controlled independently by Super Admin config.
+    const [{ data: offersComboPlugin }, { data: offersComboSettings }] = await Promise.all([
+      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle(),
+      supabaseAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle()
+    ])
+    const masterEnabled = offersComboPlugin?.enabled === true
+    const offersEnabled = masterEnabled && offersComboSettings?.config?.offers_enabled !== false
+    const combosEnabled = masterEnabled && offersComboSettings?.config?.combos_enabled !== false
+
+    if (!offersEnabled) data.offers = []
+    if (!combosEnabled && Array.isArray(data?.menu)) {
+      data.menu = data.menu.filter(item => item?.item_type !== "combo")
+    }
 
     // Product-targeted offers need their menu-item mappings in the public QR context.
     // The mapping contains only offer/menu item ids; prices and eligibility remain
@@ -153,9 +187,13 @@ export async function GET(req) {
       }
     }
 
+    if (!brandingEnabled && data?.restaurant) {
+      data.restaurant = { ...data.restaurant, logo: null }
+    }
+
     let rating = { average: 0, count: 0 }
 
-    if (restaurantId) {
+    if (feedbackEnabled && restaurantId) {
       const { data: feedbackRows } = await supabaseAdmin
         .from("customer_feedback")
         .select("rating")
@@ -174,8 +212,12 @@ export async function GET(req) {
       {
         success: true,
         ...data,
-        theme_config: themeRow?.theme_config || null,
-        rating
+        theme_config: publicThemeConfig,
+        theme_runtime: { plugin_enabled: themeBrandingEnabled, scope: themeScope, qr_enabled: qrThemeEnabled },
+        branding_runtime: { plugin_enabled: brandingEnabled },
+        feedback_enabled: feedbackEnabled,
+        rating: feedbackEnabled ? rating : { average: 0, count: 0 },
+        offers_combos: { enabled: masterEnabled, offers_enabled: offersEnabled, combos_enabled: combosEnabled }
       },
       {
         status: 200,

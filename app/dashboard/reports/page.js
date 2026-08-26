@@ -30,6 +30,7 @@ const formatTime = (date) =>
 export default function Reports() {
   const [orders, setOrders] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [cashClosings, setCashClosings] = useState([])
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -53,6 +54,7 @@ export default function Reports() {
           if (!cancelled) {
             setOrders([])
             setExpenses([])
+            setCashClosings([])
             setLoading(false)
           }
           return
@@ -70,6 +72,7 @@ export default function Reports() {
           if (!cancelled) {
             setOrders([])
             setExpenses([])
+            setCashClosings([])
             setLoading(false)
           }
           return
@@ -82,7 +85,7 @@ export default function Reports() {
         const since = sinceDate.toISOString()
         const sinceDay = since.slice(0, 10)
 
-        const [ordersResult, expensesResult] = await Promise.all([
+        const [ordersResult, expensesResult, cashClosingResult] = await Promise.all([
           supabase
             .from("orders")
             .select(
@@ -98,14 +101,23 @@ export default function Reports() {
             .eq("restaurant_id", profile.restaurant_id)
             .gte("expense_date", sinceDay)
             .order("expense_date", { ascending: true }),
+
+          supabase
+            .from("cash_closings")
+            .select("id,business_date,opening_cash,cash_sales,cash_in,cash_out,expense_cash,refunds,expected_cash,actual_cash,difference,closed_at")
+            .eq("restaurant_id", profile.restaurant_id)
+            .gte("business_date", sinceDay)
+            .order("business_date", { ascending: false }),
         ])
 
         if (ordersResult.error) throw ordersResult.error
         if (expensesResult.error) throw expensesResult.error
+        if (cashClosingResult.error) throw cashClosingResult.error
 
         if (!cancelled) {
           setOrders(ordersResult.data || [])
           setExpenses(expensesResult.data || [])
+          setCashClosings(cashClosingResult.data || [])
           setLoading(false)
         }
       } catch (err) {
@@ -427,6 +439,42 @@ export default function Reports() {
                   : "Negative"}
               </span>
             </div>
+          </div>
+        </section>
+
+        {/* DAILY CASH CLOSING */}
+        <section className="cash-closing-report">
+          <div className="panel">
+            <div className="panel-heading">
+              <div>
+                <span className="panel-kicker">CASH CONTROL</span>
+                <h2>Daily Cash Closing</h2>
+                <p>India business-day closing history: opening cash, cash received, adjustments and final counted cash.</p>
+              </div>
+              <a className="report-link" href="/dashboard/restaurant-suite/operations">Open Operations Hub →</a>
+            </div>
+            {cashClosings.length === 0 ? (
+              <div className="empty-chart">No cash closing recorded for this period.</div>
+            ) : (
+              <div className="cash-closing-table">
+                <div className="cash-closing-row cash-closing-head">
+                  <span>Date</span><span>Opening</span><span>Cash In</span><span>Cash Expenses</span><span>Expected</span><span>Actual</span><span>Difference</span>
+                </div>
+                {cashClosings.map((c) => (
+                  <div className="cash-closing-row" key={c.id}>
+                    <strong>{c.business_date}</strong>
+                    <span>{money(c.opening_cash)}</span>
+                    <span>{money(Number(c.cash_sales || 0) + Number(c.cash_in || 0))}</span>
+                    <span>{money(c.expense_cash)}</span>
+                    <span>{money(c.expected_cash)}</span>
+                    <span>{money(c.actual_cash)}</span>
+                    <strong className={Number(c.difference || 0) === 0 ? "cash-match" : "cash-difference"}>
+                      {Number(c.difference || 0) === 0 ? "✓ Matched" : money(c.difference)}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -2009,6 +2057,8 @@ const css = `
   font-size: 9px;
   letter-spacing: 0;
 }
+
+.cash-closing-report{margin-bottom:18px}.cash-closing-table{overflow:auto;border:1px solid var(--border);border-radius:14px}.cash-closing-row{display:grid;grid-template-columns:1.1fr repeat(6,minmax(90px,1fr));gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--border);font-size:13px}.cash-closing-head{border-top:0;background:var(--surface-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:900}.cash-closing-row span{color:var(--muted)}.cash-match{color:var(--success)}.cash-difference{color:var(--primary)}
 
 /* RESPONSIVE */
 

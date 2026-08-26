@@ -1,5 +1,5 @@
 "use client"
-import { formatIndiaDateTime } from "@/lib/indiaTime"
+import { formatIndiaDateTime, indiaDateKey } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
 import { supabasePublic as supabase } from "@/lib/supabasePublic"
@@ -17,6 +17,7 @@ const tabs = [
   ["online", "🔗 Aggregators"],
   ["crm", "👥 CRM"],
   ["cash", "💵 Cash"],
+  ["expenses", "💸 Expenses"],
   ["reports", "📊 Reports"],
   ["hardware", "🖨️ Hardware"],
   ["marketing", "📣 Marketing"],
@@ -42,6 +43,7 @@ const pluginFor = {
   online: "aggregator-runtime",
   crm: "customer-segments",
   cash: null,
+  expenses: "expenses",
   reports: "scheduled-reports",
   hardware: "hardware-print-queue",
   marketing: "campaigns",
@@ -65,6 +67,7 @@ export default function AnairaOperationsHub() {
   const [role, setRole] = useState("")
   const [tab, setTab] = useState("floor")
   const [plugins, setPlugins] = useState({})
+  const [pluginSettings, setPluginSettings] = useState({})
   const [data, setData] = useState({})
   const [orders, setOrders] = useState([])
   const [menu, setMenu] = useState([])
@@ -88,9 +91,27 @@ export default function AnairaOperationsHub() {
   const [deposit, setDeposit] = useState({ reservation_id: "", amount: "", payment_method: "upi", reference: "" })
   const [feedbackRequest, setFeedbackRequest] = useState({ order_id: "", customer_id: "", channel: "qr" })
   const [cashMovement, setCashMovement] = useState({ shift_id: "", movement_type: "cash_in", amount: "", reference: "", note: "" })
+  const [cashClosing, setCashClosing] = useState({ opening_cash: "", actual_cash: "", notes: "" })
+  const [expense, setExpense] = useState({ category: "General", description: "", amount: "", payment_method: "cash", expense_date: indiaDateKey(new Date()) })
 
-  const selectedPlugin = pluginFor[tab] ? plugins[pluginFor[tab]] === true : true
-  const visibleTabs = tabs.filter(([key]) => !pluginFor[key] || plugins[pluginFor[key]] === true)
+  const operationsEnabled = plugins["operations-hub"] === true
+  const operationsConfig = pluginSettings["operations-hub"] || {}
+  const expensesEnabled = operationsEnabled && operationsConfig.expenses_enabled !== false
+  const cashClosingEnabled = operationsEnabled && operationsConfig.cash_closing_enabled !== false
+
+  const selectedPlugin =
+    pluginFor[tab] === "expenses"
+      ? expensesEnabled
+      : pluginFor[tab]
+        ? plugins[pluginFor[tab]] === true
+        : operationsEnabled
+
+  const visibleTabs = operationsEnabled
+    ? tabs.filter(([key]) => {
+        if (key === "expenses") return expensesEnabled
+        return !pluginFor[key] || plugins[pluginFor[key]] === true
+      })
+    : []
   const tableStats = useMemo(() => ({
     available: (data.tables || []).filter(x => x.status === "available").length,
     occupied: (data.tables || []).filter(x => x.status === "occupied").length,
@@ -139,9 +160,14 @@ export default function AnairaOperationsHub() {
       prints: supabase.from("print_jobs").select("*").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
       menu: supabase.from("menu_items").select("id,name,price").eq("restaurant_id", id).order("name").limit(200),
       plugins: supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", id),
+      pluginSettings: supabase.from("plugin_settings").select("plugin_code,config").eq("restaurant_id", id).eq("plugin_code", "operations-hub"),
       feedback: supabase.from("customer_feedback").select("id,rating,feedback,created_at,customer_id,order_id").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
       feedbackRequests: supabase.from("feedback_requests").select("id,order_id,customer_id,channel,status,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
       deposits: supabase.from("reservation_deposits").select("id,reservation_id,amount,payment_method,status,paid_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      expenses: supabase.from("expenses").select("id,category,description,amount,payment_method,expense_date,created_at").eq("restaurant_id", id).order("expense_date", { ascending: false }).limit(100),
+      cashClosings: supabase.from("cash_closings").select("id,business_date,opening_cash,cash_sales,cash_in,cash_out,expense_cash,refunds,expected_cash,actual_cash,difference,notes,closed_at").eq("restaurant_id", id).order("business_date", { ascending: false }).limit(30),
+      cashPayments: supabase.from("order_payments").select("amount,paid_at,created_at,status,payment_method").eq("restaurant_id", id).eq("payment_method", "cash").eq("status", "paid").limit(1000),
+      cashRefunds: supabase.from("order_refunds").select("amount,created_at,status").eq("restaurant_id", id).eq("status", "refunded").limit(1000),
       branches: supabase.from("restaurant_branches").select("id,name,code,active,phone,address").eq("parent_restaurant_id", id).order("name"),
       cashMovements: supabase.from("cash_movements").select("id,session_id,movement_type,amount,reference,note,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
       holds: supabase.from("order_holds").select("id,order_id,hold_type,note,released_at,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
@@ -149,14 +175,32 @@ export default function AnairaOperationsHub() {
     const entries = await Promise.all(Object.entries(q).map(async ([k, query]) => [k, (await query).data || []]))
     const result = Object.fromEntries(entries)
     const nextPlugins = Object.fromEntries((result.plugins || []).map(x => [x.plugin_code, x.enabled === true]))
+    const nextPluginSettings = Object.fromEntries(
+      (result.pluginSettings || []).map(x => [x.plugin_code, x.config || {}])
+    )
     setPlugins(nextPlugins)
-    if (pluginFor[tab] && nextPlugins[pluginFor[tab]] !== true) {
+    setPluginSettings(nextPluginSettings)
+    const nextOperationsEnabled = nextPlugins["operations-hub"] === true
+    const nextExpensesEnabled = nextOperationsEnabled && nextPluginSettings["operations-hub"]?.expenses_enabled !== false
+    const nextCashClosingEnabled = nextOperationsEnabled && nextPluginSettings["operations-hub"]?.cash_closing_enabled !== false
+    if (!nextOperationsEnabled) {
+      setTab("floor")
+    } else if (tab === "expenses" && !nextExpensesEnabled) {
       setTab("floor")
     }
     delete result.plugins
+    delete result.pluginSettings
     setOrders(result.orders || [])
     setMenu(result.menu || [])
     setData(result)
+
+    const today = indiaDateKey(new Date())
+    const todayClosing = (result.cashClosings || []).find(x => x.business_date === today)
+    const previousClosing = (result.cashClosings || []).find(x => x.business_date < today)
+    setCashClosing(current => ({
+      ...current,
+      opening_cash: todayClosing?.opening_cash ?? current.opening_cash ?? previousClosing?.actual_cash ?? "",
+    }))
   }
 
   async function insert(tableName, payload, reset) {
@@ -179,9 +223,116 @@ export default function AnairaOperationsHub() {
     return json
   }
 
+  async function saveExpense(event) {
+    event?.preventDefault()
+    if (!expensesEnabled) {
+      setMessage("Expenses are disabled by Super Admin.")
+      return
+    }
+    const amount = Number(expense.amount || 0)
+    if (!(amount > 0)) {
+      setMessage("Enter an expense amount greater than zero.")
+      return
+    }
+    await insert("expenses", {
+      category: expense.category || "General",
+      description: expense.description || null,
+      amount,
+      payment_method: expense.payment_method || "cash",
+      expense_date: expense.expense_date || indiaDateKey(new Date()),
+    }, () => setExpense({
+      category: "General",
+      description: "",
+      amount: "",
+      payment_method: "cash",
+      expense_date: indiaDateKey(new Date()),
+    }))
+  }
+
+  async function closeCashDay() {
+    if (!cashClosingEnabled || !rid || busy) return
+    const businessDate = indiaDateKey(new Date())
+    const dayStart = new Date(`${businessDate}T00:00:00+05:30`).toISOString()
+    const dayEnd = new Date(`${businessDate}T23:59:59.999+05:30`).toISOString()
+    const opening = Number(cashClosing.opening_cash || 0)
+    const actual = Number(cashClosing.actual_cash || 0)
+
+    const cashSales = (data.cashPayments || [])
+      .filter(x => {
+        const at = x.paid_at || x.created_at
+        return at && at >= dayStart && at <= dayEnd
+      })
+      .reduce((sum, x) => sum + Number(x.amount || 0), 0)
+
+    const refunds = (data.cashRefunds || [])
+      .filter(x => x.created_at >= dayStart && x.created_at <= dayEnd)
+      .reduce((sum, x) => sum + Number(x.amount || 0), 0)
+
+    const cashIn = (data.cashMovements || [])
+      .filter(x => x.created_at >= dayStart && x.created_at <= dayEnd && x.movement_type === "cash_in")
+      .reduce((sum, x) => sum + Number(x.amount || 0), 0)
+
+    const cashOut = (data.cashMovements || [])
+      .filter(x => x.created_at >= dayStart && x.created_at <= dayEnd && ["cash_out","petty_cash"].includes(x.movement_type))
+      .reduce((sum, x) => sum + Number(x.amount || 0), 0)
+
+    const expenseCash = (data.expenses || [])
+      .filter(x => x.expense_date === businessDate && x.payment_method === "cash")
+      .reduce((sum, x) => sum + Number(x.amount || 0), 0)
+
+    const expected = opening + cashSales + cashIn - refunds - cashOut - expenseCash
+    if (!Number.isFinite(actual)) {
+      setMessage("Enter actual counted cash.")
+      return
+    }
+
+    setBusy(true)
+    const { data: userData } = await supabase.auth.getUser()
+    const { error } = await supabase
+      .from("cash_closings")
+      .upsert({
+        restaurant_id: rid,
+        business_date: businessDate,
+        opening_cash: opening,
+        cash_sales: cashSales,
+        cash_in: cashIn,
+        cash_out: cashOut,
+        expense_cash: expenseCash,
+        refunds,
+        expected_cash: expected,
+        actual_cash: actual,
+        difference: actual - expected,
+        notes: cashClosing.notes || null,
+        closed_by: userData?.user?.id || null,
+        closed_at: new Date().toISOString(),
+      }, { onConflict: "restaurant_id,business_date" })
+    setBusy(false)
+    setMessage(error?.message || `Cash closing saved for ${businessDate}.`)
+    if (!error) {
+      setCashClosing(v => ({ ...v, actual_cash: "" }))
+      await load()
+    }
+  }
+
   function orderSelect(value, setter) { setter(v => ({ ...v, order_id: value })) }
 
   if (!rid) return <main className="pp-wrap"><div className="pp-empty">Loading restaurant workspace…</div></main>
+
+  if (!operationsEnabled) {
+    return (
+      <main className="pp-wrap">
+        <section className="pp-hero">
+          <div>
+            <small>RESTAURANT OPERATIONS</small>
+            <h1>Operations Hub</h1>
+            <p>The Operations Hub is disabled by Super Admin. Restaurant Core remains independent.</p>
+          </div>
+          <div className="pp-badge">🔒 Disabled</div>
+        </section>
+        <div className="pp-lock">Enable <b>Operations Hub</b> from Super Admin → Plugins to open this workspace.</div>
+      </main>
+    )
+  }
 
   return <main className="pp-wrap">
     <header className="pp-hero">
@@ -247,7 +398,65 @@ export default function AnairaOperationsHub() {
 
     {tab === "crm" && <section className="pp-grid"><Card title="Customer segments"><form onSubmit={e=>{e.preventDefault();let rules={};try{rules=JSON.parse(segment.rules)}catch{setMessage("Rules must be valid JSON");return}insert("customer_segments",{name:segment.name,code:segment.code.toLowerCase().replace(/\s+/g,"-"),rules},()=>setSegment({name:"",code:"",rules:'{"min_orders":2}'}))}} className="pp-form-grid"><Field label="Name"><input required value={segment.name} onChange={e=>setSegment({...segment,name:e.target.value})}/></Field><Field label="Code"><input required value={segment.code} onChange={e=>setSegment({...segment,code:e.target.value})}/></Field><Field label="Rules JSON"><textarea rows="3" value={segment.rules} onChange={e=>setSegment({...segment,rules:e.target.value})}/></Field><button>Save segment</button></form><div className="pp-list">{(data.segments||[]).map(s=><div className="pp-row" key={s.id}><b>{s.name}</b><span>{s.code} • {s.active?"Active":"Off"}</span></div>)}</div></Card><Card title="SMS / WhatsApp / Feedback"><div className="pp-form-grid"><Field label="Order for feedback"><select value={feedbackRequest.order_id} onChange={e=>setFeedbackRequest({...feedbackRequest,order_id:e.target.value})}><option value="">Select order</option>{orders.map(o=><option key={o.id} value={o.id}>#{o.id.slice(0,6)}</option>)}</select></Field><Field label="Channel"><select value={feedbackRequest.channel} onChange={e=>setFeedbackRequest({...feedbackRequest,channel:e.target.value})}><option>qr</option><option>whatsapp</option><option>sms</option></select></Field><button onClick={()=>api("feedback_request",feedbackRequest)}>Create Feedback Request</button></div><form onSubmit={e=>{e.preventDefault();insert("message_queue",{...messageForm,payload:{}})}}><div className="pp-form-grid"><Field label="Channel"><select value={messageForm.channel} onChange={e=>setMessageForm({...messageForm,channel:e.target.value})}><option>whatsapp</option><option>sms</option><option>email</option></select></Field><Field label="Recipient"><input value={messageForm.recipient} onChange={e=>setMessageForm({...messageForm,recipient:e.target.value})}/></Field><Field label="Purpose"><input value={messageForm.purpose} onChange={e=>setMessageForm({...messageForm,purpose:e.target.value})}/></Field><Field label="Template"><input value={messageForm.template} onChange={e=>setMessageForm({...messageForm,template:e.target.value})}/></Field><button type="button" onClick={()=>api("queue_message",messageForm)}>Queue message</button></div></form><div className="pp-list">{(data.messages||[]).map(m=><div className="pp-row" key={m.id}><b>{m.channel}</b><span>{m.recipient||"No recipient"} • {m.status}</span></div>)}</div></Card></section>}
 
-    {tab === "cash" && <section className="pp-grid"><Card title="Cash drawer"><form onSubmit={e=>{e.preventDefault();insert("cash_shifts",{opening_cash:Number(cash.opening_cash||0),notes:cash.notes,status:"open"},()=>setCash({opening_cash:"",notes:""}))}} className="pp-form-grid"><Field label="Opening cash"><input type="number" value={cash.opening_cash} onChange={e=>setCash({...cash,opening_cash:e.target.value})}/></Field><Field label="Notes"><input value={cash.notes} onChange={e=>setCash({...cash,notes:e.target.value})}/></Field><button>Open shift</button></form><div className="pp-list">{(data.shifts||[]).map(s=><div className="pp-row" key={s.id}><b>{money(s.opening_cash)}</b><span>{s.status} • {s.opened_at && formatIndiaDateTime(s.opened_at)}</span>{s.status==="open"&&<button onClick={()=>api("close_shift",{shift_id:s.id,actual_cash:s.expected_cash})}>Close</button>}</div>)}</div></Card><Card title="Cash movement"><div className="pp-form-grid"><Field label="Open shift"><select value={cashMovement.shift_id} onChange={e=>setCashMovement({...cashMovement,shift_id:e.target.value})}><option value="">Select shift</option>{(data.shifts||[]).filter(s=>s.status==="open").map(s=><option key={s.id} value={s.id}>{String(s.id).slice(0,6)} • {money(s.opening_cash)}</option>)}</select></Field><Field label="Type"><select value={cashMovement.movement_type} onChange={e=>setCashMovement({...cashMovement,movement_type:e.target.value})}><option>cash_in</option><option>cash_out</option><option>expense</option><option>petty_cash</option></select></Field><Field label="Amount"><input type="number" value={cashMovement.amount} onChange={e=>setCashMovement({...cashMovement,amount:e.target.value})}/></Field><Field label="Reason"><input value={cashMovement.note} onChange={e=>setCashMovement({...cashMovement,note:e.target.value})}/></Field><button onClick={()=>api("cash_movement",cashMovement)}>Record Movement</button></div><div className="pp-list">{(data.cashMovements||[]).map(m=><div className="pp-row" key={m.id}><b>{m.movement_type}</b><span>{money(m.amount)} • {m.note||"No note"}</span></div>)}</div></Card><Card title="Refund / void / audit"><p className="pp-muted">All operational actions are intended to be recorded in the POS audit trail. Use Billing for refund/void approvals and retain the reason.</p><a className="pp-button" href="/billing">Open Billing & Audit →</a></Card></section>}
+    {tab === "cash" && <section className="pp-grid">
+      <Card title="Cash drawer">
+        <form onSubmit={e=>{e.preventDefault();insert("cash_shifts",{opening_cash:Number(cash.opening_cash||0),notes:cash.notes,status:"open"},()=>setCash({opening_cash:"",notes:""}))}} className="pp-form-grid">
+          <Field label="Opening cash"><input type="number" value={cash.opening_cash} onChange={e=>setCash({...cash,opening_cash:e.target.value})}/></Field>
+          <Field label="Notes"><input value={cash.notes} onChange={e=>setCash({...cash,notes:e.target.value})}/></Field>
+          <button>Open shift</button>
+        </form>
+        <div className="pp-list">{(data.shifts||[]).map(s=><div className="pp-row" key={s.id}><b>{money(s.opening_cash)}</b><span>{s.status} • {s.opened_at && formatIndiaDateTime(s.opened_at)}</span>{s.status==="open"&&<button onClick={()=>api("close_shift",{shift_id:s.id,actual_cash:s.expected_cash})}>Close</button>}</div>)}</div>
+      </Card>
+
+      <Card title="Cash movement">
+        <div className="pp-form-grid">
+          <Field label="Open shift"><select value={cashMovement.shift_id} onChange={e=>setCashMovement({...cashMovement,shift_id:e.target.value})}><option value="">Select shift</option>{(data.shifts||[]).filter(s=>s.status==="open").map(s=><option key={s.id} value={s.id}>{String(s.id).slice(0,6)} • {money(s.opening_cash)}</option>)}</select></Field>
+          <Field label="Type"><select value={cashMovement.movement_type} onChange={e=>setCashMovement({...cashMovement,movement_type:e.target.value})}><option>cash_in</option><option>cash_out</option><option>petty_cash</option></select></Field>
+          <Field label="Amount"><input type="number" value={cashMovement.amount} onChange={e=>setCashMovement({...cashMovement,amount:e.target.value})}/></Field>
+          <Field label="Reason"><input value={cashMovement.note} onChange={e=>setCashMovement({...cashMovement,note:e.target.value})}/></Field>
+          <button onClick={()=>api("cash_movement",cashMovement)}>Record Movement</button>
+        </div>
+        <div className="pp-list">{(data.cashMovements||[]).map(m=><div className="pp-row" key={m.id}><b>{m.movement_type}</b><span>{money(m.amount)} • {m.note||"No note"}</span></div>)}</div>
+      </Card>
+
+      {cashClosingEnabled && <Card title="🔒 Daily Cash Closing">
+        <p className="pp-muted">Count the physical cash once at the end of the India business day. The expected amount is calculated from cash payments, refunds, cash-in/out movements and cash expenses.</p>
+        <div className="pp-form-grid">
+          <Field label="Opening cash"><input type="number" min="0" step="0.01" value={cashClosing.opening_cash} onChange={e=>setCashClosing({...cashClosing,opening_cash:e.target.value})} placeholder="0.00"/></Field>
+          <Field label="Actual counted cash"><input type="number" min="0" step="0.01" value={cashClosing.actual_cash} onChange={e=>setCashClosing({...cashClosing,actual_cash:e.target.value})} placeholder="Count cash drawer"/></Field>
+          <Field label="Closing notes"><input value={cashClosing.notes} onChange={e=>setCashClosing({...cashClosing,notes:e.target.value})} placeholder="Shortage / excess reason"/></Field>
+          <button onClick={closeCashDay} disabled={busy}>🔒 {busy ? "Closing…" : "Close Today's Cash"}</button>
+        </div>
+        <div className="pp-list">
+          {(data.cashClosings||[]).slice(0,10).map(c=><div className="pp-row" key={c.id}>
+            <b>{c.business_date}</b>
+            <span>Expected {money(c.expected_cash)} • Actual {money(c.actual_cash)}</span>
+            <strong style={{color:Number(c.difference||0)===0 ? "var(--success)" : "var(--primary)"}}>{Number(c.difference||0)===0 ? "Closed / Matched" : `Difference ${money(c.difference)}`}</strong>
+          </div>)}
+        </div>
+        <div className="pp-actions">
+          <a className="pp-button" href="/dashboard/cash-closing">Open Full Daily Cash Closing →</a>
+          <a className="pp-button" href="/dashboard/reports">View Cash Closing Reports →</a>
+        </div>
+      </Card>}
+    </section>}
+
+    {tab === "expenses" && <section className="pp-grid">
+      <Card title="💸 Expenses">
+        <p className="pp-muted">Record restaurant expenses here. Cash expenses are automatically included in the daily cash closing calculation.</p>
+        <form onSubmit={saveExpense} className="pp-form-grid">
+          <Field label="Category"><input required value={expense.category} onChange={e=>setExpense({...expense,category:e.target.value})} placeholder="Food / Utilities / Staff"/></Field>
+          <Field label="Description"><input value={expense.description} onChange={e=>setExpense({...expense,description:e.target.value})} placeholder="What was paid?"/></Field>
+          <Field label="Amount"><input required type="number" min="0.01" step="0.01" value={expense.amount} onChange={e=>setExpense({...expense,amount:e.target.value})}/></Field>
+          <Field label="Payment method"><select value={expense.payment_method} onChange={e=>setExpense({...expense,payment_method:e.target.value})}><option>cash</option><option>upi</option><option>card</option><option>bank</option></select></Field>
+          <Field label="Expense date"><input type="date" value={expense.expense_date} onChange={e=>setExpense({...expense,expense_date:e.target.value})}/></Field>
+          <button disabled={!expensesEnabled || busy}>💾 Save Expense</button>
+        </form>
+      </Card>
+      <Card title="Expense history">
+        <div className="pp-list">{(data.expenses||[]).slice(0,30).map(e=><div className="pp-row" key={e.id}><b>{e.category}</b><span>{e.expense_date} • {e.description||"No description"} • {e.payment_method}</span><strong>{money(e.amount)}</strong></div>)}</div>
+      </Card>
+    </section>}
 
     {tab === "reports" && <section className="pp-grid"><Card title="Scheduled reports"><div className="pp-form-grid"><Field label="Report"><select id="pp-report"><option value="sales">Sales</option><option value="orders">Orders</option><option value="payments">Payments</option><option value="discounts">Discounts</option><option value="staff">Staff</option><option value="delivery">Delivery</option></select></Field><Field label="Schedule"><select id="pp-schedule"><option>daily</option><option>weekly</option><option>monthly</option></select></Field><Field label="Channel"><select id="pp-channel"><option>email</option><option>whatsapp</option></select></Field><button onClick={()=>insert("report_schedules",{report_code:document.getElementById("pp-report")?.value||"sales",schedule:document.getElementById("pp-schedule")?.value||"daily",channel:document.getElementById("pp-channel")?.value||"email"})}>Schedule report</button></div><div className="pp-list">{(data.reports||[]).map(r=><div className="pp-row" key={r.id}><b>{r.report_code}</b><span>{r.schedule} • {r.channel} • {r.active?"Active":"Off"}</span></div>)}</div></Card><Card title="Reports"><a className="pp-button" href="/dashboard/reports">Open report center →</a><p className="pp-muted">The existing report center remains the source of truth for detailed report data and exports.</p></Card></section>}
 

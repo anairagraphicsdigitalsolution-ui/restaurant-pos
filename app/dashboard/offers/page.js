@@ -59,7 +59,8 @@ export default function OffersPage() {
   const [productSearch, setProductSearch] = useState("")
   const [editId, setEditId] = useState(null)
   const [usage, setUsage] = useState({})
-  const [offerConfig,setOfferConfig] = useState({monthly_limit:10})
+  const [offerConfig,setOfferConfig] = useState({monthly_limit:10,offers_enabled:true,combos_enabled:true})
+  const [offersCombosMasterEnabled,setOffersCombosMasterEnabled] = useState(false)
 
   const [form, setForm] = useState(emptyForm())
 
@@ -147,9 +148,18 @@ export default function OffersPage() {
   }
 
   async function fetchOfferConfig() {
-    const {data}=await supabase.from("plugin_settings").select("config")
-      .eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
-    setOfferConfig({monthly_limit:10,...(data?.config||{})})
+    const [{data:plugin},{data:settings}]=await Promise.all([
+      supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
+      supabase.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
+    ])
+    const master=plugin?.enabled===true
+    const next={monthly_limit:10,offers_enabled:true,combos_enabled:true,...(settings?.config||{})}
+    setOffersCombosMasterEnabled(master)
+    setOfferConfig(next)
+    const offersOn=master && next.offers_enabled!==false
+    const combosOn=master && next.combos_enabled!==false
+    if (!offersOn && combosOn) setActiveTab("combos")
+    else if (offersOn && !combosOn) setActiveTab("offers")
   }
 
   async function fetchUsage() {
@@ -743,7 +753,7 @@ export default function OffersPage() {
       className="offers-page"
     >
       <div className="offersTabs">
-        <button
+        {offersCombosMasterEnabled && offerConfig.offers_enabled !== false && <button
           type="button"
           className={
             activeTab === "offers"
@@ -755,9 +765,9 @@ export default function OffersPage() {
           }
         >
           🎁 Offers
-        </button>
+        </button>}
 
-        <button
+        {offersCombosMasterEnabled && offerConfig.combos_enabled !== false && <button
           type="button"
           className={
             activeTab === "combos"
@@ -769,7 +779,8 @@ export default function OffersPage() {
           }
         >
           🍱 Combo Meals
-        </button>
+        </button>}
+        {!offersCombosMasterEnabled && <div style={{padding:"10px 12px",fontWeight:800}}>Offers & Combos plugin is disabled by Super Admin.</div>}
       </div>
 
       <style jsx global>{`
@@ -1092,9 +1103,9 @@ export default function OffersPage() {
         }
       `}</style>
 
-      {activeTab === "combos" ? (
+      {activeTab === "combos" && offersCombosMasterEnabled && offerConfig.combos_enabled !== false ? (
         <CombosPage />
-      ) : (
+      ) : offersCombosMasterEnabled && offerConfig.offers_enabled !== false ? (
         <>
           <section
             className="offers-smart-hero"
@@ -1778,7 +1789,7 @@ export default function OffersPage() {
               )}
           </div>
         </>
-      )}
+      ) : null}
     </div>
   )
 }

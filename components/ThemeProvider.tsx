@@ -31,33 +31,36 @@ export type ThemeDefinition = {
 }
 
 /**
- * The original POS workspace is intentionally the default.
- * White/light themes are optional presets and never replace the default.
+ * Logo Premium — DARK PREMIUM is the canonical main theme for the entire SaaS.
+ * It is the default for login, Super Admin, Admin, Staff and all application
+ * pages until a permitted Admin/Super Admin explicitly selects another theme.
  */
 export const DEFAULT_THEME: ThemeDefinition = {
-  id: "classic-default",
-  name: "Classic POS — Emerald Gold",
-  description: "The original premium dark POS workspace with emerald depth, warm gold actions and high-contrast typography.",
-  primary: "#e9a72d",
-  secondary: "#071b12",
-  accent: "#4a9b3c",
-  background: "#020a06",
-  surface: "#0b2118",
-  surface2: "#102b20",
+  id: "logo-premium",
+  name: "Logo Premium",
+  description: "The canonical restaurant core theme: midnight navy, graphite surfaces, electric gold actions, emerald status and warm ivory text.",
+  // Exact visual direction from the approved Logo Premium preview:
+  // #0c1020 / #191c2c navy surfaces + #fbbf24 gold + #22c55e green.
+  primary: "#fbbf24",
+  secondary: "#080b18",
+  accent: "#22c55e",
+  background: "#0c1020",
+  surface: "#191c2c",
+  surface2: "#0c1020",
   text: "#fffaf0",
-  muted: "#b7c7bd",
-  border: "#e9a72d",
-  success: "#4ade80",
+  muted: "#a9b0bf",
+  border: "#fbbf24",
+  success: "#22c55e",
   danger: "#ef4444",
   warning: "#f59e0b",
   info: "#60a5fa",
-  radius: "20px",
+  radius: "16px",
   mode: "dark",
   fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
   headingFont: "Inter, ui-sans-serif, system-ui, sans-serif",
   headingWeight: 800,
-  shadow: "0 18px 55px rgba(0,0,0,.28), 0 2px 10px rgba(0,0,0,.18)",
-  buttonText: "#08110b",
+  shadow: "0 18px 55px rgba(0,0,0,.34), 0 2px 12px rgba(0,0,0,.22)",
+  buttonText: "#0c1020",
 }
 
 export const BRAND_THEMES: ThemeDefinition[] = [
@@ -65,7 +68,7 @@ export const BRAND_THEMES: ThemeDefinition[] = [
   {
     id: "emerald-gold-premium",
     name: "Emerald Gold Premium",
-    description: "Luxury emerald, warm gold and soft natural accents.",
+    description: "Alternate emerald and gold restaurant theme.",
     primary: "#e9a72d",
     secondary: "#071b12",
     accent: "#4a9b3c",
@@ -75,6 +78,86 @@ export const BRAND_THEMES: ThemeDefinition[] = [
     text: "#fffaf0",
     muted: "#b7c7bd",
     border: "#e9a72d",
+    success: "#4ade80",
+    danger: "#ef4444",
+    warning: "#f59e0b",
+    info: "#60a5fa",
+    radius: "20px",
+    mode: "dark",
+  },
+  {
+    id: "obsidian-gold",
+    name: "Obsidian Gold",
+    description: "Deep obsidian black with refined champagne gold and warm ivory.",
+    primary: "#e8b95a",
+    secondary: "#11100d",
+    accent: "#f3d58a",
+    background: "#050504",
+    surface: "#12110e",
+    surface2: "#1b1914",
+    text: "#fffaf0",
+    muted: "#c4b9a2",
+    border: "#b98a32",
+    success: "#4ade80",
+    danger: "#ef4444",
+    warning: "#f59e0b",
+    info: "#60a5fa",
+    radius: "20px",
+    mode: "dark",
+  },
+  {
+    id: "himalayan-pine",
+    name: "Himalayan Pine",
+    description: "Mountain-inspired pine green, cedar and warm alpine gold.",
+    primary: "#d5a84f",
+    secondary: "#07150f",
+    accent: "#4fa56a",
+    background: "#020a06",
+    surface: "#0a1c13",
+    surface2: "#10271b",
+    text: "#fffdf5",
+    muted: "#b5c8ba",
+    border: "#d5a84f",
+    success: "#4ade80",
+    danger: "#ef4444",
+    warning: "#f59e0b",
+    info: "#60a5fa",
+    radius: "20px",
+    mode: "dark",
+  },
+  {
+    id: "sapphire-noir",
+    name: "Sapphire Noir",
+    description: "Luxury midnight navy with sapphire blue and platinum highlights.",
+    primary: "#6ea8ff",
+    secondary: "#07101f",
+    accent: "#b7d4ff",
+    background: "#02050b",
+    surface: "#0a1220",
+    surface2: "#111d31",
+    text: "#f5f9ff",
+    muted: "#a8b7ca",
+    border: "#4d8cff",
+    success: "#34d399",
+    danger: "#fb7185",
+    warning: "#fbbf24",
+    info: "#60a5fa",
+    radius: "20px",
+    mode: "dark",
+  },
+  {
+    id: "rosewood-luxe",
+    name: "Rosewood Luxe",
+    description: "Elegant rosewood, burgundy and antique champagne for fine dining.",
+    primary: "#e2b36f",
+    secondary: "#1b0c0e",
+    accent: "#b94d5d",
+    background: "#080405",
+    surface: "#180a0d",
+    surface2: "#241115",
+    text: "#fff8f1",
+    muted: "#cbb0b0",
+    border: "#a83e4e",
     success: "#4ade80",
     danger: "#ef4444",
     warning: "#f59e0b",
@@ -460,8 +543,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // Super Admin has a platform-only theme. It is intentionally not tied
     // to any restaurant so the SaaS control panel can be branded separately.
     if (role === "super_admin") {
-      const key = "anaira-pos-super-admin-theme"
-      const savedId = typeof window !== "undefined" ? window.localStorage.getItem(key) : null
+      // Platform theme is server-authoritative and independent from every
+      // restaurant theme. localStorage is intentionally not used as the
+      // source of truth so the same platform theme follows the Super Admin
+      // across browsers/devices.
+      const { data, error } = await supabase
+        .from("platform_settings")
+        .select("config")
+        .eq("setting_key", "theme")
+        .maybeSingle()
+
+      if (error) {
+        console.error("PLATFORM THEME LOAD ERROR:", error)
+      }
+
+      const savedId = data?.config?.selected
       const selected = BRAND_THEMES.find((item) => item.id === savedId) || DEFAULT_THEME
       setAvailableThemes(BRAND_THEMES)
       setThemeState(selected)
@@ -482,11 +578,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(DEFAULT_THEME)
     setAvailableThemes(BRAND_THEMES)
 
-    const { data: restaurant, error } = await supabase
-      .from("restaurants")
-      .select("theme_config")
-      .eq("id", restaurantId)
-      .maybeSingle()
+    const [
+      { data: restaurant, error },
+      { data: themePlugin },
+      { data: themeSettings },
+    ] = await Promise.all([
+      supabase
+        .from("restaurants")
+        .select("theme_config")
+        .eq("id", restaurantId)
+        .maybeSingle(),
+      supabase
+        .from("restaurant_plugins")
+        .select("enabled")
+        .eq("restaurant_id", restaurantId)
+        .eq("plugin_code", "theme-branding")
+        .maybeSingle(),
+      supabase
+        .from("plugin_settings")
+        .select("config")
+        .eq("restaurant_id", restaurantId)
+        .eq("plugin_code", "theme-branding")
+        .maybeSingle(),
+    ])
 
     if (error) {
       console.error("THEME LOAD ERROR:", error)
@@ -498,8 +612,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const selectedId = restaurant?.theme_config?.selected
     const serverTheme = themeList.find((item) => item.id === selectedId)
+    const themeScope = String(
+      restaurant?.theme_config?.theme_scope ||
+      themeSettings?.config?.theme_scope ||
+      "both"
+    ).toLowerCase()
 
-    if (serverTheme) {
+    if (themePlugin?.enabled !== true || themeScope === "qr") {
+      setThemeState(DEFAULT_THEME)
+      window.localStorage.setItem(storageKey, DEFAULT_THEME.id)
+    } else if (serverTheme) {
       setThemeState(serverTheme)
       window.localStorage.setItem(storageKey, serverTheme.id)
     } else {
@@ -523,8 +645,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     selectedId: string,
   ) => {
     if (role === "super_admin") {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("anaira-pos-super-admin-theme", selectedId)
+      const { error } = await supabase
+        .from("platform_settings")
+        .upsert({
+          setting_key: "theme",
+          config: { selected: selectedId },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "setting_key" })
+
+      if (error) {
+        console.error("PLATFORM THEME SAVE ERROR:", error)
+        throw error
       }
       return
     }
@@ -532,19 +663,48 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (!restaurantId) return
 
     const safeList = mergeThemeList(themeList)
-    const { error } = await supabase
-      .from("restaurants")
-      .update({
-        theme_config: {
-          selected: selectedId,
-          themes: safeList,
-          updated_at: new Date().toISOString(),
-        },
-      })
-      .eq("id", restaurantId)
 
-    if (error) {
-      console.error("THEME SAVE ERROR:", error)
+    const { data: themeSettings, error: settingsError } = await supabase
+      .from("plugin_settings")
+      .select("config")
+      .eq("restaurant_id", restaurantId)
+      .eq("plugin_code", "theme-branding")
+      .maybeSingle()
+
+    if (settingsError) {
+      console.error("THEME SETTINGS ERROR:", settingsError)
+      return
+    }
+
+    const { data: restaurantRow, error: restaurantError } = await supabase
+      .from("restaurants")
+      .select("theme_config")
+      .eq("id", restaurantId)
+      .maybeSingle()
+
+    if (restaurantError) {
+      console.error("THEME RESTAURANT ERROR:", restaurantError)
+      return
+    }
+
+    const scope = String(
+      restaurantRow?.theme_config?.theme_scope ||
+      themeSettings?.config?.theme_scope ||
+      "both"
+    ).toLowerCase()
+
+    const { error: rpcError } = await supabase.rpc("admin_save_restaurant_theme", {
+      p_restaurant_id: restaurantId,
+      p_theme_config: {
+        selected: selectedId,
+        themes: safeList,
+        theme_scope: scope,
+      },
+    })
+
+    if (rpcError) {
+      console.error("THEME SAVE ERROR:", rpcError)
+      throw rpcError
     }
   }, [restaurantId, role])
 
@@ -553,13 +713,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (!next) return
 
     setThemeState(next)
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        role === "super_admin"
-          ? "anaira-pos-super-admin-theme"
-          : `anaira-pos-theme:${restaurantId}`,
-        next.id
-      )
+    if (role !== "super_admin" && typeof window !== "undefined") {
+      window.localStorage.setItem(`anaira-pos-theme:${restaurantId}`, next.id)
     }
 
     if (persistChanges) {
@@ -578,13 +733,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setAvailableThemes(safeList)
     setThemeState(next)
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        role === "super_admin"
-          ? "anaira-pos-super-admin-theme"
-          : `anaira-pos-theme:${restaurantId}`,
-        next.id
-      )
+    if (role !== "super_admin" && typeof window !== "undefined") {
+      window.localStorage.setItem(`anaira-pos-theme:${restaurantId}`, next.id)
     }
 
     if (persistChanges) {

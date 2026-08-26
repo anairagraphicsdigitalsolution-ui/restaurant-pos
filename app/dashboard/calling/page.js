@@ -2,72 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value))) }
-
-function nativeAvailable() {
-  return typeof window !== "undefined" && !!window.Android && typeof window.Android.speak === "function"
-}
-
-function browserSpeak(text, { language, volume, rate, repeat, onDone, onError }) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-    onError?.("Speech synthesis is unavailable on this browser/device.")
-    return false
-  }
-  const synth = window.speechSynthesis
-  synth.cancel()
-  let index = 0
-  let finished = false
-
-  const voicesForLanguage = () => {
-    const voices = synth.getVoices ? synth.getVoices() : []
-    const lang = String(language || "hi-IN").toLowerCase()
-    return voices.find(v => String(v.lang || "").toLowerCase() === lang)
-      || voices.find(v => String(v.lang || "").toLowerCase().startsWith(lang.split("-")[0]))
-      || voices.find(v => String(v.lang || "").toLowerCase().startsWith("hi"))
-      || voices.find(v => String(v.lang || "").toLowerCase().startsWith("en"))
-      || voices[0]
-  }
-
-  const run = () => {
-    if (index >= repeat) { if (!finished) { finished = true; onDone?.() }; return }
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = language
-    utterance.volume = volume
-    utterance.rate = rate
-    const voice = voicesForLanguage()
-    if (voice) utterance.voice = voice
-    utterance.onend = () => { index += 1; window.setTimeout(run, 350) }
-    utterance.onerror = event => { if (!finished) { finished = true; onError?.(event?.error || "Speech synthesis failed") } }
-    synth.speak(utterance)
-  }
-
-  if (synth.getVoices && !synth.getVoices().length) {
-    const handler = () => { synth.removeEventListener?.("voiceschanged", handler); run() }
-    synth.addEventListener?.("voiceschanged", handler)
-    window.setTimeout(run, 500)
-  } else run()
-  return true
-}
-
-function speakAnnouncement(text, cfg, callbacks = {}) {
-  const repeat = clamp(cfg.repeat ?? 3, 1, 5)
-  const language = cfg.language || "hi-IN"
-  const volume = clamp(cfg.volume ?? 1, 0, 1)
-  const rate = clamp(cfg.rate ?? .9, .5, 2)
-
-  if (nativeAvailable()) {
-    try {
-      // Custom Android WebView bridge. MainActivity can expose this method through @JavascriptInterface.
-      window.Android.speak(String(text), String(language), Number(rate), Number(volume), Number(repeat))
-      callbacks.onDone?.()
-      return true
-    } catch (error) {
-      console.warn("Native TTS bridge failed; falling back to browser speech", error)
-    }
-  }
-  return browserSpeak(String(text), { language, volume, rate, repeat, ...callbacks })
-}
 
 export default function CallingDevicePage(){
   const [restaurantId,setRestaurantId]=useState("")
@@ -86,6 +23,19 @@ export default function CallingDevicePage(){
 
   useEffect(()=>{init()},[])
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices()
+        .filter(v => String(v.lang || "").toLowerCase().startsWith("hi"))
+        .sort((a,b) => String(a.name).localeCompare(String(b.name)))
+      setAvailableVoices(voices)
+    }
+    loadVoices()
+    window.speechSynthesis.addEventListener?.("voiceschanged", loadVoices)
+    return () => window.speechSynthesis.removeEventListener?.("voiceschanged", loadVoices)
+  }, [])
+
   async function init(){
     const {data:{user}}=await supabase.auth.getUser()
     if(!user)return
@@ -93,13 +43,16 @@ export default function CallingDevicePage(){
     const rid=profile?.restaurant_id
     if(!rid)return
     setRestaurantId(rid)
-    const {data:row}=await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).in("plugin_code",["calling-device","calling-runtime"]).eq("enabled",true).limit(1).maybeSingle()
+    const {data:row}=await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
     setEnabled(row?.enabled===true)
     const {data:settings}=await supabase.from("plugin_settings").select("config").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
     const cfg=settings?.config||{}
-    const next={enabled:cfg.enabled !== false,repeat:clamp(cfg.repeat||3,1,5),volume:clamp(cfg.volume ?? 1,0,1),rate:clamp(cfg.rate||.9,.5,2),language:cfg.language||"hi-IN",phrase:cfg.phrase||"New order received. Order {order_number} has arrived.",events:{new_order:cfg.new_order!==false,order_ready:cfg.order_ready===true,waiter_call:cfg.waiter_call!==false}}
+    const storedVoiceName = (() => {
+      try { return window.localStorage.getItem("anaira.calling.voiceName") || "" } catch { return "" }
+    })()
+    const next={enabled:cfg.enabled !== false,repeat:clamp(cfg.repeat||3,1,5),volume:clamp(cfg.volume ?? 1,0,1),rate:clamp(cfg.rate||.9,.5,2),language:cfg.language||"hi-IN",voiceName:cfg.voiceName||storedVoiceName||"",phrase:cfg.phrase||"New order received. Order {order_number} has arrived.",events:{new_order:cfg.new_order!==false,order_ready:cfg.order_ready===true,waiter_call:cfg.waiter_call!==false}}
     configRef.current=next
-    setVoice(next.enabled);setRepeat(next.repeat);setVolume(next.volume);setRate(next.rate);setLanguage(next.language);setPhrase(next.phrase);setEvents(next.events)
+    setVoice(next.enabled);setRepeat(next.repeat);setVolume(next.volume);setRate(next.rate);setLanguage(next.language);setVoiceName(next.voiceName);setPhrase(next.phrase);setEvents(next.events)
   }
 
   const speak = useCallback((row)=>{
@@ -114,44 +67,46 @@ export default function CallingDevicePage(){
     const orderNumber=orderMatch?.[1]||""
     const text=type==="order" ? cfg.phrase.replaceAll("{order_number}",orderNumber) : `${row.title||"Restaurant alert"}. ${raw}`
     setVoiceStatus("Speaking…")
-    return speakAnnouncement(text,cfg,{onDone:()=>setVoiceStatus("Ready"),onError:e=>{setVoiceStatus(String(e));console.error(e)}})
+    return speakCallingAnnouncement(text,cfg,{onDone:()=>setVoiceStatus("Ready"),onError:e=>{setVoiceStatus(String(e));console.error(e)}})
   },[])
 
   useEffect(()=>{
-    configRef.current={...configRef.current,enabled:voice,repeat,volume,rate,language,phrase,events}
-  },[voice,repeat,volume,rate,language,phrase,events])
+    configRef.current={...configRef.current,enabled:voice,repeat,volume,rate,language,voiceName,phrase,events}
+    try { window.localStorage.setItem("anaira.calling.voiceName", voiceName || "") } catch {}
+  },[voice,repeat,volume,rate,language,voiceName,phrase,events])
 
   useEffect(()=>{
     if(!restaurantId||!enabled)return
-    const handler=(event)=>{
-      const row=event?.detail
+    const consume=(row)=>{
       if(!row?.id||seen.current.has(row.id))return
       seen.current.add(row.id)
       setNotices(n=>[row,...n].slice(0,30))
-      speak(row)
     }
+    const handler=(event)=>consume(event?.detail)
+    const callingHandler=(event)=>consume(event?.detail)
     window.addEventListener("anaira:notification",handler)
-    return()=>window.removeEventListener("anaira:notification",handler)
-  },[restaurantId,enabled,speak])
+    window.addEventListener("anaira:calling",callingHandler)
+    return()=>{
+      window.removeEventListener("anaira:notification",handler)
+      window.removeEventListener("anaira:calling",callingHandler)
+    }
+  },[restaurantId,enabled])
 
   function test(){
+    unlockCallingAudio()
     const ok=speak({type:"order",title:"New order received",message:"A new order has arrived in the kitchen."})
     if(!ok)setVoiceStatus("Voice is disabled or unavailable")
   }
 
-  function unlock(){
-    try { const C=window.AudioContext||window.webkitAudioContext; if(C){const c=new C();if(c.state==="suspended")void c.resume();setTimeout(()=>c.close(),250)} } catch {}
-    if("speechSynthesis" in window) window.speechSynthesis.getVoices()
-  }
-
   if(!enabled)return <main style={shell}><div style={card}><h2>Calling Device is not active</h2><p>Super Admin must activate Calling Device in Plugins.</p></div></main>
 
-  return <main style={shell} onPointerDown={unlock}><div style={wrap}>
+  return <main style={shell} onPointerDown={unlockCallingAudio}><div style={wrap}>
     <header style={header}><div><div style={eyebrow}>RESTAURANT PRO · CALLING</div><h1 style={title}>Calling Device</h1><p style={muted}>Works in browser and Capacitor Android. Android uses the native TTS bridge when installed, with browser speech as fallback.</p></div><span style={live}>● LIVE</span></header>
     <section style={card}>
       <h2>Voice Settings</h2>
       <label style={row}><span>Voice announcements</span><input type="checkbox" checked={voice} onChange={e=>setVoice(e.target.checked)}/></label>
       <label style={row}><span>Language</span><select value={language} onChange={e=>setLanguage(e.target.value)}><option value="hi-IN">Hindi (India)</option><option value="en-IN">English (India)</option><option value="en-US">English (US)</option></select></label>
+       {language === "hi-IN" && <label style={row}><span>Hindi voice</span><select value={voiceName} onChange={e=>setVoiceName(e.target.value)}><option value="">Auto — best available Hindi voice</option>{availableVoices.map(v=><option key={`${v.name}-${v.lang}`} value={v.name}>{v.name} ({v.lang})</option>)}</select></label>}
       <label style={row}><span>Repeat announcement</span><select value={repeat} onChange={e=>setRepeat(Number(e.target.value))}>{[1,2,3,4,5].map(x=><option key={x} value={x}>{x} times</option>)}</select></label>
       <label style={row}><span>Volume</span><input type="range" min="0.2" max="1" step=".1" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label>
       <label style={row}><span>Speech rate</span><input type="range" min=".5" max="1.5" step=".1" value={rate} onChange={e=>setRate(Number(e.target.value))}/></label>

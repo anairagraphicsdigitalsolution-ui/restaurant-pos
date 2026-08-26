@@ -50,7 +50,11 @@ export default function SuperAdminThemePage() {
         <div style={sectionHead}>
           <div>
             <div style={eyebrow}>THEME LIBRARY</div>
-            <h2 style={{ margin: "6px 0 0", fontSize: 24 }}>Premium presets</h2>
+            <h2 style={{ margin: "6px 0 0", fontSize: 24 }}>Platform Theme Library</h2>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.6 }}>
+            <strong style={{ color: DEFAULT_THEME.primary }}>Logo Premium — DARK PREMIUM</strong> is the main platform theme.
+            Super Admin can select another platform preset here when required.
+          </p>
           </div>
           <span style={activePill}>Active: {theme.name}</span>
         </div>
@@ -86,6 +90,11 @@ export default function SuperAdminThemePage() {
                 <div style={cardBody}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                     <h3 style={{ margin: 0 }}>{item.name}</h3>
+                    {item.id === DEFAULT_THEME.id && (
+                      <span style={{ ...activePill, color: item.primary, borderColor: `${item.primary}55` }}>
+                        MAIN THEME
+                      </span>
+                    )}
                     {active && <span style={{ ...activePill, color: item.primary, borderColor: `${item.primary}55` }}>ACTIVE</span>}
                   </div>
                   <p style={{ color: "var(--muted)", lineHeight: 1.6, margin: "8px 0 14px" }}>
@@ -115,8 +124,9 @@ export default function SuperAdminThemePage() {
       <section style={tip}>
         <strong>How this works</strong>
         <span>
-          Super Admin theme changes are stored locally for the platform control panel.
-          Restaurant owners can still select their own themes from Admin → Theme & Branding.
+          Logo Premium — DARK PREMIUM is the safe/default theme for the platform and login.
+          Super Admin changes only the platform control-panel theme here. Restaurant Admin theme
+          selections remain restaurant-scoped and do not change the platform or login theme.
         </span>
       </section>
     </main>

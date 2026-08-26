@@ -1,4 +1,6 @@
 "use client"
+
+import { indiaDateKey } from "@/lib/indiaTime"
 import { useCallback, useEffect, useState } from "react"
 import { supabasePublic as supabase } from "@/lib/supabasePublic"
 
@@ -13,7 +15,7 @@ export default function CompleteSuite(){
  const [web,setWeb]=useState({slug:"",domain:"",enabled:false,seo_title:"",seo_description:"",whatsapp_number:""});
  const [pay,setPay]=useState({provider:"payment-accounts",display_name:"Merchant Payments & Voice",merchant_reference:"",active:false,merchant_name:"",upi_id:"",auto_payment_detection:false,voice_enabled:true,voice_language:"hi-IN"});
  const [brand,setBrand]=useState({name:"",code:"",active:true});
- const [shift,setShift]=useState({staff_id:"",shift_date:new Date().toISOString().slice(0,10),start_at:"",end_at:"",break_minutes:0});
+ const [shift,setShift]=useState({staff_id:"",shift_date:indiaDateKey(),start_at:"",end_at:"",break_minutes:0});
  const [approval,setApproval]=useState({request_type:"discount",reason:"",payload:"{}"});
  const getRid=useCallback(async()=>{const {data:u}=await supabase.auth.getUser();if(!u?.user)throw new Error("Please sign in again.");const {data,error}=await supabase.from("profiles").select("restaurant_id").eq("id",u.user.id).maybeSingle();if(error)throw error;if(!data?.restaurant_id)throw new Error("No restaurant linked with this account.");return data.restaurant_id},[]);
  const load=useCallback(async()=>{try{setLoading(true);const r=rid||await getRid();setRid(r);const q=await Promise.all([

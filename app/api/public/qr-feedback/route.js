@@ -1,8 +1,14 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
 
 export async function POST(req) {
+  const oversized = rejectOversizedRequest(req, 64 * 1024)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "qr-feedback", 5)
+  if (!limit.ok) return rateLimitResponse(limit)
+
   try {
     const body = await req.json().catch(() => ({}))
     const slug = String(body?.slug || "").trim()
@@ -26,6 +32,20 @@ export async function POST(req) {
 
     if (restaurantError || !restaurant) {
       return Response.json({ success:false, error:"Restaurant not found" }, { status:404 })
+    }
+
+    const { data: operationsHub } = await supabaseAdmin
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", restaurant.id)
+      .eq("plugin_code", "operations-hub")
+      .maybeSingle()
+
+    if (operationsHub?.enabled !== true) {
+      return Response.json(
+        { success:false, error:"Feedback is currently unavailable for this restaurant." },
+        { status:403 }
+      )
     }
 
     const sourceTable = type === "table" ? "tables" : "rooms"

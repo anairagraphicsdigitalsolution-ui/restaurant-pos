@@ -9,6 +9,7 @@ import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 import { printHtmlInFrame } from "@/lib/printUtils"
+import { sendThermalPrint } from "@/lib/thermalPrintClient"
 
 function indiaDateKey(value) {
   if (!value) return ""
@@ -41,6 +42,7 @@ export default function BillingPage() {
   const [offers, setOffers] = useState([])
   const [selectedOffer, setSelectedOffer] = useState(null)
   const [availableOffers, setAvailableOffers] = useState([])
+  const [offerUnavailableNotice, setOfferUnavailableNotice] = useState("")
   const [availableLoyaltyRewards, setAvailableLoyaltyRewards] = useState([])
   const [selectedLoyaltyReward, setSelectedLoyaltyReward] = useState(null)
 
@@ -126,14 +128,7 @@ export default function BillingPage() {
       ? savedOrder
       : orders[0]?.id
     if (orderId) loadBill(orderId)
-  }, [isBillScreen, orders, selectedOrder, paymentLedgerByOrder])
-
-  // If the bill opened before offers finished loading, recalculate the bill
-  // once the offer list is available.
-  useEffect(() => {
-    if (!selectedOrder || !offers.length) return
-    loadBill(selectedOrder)
-  }, [offers, selectedOrder])
+  }, [isBillScreen, orders, selectedOrder])
 
   async function init() {
     const { data: auth } = await supabase.auth.getUser()
@@ -197,6 +192,15 @@ export default function BillingPage() {
   async function fetchOffers(restId) {
     if (!restId) return
 
+    const [{data:plugin},{data:settings}] = await Promise.all([
+      supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle(),
+      supabase.from("plugin_settings").select("config").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle()
+    ])
+    if (plugin?.enabled !== true || settings?.config?.offers_enabled === false) {
+      setOffers([])
+      return
+    }
+
     const { data, error } = await supabase
       .from("offers")
       .select("*, offer_products(menu_item_id)")
@@ -235,7 +239,14 @@ export default function BillingPage() {
       return
     }
 
-    const orderRows = data || []
+    // Takeaway/table/room orders become billable only after Kitchen marks Done.
+    // Delivery keeps its existing Billing visibility behavior.
+    const orderRows = (data || []).filter(order =>
+      String(order.source_type || "").toLowerCase() === "delivery" ||
+      ["done", "completed", "served", "paid"].includes(
+        String(order.status || "").toLowerCase()
+      )
+    )
 
     const orderIds = orderRows.map(o => o.id)
 
@@ -282,14 +293,29 @@ export default function BillingPage() {
 
     const reconciledOrders = orderRows.map(o => {
       const l = ledger[o.id]
-      if (!l) return o
-      const paid = Number(l.net || 0)
+      const ledgerPaid = Number(l?.net || 0)
+      const storedPaid = Number(o.paid_amount || 0)
       const total = Number(o.total_amount || 0)
+      const storedStatus = String(o.payment_status || "").toLowerCase()
+
+      // Never downgrade a database-finalized order merely because an older or
+      // externally-created payment row is missing from the browser query.
+      // The finalize RPC is authoritative; the ledger is a reporting aid.
+      if (storedStatus === "paid") {
+        return {
+          ...o,
+          paid_amount: Math.max(storedPaid, ledgerPaid, total),
+          payment_status: "paid",
+          payment_method: Object.entries(l?.methods || {}).sort((a,b) => b[1] - a[1])[0]?.[0] || o.payment_method || null
+        }
+      }
+
+      const paid = Math.max(storedPaid, ledgerPaid)
       return {
         ...o,
         paid_amount: paid,
         payment_status: total > 0 && paid >= total ? "paid" : paid > 0 ? "partially_paid" : "unpaid",
-        payment_method: Object.entries(l.methods || {}).sort((a,b) => b[1] - a[1])[0]?.[0] || o.payment_method || null
+        payment_method: Object.entries(l?.methods || {}).sort((a,b) => b[1] - a[1])[0]?.[0] || o.payment_method || null
       }
     })
     setOrders(reconciledOrders)
@@ -588,11 +614,73 @@ export default function BillingPage() {
 
   async function loadBill(orderId) {
 
-    const selected =
-      orders.find(o => o.id === orderId)
+    const selectedFromOrders = orders.find(o => o.id === orderId)
 
-    // Keep a successful finalize locked for the same order. This prevents
-    // background refreshes from making the user finalize the same bill twice.
+    // Always re-read the selected order from Supabase before opening the bill.
+    // The order list is intentionally cached/reconciled for reporting, but it
+    // can lag immediately after a finalize or delivery settlement. Billing
+    // must use the database row as its authoritative payment state.
+    let freshOrder = null
+    try {
+      const { data: remoteOrder, error: remoteOrderError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("id", orderId)
+        .maybeSingle()
+      if (!remoteOrderError) freshOrder = remoteOrder || null
+    } catch (error) {
+      console.warn("Billing selected-order refresh:", error)
+    }
+
+    // Reconcile the selected order from its payment ledger as well as the order row.
+    // This protects Billing from legacy rows whose payment_status/paid_amount was not
+    // updated even though an actual paid payment already exists.
+    let selectedLedgerPaid = 0
+    try {
+      const { data: selectedPayments } = await supabase
+        .from("order_payments")
+        .select("amount,status")
+        .eq("order_id", orderId)
+      selectedLedgerPaid = (selectedPayments || [])
+        .filter(p => String(p.status || "").toLowerCase() === "paid")
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0)
+      const refundQuery = await supabase
+        .from("order_refunds")
+        .select("amount,status")
+        .eq("order_id", orderId)
+      const refunded = (refundQuery.data || [])
+        .filter(r => String(r.status || "").toLowerCase() === "refunded")
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0)
+      selectedLedgerPaid = Math.max(0, selectedLedgerPaid - refunded)
+    } catch (error) {
+      console.warn("Billing selected payment ledger refresh:", error)
+    }
+
+    const selectedTotalForReconcile = Number((freshOrder || selectedFromOrders)?.total_amount || 0)
+    const ledgerPaidState = selectedLedgerPaid >= selectedTotalForReconcile && selectedTotalForReconcile > 0
+      ? "paid"
+      : selectedLedgerPaid > 0 ? "partially_paid" : null
+
+    const selectedBase = freshOrder || selectedFromOrders
+    const preservedPaidOrder =
+      currentOrder?.id === orderId &&
+      String(currentOrder?.payment_status || "").toLowerCase() === "paid"
+    const selected = preservedPaidOrder
+      ? { ...selectedBase, ...currentOrder, payment_status: "paid" }
+      : selectedBase
+        ? {
+            ...selectedBase,
+            ...(ledgerPaidState ? { payment_status: ledgerPaidState, paid_amount: Math.max(Number(selectedBase.paid_amount || 0), selectedLedgerPaid) } : {})
+          }
+        : selectedBase
+    const sameFinalizedOrder =
+      finalizeLockRef.current === orderId ||
+      finalizedBill?.order_id === orderId ||
+      String(selected?.payment_status || "").toLowerCase() === "paid"
+
+    // Keep a successful finalize locked for the same order. Background order,
+    // offer or payment-ledger refreshes must never replace a paid snapshot with
+    // an older unpaid row and force the operator to finalize the same bill again.
     if (finalizeLockRef.current && finalizeLockRef.current !== orderId) {
       finalizeLockRef.current = null
     }
@@ -611,14 +699,17 @@ export default function BillingPage() {
     if (typeof window !== "undefined") {
       window.localStorage.setItem("anaira_pos_selected_order", orderId)
     }
-    setFinalizedBill(null)
+    if (!sameFinalizedOrder) {
+      setFinalizedBill(null)
+      setPaymentReference("")
+    }
     setEditMode(false)
-    setPaymentReference("")
 
     if (!selected) {
       setItems([])
       setAvailableOffers([])
       setSelectedOffer(null)
+      setOfferUnavailableNotice("")
       return
     }
 
@@ -816,112 +907,43 @@ export default function BillingPage() {
       }
     }
 
-    // Normalize the offer shape used by the billing UI.
-    // The current offers table uses offer_type + discount_value, while older
-    // billing code used discount_type + discount. If the RPC does not expose
-    // calculated_discount, calculate it here so the visible offer also
-    // actually reduces the bill.
-    rankedOffers = (rankedOffers || []).map(offer => {
-      const rawValue = Number(
-        offer?.discount_value ??
-        offer?.discount ??
-        offer?.value ??
-        0
-      )
-      const type = String(
-        offer?.offer_type ??
-        offer?.discount_type ??
-        "percent"
-      ).toLowerCase()
-
-      let calculated = Number(
-        offer?.calculated_discount ??
-        offer?.discount_amount
-      )
-
-      if (!Number.isFinite(calculated) || calculated < 0) {
-        calculated = 0
-      }
-
-      // If the RPC returned an offer but not a usable monetary discount,
-      // derive it from the actual offer fields.
-      if (calculated <= 0 && rawValue > 0 && (type === "percent" || type === "flat")) {
-        calculated = type === "flat"
-          ? Math.min(orderSubtotal, rawValue)
-          : Math.min(
-              orderSubtotal,
-              orderSubtotal * Math.min(Math.max(rawValue, 0), 100) / 100
-            )
-      }
-
-      if (offer?.max_discount != null) {
-        calculated = Math.min(
-          calculated,
-          Math.max(0, Number(offer.max_discount))
+    // The preview RPC is authoritative. Never reconstruct an offer discount
+    // locally after the RPC returns an offer with calculated_discount=0.
+    // The server applies usage limits, targeting, dates, time windows and
+    // customer eligibility; a local fallback can resurrect an exhausted offer
+    // and make the screen show a lower total than the finalize RPC.
+    rankedOffers = (rankedOffers || [])
+      .map(offer => {
+        const calculated = Number(
+          offer?.calculated_discount ??
+          offer?.discount_amount ??
+          0
         )
-      }
+        return {
+          ...offer,
+          calculated_discount: Number.isFinite(calculated)
+            ? Math.max(0, Number(calculated.toFixed(2)))
+            : 0
+        }
+      })
+      .filter(offer => Number(offer?.calculated_discount || 0) > 0)
+      .sort((a, b) =>
+        Number(b.calculated_discount || 0) - Number(a.calculated_discount || 0)
+      )
 
-      return {
-        ...offer,
-        discount: Number.isFinite(Number(offer?.discount))
-          ? Number(offer.discount)
-          : rawValue,
-        discount_type: offer?.discount_type || type,
-        calculated_discount: Number(calculated.toFixed(2))
-      }
-    }).filter(offer =>
-      Number(offer?.calculated_discount || 0) > 0
-    ).sort((a, b) =>
-      Number(b.calculated_discount || 0) - Number(a.calculated_discount || 0)
-    )
-
-    // If the database preview returned nothing, use the restaurant offers as
-    // a safe UI fallback and calculate their monetary discount locally.
-    if (!rankedOffers.length && offers?.length) {
-      rankedOffers = offers
-        .filter(offer => {
-          const active = offer?.active !== false && offer?.is_active !== false
-          const fromOk = !offer?.valid_from || new Date(offer.valid_from) <= new Date()
-          const tillOk = !offer?.valid_till || new Date(`${offer.valid_till}T23:59:59`) >= new Date()
-          const minOrder = Number(offer?.min_order || 0)
-          return active && fromOk && tillOk && orderSubtotal >= minOrder
-        })
-        .map(offer => {
-          const rawValue = Number(offer?.discount_value ?? offer?.discount ?? 0)
-          const type = String(offer?.offer_type ?? offer?.discount_type ?? "percent").toLowerCase()
-          let calculated = type === "flat"
-            ? Math.min(orderSubtotal, Math.max(0, rawValue))
-            : Math.min(orderSubtotal, orderSubtotal * Math.min(Math.max(rawValue, 0), 100) / 100)
-          if (offer?.max_discount != null) {
-            calculated = Math.min(calculated, Math.max(0, Number(offer.max_discount)))
-          }
-          return {
-            ...offer,
-            discount: rawValue,
-            discount_type: type,
-            calculated_discount: Number(calculated.toFixed(2))
-          }
-        })
-        .filter(offer => Number(offer.calculated_discount || 0) > 0)
-        .sort((a, b) => Number(b.calculated_discount || 0) - Number(a.calculated_discount || 0))
-    }
-
-    const storedOffer =
-      selected?.offer_id
-        ? (rankedOffers || []).find(
-            offer => offer.id === selected.offer_id
-          ) || (offers || []).find(
-            offer => offer.id === selected.offer_id
-          )
-        : null
-
-    const bestOffer =
-      storedOffer ||
-      rankedOffers[0] ||
-      null
+    const storedOfferWasRequested = Boolean(selected?.offer_id)
+    const bestOffer = rankedOffers[0] || null
 
     setAvailableOffers(rankedOffers)
     setSelectedOffer(bestOffer)
+
+    if (storedOfferWasRequested && !rankedOffers.some(offer => offer.id === selected.offer_id)) {
+      setOfferUnavailableNotice(
+        "The previously selected offer is no longer valid for this bill (for example, its usage limit/date/eligibility may have changed). The current payable amount has been restored to the server-authoritative total."
+      )
+    } else {
+      setOfferUnavailableNotice("")
+    }
 
     // Loyalty rewards are loaded only for the identified customer. Points are
     // NOT deducted here; the server redeems them atomically during finalization.
@@ -989,7 +1011,7 @@ export default function BillingPage() {
         : Math.max(0, Number((selectedTotal - selectedPaid).toFixed(2)))
     setPaymentReference(paymentLedgerByOrder[orderId]?.latestReference || "")
     setPaidAmount(
-      selected?.payment_status === "paid"
+      String(selected?.payment_status || "").toLowerCase() === "paid"
         ? ""
         : outstanding > 0 ? String(outstanding.toFixed(2)) : ""
     )
@@ -1261,6 +1283,13 @@ export default function BillingPage() {
               order_id:
                 selectedOrder,
 
+              // Each click is a distinct payment attempt. The server still
+              // protects true retries through paid-state/idempotency handling.
+              idempotency_key:
+                (typeof crypto !== "undefined" && crypto.randomUUID)
+                  ? crypto.randomUUID()
+                  : `billing-finalize:${selectedOrder}:${Date.now()}`,
+
               payment_method:
                 paymentMethod,
 
@@ -1395,8 +1424,8 @@ export default function BillingPage() {
         prev => ({
           ...prev,
           ...result.bill,
-          payment_status: "paid",
-          paid_amount: Number(result.bill?.total_amount ?? total ?? 0),
+          payment_status: result.bill?.payment_status || "unpaid",
+          paid_amount: Number(result.bill?.paid_amount ?? 0),
         })
       )
 
@@ -1428,8 +1457,8 @@ export default function BillingPage() {
       const finalizedOrderPatch = {
         ...result.bill,
         id: selectedOrder,
-        payment_status: "paid",
-        paid_amount: Number(result.bill?.total_amount ?? total ?? 0),
+        payment_status: result.bill?.payment_status || "unpaid",
+        paid_amount: Number(result.bill?.paid_amount ?? 0),
         total_amount: Number(result.bill?.total_amount ?? total ?? 0),
         discount_amount: Number(result.bill?.discount_amount ?? result.bill?.discount ?? discountAmount ?? 0)
       }
@@ -1445,7 +1474,7 @@ export default function BillingPage() {
             ? {
                 ...order,
                 ...finalizedOrderPatch,
-                payment_status: "paid",
+                payment_status: finalizedOrderPatch.payment_status || "unpaid",
                 paid_amount: Number(finalizedOrderPatch.paid_amount || 0)
               }
             : order
@@ -1519,6 +1548,18 @@ export default function BillingPage() {
     (sum, o) => sum + Number(o.tax_amount || 0),
     0
   )
+
+  const pendingOrders = filteredOrders
+    .map(o => {
+      const totalForOrder = Number(reportTotals[o.id] || o.total_amount || 0)
+      const paidForOrder = Number(o.paid_amount || 0)
+      const balance = String(o.payment_status || "").toLowerCase() === "paid"
+        ? 0
+        : Math.max(0, Number((totalForOrder - paidForOrder).toFixed(2)))
+      return { ...o, billing_balance: balance }
+    })
+    .filter(o => o.billing_balance > 0)
+    .sort((a,b) => b.billing_balance - a.billing_balance)
 
   const paidOrderCount = filteredOrders.filter(
     o => String(o.payment_status || "").toLowerCase() === "paid"
@@ -2172,6 +2213,7 @@ export default function BillingPage() {
               {formatDate(
                 o.created_at
               )}
+              {String(o.payment_status || "").toLowerCase() !== "paid" ? ` • PENDING ₹${Math.max(0, Number((reportTotals[o.id] || o.total_amount || 0) - Number(o.paid_amount || 0))).toFixed(0)}` : " • PAID"}
             </option>
 
           ))}
@@ -2283,6 +2325,42 @@ export default function BillingPage() {
           </div>
         ))}
       </div>
+
+      {pendingOrders.length > 0 && (
+        <section className="billing-pending-panel" style={{
+          marginBottom: 18, padding: 16, borderRadius: 18,
+          border: "1px solid rgba(245,158,11,.45)",
+          background: "linear-gradient(135deg,rgba(245,158,11,.10),var(--surface))"
+        }}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <div>
+              <strong style={{fontSize:17,color:"var(--warning)"}}>⚠ Unpaid / Partially Paid Bills</strong>
+              <div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>Click any bill to open it and collect payment. It stays highlighted until fully finalized.</div>
+            </div>
+            <strong style={{color:"var(--warning)"}}>₹{pendingAmount.toFixed(2)} outstanding</strong>
+          </div>
+          <div style={{display:"grid",gap:8,marginTop:12}}>
+            {pendingOrders.map(o => (
+              <button key={o.id} type="button" onClick={() => { setSelectedOrder(o.id); loadBill(o.id); setBillView(true) }} style={{
+                display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,textAlign:"left",
+                width:"100%",padding:"12px 14px",borderRadius:12,
+                border:"1px solid rgba(245,158,11,.35)",background:"var(--surface-2)",color:"var(--text)",cursor:"pointer"
+              }}>
+                <span style={{minWidth:0}}>
+                  <strong>{o.source_label || o.source_type || "Order"}</strong>
+                  <span style={{display:"block",fontSize:12,color:"var(--muted)",marginTop:3}}>
+                    #{String(o.id).slice(0,8)} • {o.customer_name || "Walk-in customer"} • {formatDate(o.created_at)}
+                  </span>
+                </span>
+                <span style={{textAlign:"right",whiteSpace:"nowrap"}}>
+                  <strong style={{color:"var(--warning)"}}>₹{o.billing_balance.toFixed(2)} due</strong>
+                  <span style={{display:"block",fontSize:11,color:"var(--muted)"}}>Open & Pay →</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* CHARTS */}
 
@@ -2788,6 +2866,11 @@ export default function BillingPage() {
                     ✓ Auto-applied: {selectedOffer.title || selectedOffer.name || "Offer"} — ₹{Number(selectedOffer.calculated_discount || discountAmount || 0).toFixed(2)} saved
                   </small>
                 ) : null}
+                {offerUnavailableNotice ? (
+                  <small style={{display:"block",marginTop:6,color:"var(--warning)",fontWeight:800}}>
+                    ⚠ {offerUnavailableNotice}
+                  </small>
+                ) : null}
 
                 {customerProfile ? (
                   <div style={{display:"grid",gap:8,padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface2)"}}>
@@ -2930,8 +3013,7 @@ export default function BillingPage() {
                     finalizing ||
                     finalizeLockRef.current === selectedOrder ||
                     finalizedBill?.order_id === selectedOrder ||
-                    currentOrder
-                      ?.payment_status ===
+                    String(currentOrder?.payment_status || "").toLowerCase() ===
                       "paid"
                   }
                   style={{
@@ -2949,7 +3031,7 @@ export default function BillingPage() {
                     ? "Finalizing..."
 
                     : (
-                        currentOrder?.payment_status === "paid" ||
+                        String(currentOrder?.payment_status || "").toLowerCase() === "paid" ||
                         finalizeLockRef.current === selectedOrder ||
                         finalizedBill?.order_id === selectedOrder
                       )
@@ -2974,7 +3056,7 @@ export default function BillingPage() {
                   onClick={generateInvoicePdf}
                   className="billing-action" style={btnGreen}
                   type="button"
-                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
+                  disabled={!finalizedBill && String(currentOrder?.payment_status || "").toLowerCase() !== "paid"}
                 >
                   📄 Download Invoice PDF
                 </button>
@@ -2983,7 +3065,7 @@ export default function BillingPage() {
                   onClick={() => printContent("bill-print", printSize)}
                   className="billing-action" style={btnGreen}
                   type="button"
-                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
+                  disabled={!finalizedBill && String(currentOrder?.payment_status || "").toLowerCase() !== "paid"}
                 >
                   🖨 Print Invoice
                 </button>
@@ -2992,7 +3074,7 @@ export default function BillingPage() {
                   onClick={printThermalInvoice}
                   className="billing-action" style={btnGreen}
                   type="button"
-                  disabled={!finalizedBill && currentOrder?.payment_status !== "paid"}
+                  disabled={!finalizedBill && String(currentOrder?.payment_status || "").toLowerCase() !== "paid"}
                 >
                   🖨 Thermal 80mm
                 </button>

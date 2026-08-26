@@ -10,6 +10,7 @@ const OPEN_RUNTIME = {
   "smart-notifications": ["/dashboard/notifications", "Open Notifications"],
   "calling-device": ["/dashboard/calling", "Open Calling Device"],
   "captain-app": ["/staff", "Open Captain / Waiter"],
+  "offers": ["/dashboard/offers", "Open Offers & Combos"],
 }
 
 export default function RestaurantProPage(){
@@ -57,6 +58,7 @@ export default function RestaurantProPage(){
   }
 
   const visible=useMemo(()=>FEATURE_CATALOG.filter(f=>{
+    if(f.code === "combos-variants") return false // internal runtime is managed by Offers & Combos
     if(CORE_FEATURE_CODES.has(f.code)||OPERATIONS_FEATURE_CODES.has(f.code)||INVENTORY_FEATURE_CODES.has(f.code)) return false
     return active[f.code]===true || (f.aliases||[]).some(a=>active[a]===true)
   }),[active])

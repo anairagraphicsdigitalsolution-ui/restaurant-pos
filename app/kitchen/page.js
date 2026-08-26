@@ -234,6 +234,15 @@ const [kotSize, setKotSize] = useState("80mm")
 
     const currentOrder = orders.find(order => order.id === id)
 
+    // Delivery flow is intentionally unchanged.
+    // Takeaway/table/room unlock Billing only after confirmed Mark Done.
+    if (status === "done" && currentOrder?.source_type !== "delivery") {
+      const confirmed = window.confirm(
+        "Confirm Mark Done?\n\nThis order will now move to Billing."
+      )
+      if (!confirmed) return
+    }
+
     setUpdatingOrderId(id)
     setUpdatingStatus(status)
 
@@ -293,9 +302,16 @@ const [kotSize, setKotSize] = useState("80mm")
           status === "done" &&
           currentOrder?.source_type === "delivery"
         ) {
+          // Existing delivery workflow: unchanged.
           router.push(
             `/dashboard/delivery?order_id=${encodeURIComponent(id)}`
           )
+        } else if (
+          status === "done" &&
+          currentOrder?.source_type !== "delivery"
+        ) {
+          router.push("/billing")
+          return
         }
       } else {
         setOrders(prev => {

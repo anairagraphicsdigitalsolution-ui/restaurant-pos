@@ -1,3 +1,4 @@
+import { indiaDateKey } from "@/lib/indiaTime"
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
@@ -235,7 +236,7 @@ export async function POST(req) {
         restaurant_id: rid,
         rider_id: body.rider_id || null,
         rider_name: body.rider_name || null,
-        settlement_date: body.settlement_date || new Date().toISOString().slice(0, 10),
+        settlement_date: body.settlement_date || indiaDateKey(),
         expected_cash: expectedCash,
         expected_upi: expectedUpi,
         expected_card: expectedCard,

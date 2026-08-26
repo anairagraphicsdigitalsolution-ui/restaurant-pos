@@ -19,6 +19,7 @@ export default function OrderPage() {
 
   const [modifierGroups, setModifierGroups] = useState([])
   const [modifiers, setModifiers] = useState([])
+  const [operationsHubEnabled, setOperationsHubEnabled] = useState(true)
   const [modifierLinks, setModifierLinks] = useState([])
   const [modifierItem, setModifierItem] = useState(null)
   const [modifierSelection, setModifierSelection] = useState({})
@@ -147,6 +148,18 @@ export default function OrderPage() {
   async function fetchAll(rid) {
     if (!rid) return
 
+    const { data: hubRow } = await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", rid)
+      .eq("plugin_code", "operations-hub")
+      .maybeSingle()
+
+    const hubOn = hubRow?.enabled === true
+    setOperationsHubEnabled(hubOn)
+
+    const emptyModifierResult = { data: [], error: null }
+
     const [
       menuResult,
       tablesResult,
@@ -171,24 +184,24 @@ export default function OrderPage() {
         .select("*")
         .eq("restaurant_id", rid),
 
-      supabase
+      hubOn ? supabase
         .from("modifier_groups")
         .select("*")
         .eq("restaurant_id", rid)
         .eq("active", true)
-        .order("created_at"),
+        .order("created_at") : Promise.resolve(emptyModifierResult),
 
-      supabase
+      hubOn ? supabase
         .from("modifiers")
         .select("*")
         .eq("restaurant_id", rid)
         .eq("active", true)
-        .order("created_at"),
+        .order("created_at") : Promise.resolve(emptyModifierResult),
 
-      supabase
+      hubOn ? supabase
         .from("menu_item_modifier_groups")
         .select("menu_item_id,modifier_group_id")
-        .eq("restaurant_id", rid),
+        .eq("restaurant_id", rid) : Promise.resolve(emptyModifierResult),
 
       supabase
         .from("delivery_zones")
@@ -301,7 +314,7 @@ export default function OrderPage() {
      ========================================================= */
 
   function itemGroups(item) {
-    if (!item) return []
+    if (!operationsHubEnabled || !item) return []
 
     const ids = modifierLinks
       .filter(
@@ -403,13 +416,24 @@ export default function OrderPage() {
     for (const group of groups) {
       const chosen =
         modifierSelection[group.id] || []
+      const minSelect = Math.max(
+        Number(group.min_select || 0),
+        group.required ? 1 : 0
+      )
+      const maxSelect = group.max_select == null
+        ? null
+        : Number(group.max_select)
 
-      if (
-        group.required &&
-        !chosen.length
-      ) {
+      if (chosen.length < minSelect) {
         alert(
-          `Please choose an option from ${group.name}`
+          `Please choose at least ${minSelect} option${minSelect === 1 ? "" : "s"} from ${group.name}`
+        )
+        return
+      }
+
+      if (maxSelect !== null && chosen.length > maxSelect) {
+        alert(
+          `Please choose no more than ${maxSelect} option${maxSelect === 1 ? "" : "s"} from ${group.name}`
         )
         return
       }
@@ -453,6 +477,15 @@ export default function OrderPage() {
             (item) =>
               item.id === modifier.id
           )
+
+        const maxSelect = group.max_select == null
+          ? null
+          : Number(group.max_select)
+
+        if (!exists && maxSelect !== null && current.length >= maxSelect) {
+          alert(`Maximum ${maxSelect} option${maxSelect === 1 ? "" : "s"} allowed in ${group.name}`)
+          return previous
+        }
 
         return {
           ...previous,
@@ -875,6 +908,18 @@ export default function OrderPage() {
         }
       }
 
+      // Every POS source (table, room, takeaway and delivery) gets the same
+      // KOT/order-slip runtime. Delivery still continues into the Kitchen flow.
+      try {
+        await fetch("/api/printing/order-slip", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: order.id }),
+        })
+      } catch (printError) {
+        console.warn("ORDER SLIP PRINT:", printError)
+      }
+
       /* =====================================================
          DELIVERY SLIP
          ===================================================== */
@@ -1020,13 +1065,11 @@ export default function OrderPage() {
         return
       }
 
-      alert(
-        type === "takeaway"
-          ? "Takeaway order placed"
-          : type === "room"
-          ? "Room order placed"
-          : "Dine-in order placed"
-      )
+      // Takeaway/table/room must be prepared in Kitchen before Billing.
+      // Delivery flow below is intentionally unchanged.
+      window.location.href =
+        `/kitchen?order_id=${encodeURIComponent(order.id)}&next=billing`
+      return
 
       /* =====================================================
          RESET

@@ -44,12 +44,25 @@ function requiredFeatureForPath(pathname: string) {
   // independent QR Print Center plugin. Advanced QR Ordering remains
   // separate for the public/customer ordering runtime.
   if (pathname.startsWith("/dashboard/qr")) return "qr-print-center"
+  if (pathname.startsWith("/dashboard/theme") || pathname.startsWith("/dashboard/logo")) return "theme-branding"
   if (pathname.startsWith("/dashboard/business") && pathname.includes("tab=loyalty")) return "loyalty"
   return null
 }
 
-function canAccess(role: Role, pathname: string) {
+function canAccess(role: Role, pathname: string, staffPermissions: Record<string, boolean> = {}) {
   if (!isInternalPath(pathname)) return true
+  if (role === "staff") {
+    const permissionForPath =
+      pathname === "/order" ? "orders" :
+      pathname.startsWith("/kitchen") ? "kitchen" :
+      pathname.startsWith("/billing") ? "billing" :
+      pathname.includes("/dashboard/business") && pathname.includes("tab=customers") ? "customers" :
+      pathname.includes("/dashboard/business") && pathname.includes("tab=expenses") ? "expenses" :
+      pathname.includes("/dashboard/business") && pathname.includes("tab=attendance") ? "attendance" :
+      pathname.startsWith("/dashboard/reports") ? "reports" :
+      null
+    if (permissionForPath && staffPermissions[permissionForPath] !== true) return false
+  }
   if (role === "super_admin") {
     return pathname === "/super-admin" || pathname.startsWith("/super-admin/") || pathname.startsWith("/ai/") || pathname === "/ai" || pathname === "/business-card"
   }
@@ -72,6 +85,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<any>(null)
   const [role, setRole] = useState<Role>("")
   const [restaurantId, setRestaurantId] = useState<string | null>(null)
+  const [staffPermissions, setStaffPermissions] = useState<Record<string, boolean>>({})
   const bootstrapped = useRef(false)
   const syncInFlight = useRef(false)
   const currentUserRef = useRef<any | null>(null)
@@ -248,6 +262,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         return
       }
 
+      let resolvedStaffPermissions: Record<string, boolean> = {}
+      if (profile.role === "staff" && profile.restaurantId) {
+        const { data: permissionRows } = await supabase
+          .from("staff_permissions")
+          .select("permission_key,enabled")
+          .eq("restaurant_id", profile.restaurantId)
+          .eq("staff_id", user.id)
+        for (const row of permissionRows || []) {
+          resolvedStaffPermissions[row.permission_key] = row.enabled === true
+        }
+        setStaffPermissions(resolvedStaffPermissions)
+      } else {
+        setStaffPermissions({})
+      }
+
       const requiredFeature = requiredFeatureForPath(pathname)
 
       // Feature access can be granted either by the restaurant's plan
@@ -293,7 +322,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         return
       }
 
-      if (!canAccess(profile.role, pathname)) {
+      if (!canAccess(profile.role, pathname, resolvedStaffPermissions)) {
         router.replace(HOME_BY_ROLE[profile.role as Exclude<Role, "">])
         return
       }

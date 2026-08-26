@@ -192,6 +192,30 @@ export async function GET(request) {
         .limit(1)
         .maybeSingle()
       if (settingsError) throw new Error(settingsError.message)
+
+      if (configFor === "theme-branding") {
+        const { data:restaurantTheme, error:themeError} = await admin
+          .from("restaurants")
+          .select("theme_config")
+          .eq("id", restaurantId)
+          .maybeSingle()
+        if (themeError) throw new Error(themeError.message)
+
+        const existing = settings?.config || {}
+        const customThemes = Array.isArray(restaurantTheme?.theme_config?.themes)
+          ? restaurantTheme.theme_config.themes
+          : []
+        const themeId = restaurantTheme?.theme_config?.selected || "logo-premium"
+        return NextResponse.json({
+          success:true,
+          config:sanitizeConfigForClient({
+            ...existing,
+            theme_id: themeId
+          }),
+          theme_catalog: customThemes
+        })
+      }
+
       return NextResponse.json({success:true, config:sanitizeConfigForClient(settings?.config||{})})
     }
 
@@ -427,6 +451,50 @@ export async function PATCH(request) {
       )
     }
 
+    // Super Admin can explicitly assign a restaurant's theme from the
+    // Theme & Branding plugin. This writes the authoritative restaurant
+    // theme_config; it is not merely a UI preference.
+    if (body.theme_selection && typeof body.theme_selection === "object") {
+      const pluginCode = String(body.plugin_code || "").trim()
+      if (pluginCode !== "theme-branding") {
+        return NextResponse.json({success:false,error:"Theme assignment is only available through Theme & Branding."},{status:400})
+      }
+      await ensureRestaurant(admin, restaurantId)
+      const selected = body.theme_selection?.selected || "logo-premium"
+      const theme = body.theme_selection?.theme
+      if (!theme || theme.id !== selected) {
+        return NextResponse.json({success:false,error:"Invalid theme assignment."},{status:400})
+      }
+
+      const {data:restaurant,error:restaurantError}=await admin
+        .from("restaurants")
+        .select("theme_config")
+        .eq("id",restaurantId)
+        .maybeSingle()
+      if(restaurantError) throw new Error(restaurantError.message)
+
+      const existingThemes = Array.isArray(restaurant?.theme_config?.themes)
+        ? restaurant.theme_config.themes
+        : []
+      const mergedThemes = [theme, ...existingThemes].filter((item,index,array)=>
+        item?.id && array.findIndex(x=>x.id===item.id)===index
+      )
+      const {error:updateError}=await admin
+        .from("restaurants")
+        .update({
+          theme_config:{
+            ...(restaurant?.theme_config||{}),
+            selected,
+            themes:mergedThemes,
+            updated_at:new Date().toISOString()
+          }
+        })
+        .eq("id",restaurantId)
+      if(updateError) throw new Error(updateError.message)
+
+      return NextResponse.json({success:true,theme_id:selected})
+    }
+
     // Super Admin is the only role allowed to save restaurant plugin settings.
     if (body.config && typeof body.config === "object") {
       const pluginCode = String(body.plugin_code || "").trim()
@@ -444,6 +512,38 @@ export async function PATCH(request) {
         config:mergedConfig
       },{onConflict:"restaurant_id,plugin_code"})
       if(settingsError) throw new Error(settingsError.message)
+
+      // Theme & Branding has two authoritative parts: plugin policy and the
+      // restaurant's selected theme. Keep both synchronized from this single
+      // Super Admin configuration surface.
+      if (pluginCode === "theme-branding") {
+        const { data:restaurantTheme, error:themeReadError} = await admin
+          .from("restaurants")
+          .select("theme_config")
+          .eq("id",restaurantId)
+          .maybeSingle()
+        if(themeReadError) throw new Error(themeReadError.message)
+
+        const themeId = String(mergedConfig.theme_id || restaurantTheme?.theme_config?.selected || "logo-premium")
+        const themeScope = String(mergedConfig.theme_scope || "both").toLowerCase()
+        const existingThemes = Array.isArray(restaurantTheme?.theme_config?.themes)
+          ? restaurantTheme.theme_config.themes
+          : []
+        const themeFromCatalog = existingThemes.find(item => item?.id === themeId)
+        const nextThemeConfig = {
+          ...(restaurantTheme?.theme_config || {}),
+          selected: themeId,
+          theme_scope: ["restaurant","qr","both"].includes(themeScope) ? themeScope : "both",
+          themes: existingThemes,
+          updated_at: new Date().toISOString(),
+          selected_by: "super_admin"
+        }
+
+        await admin
+          .from("restaurants")
+          .update({theme_config:nextThemeConfig})
+          .eq("id",restaurantId)
+      }
 
       // Keep external aggregator runtime in sync with the single Super Admin
       // configuration surface. The provider is only activated when all
@@ -515,13 +615,6 @@ export async function PATCH(request) {
 
     if (currentError) throw new Error(currentError.message)
     if (!current) throw new Error("Plugin not found")
-
-    if (current.plugin_code === "operations-hub") {
-      return NextResponse.json({
-        success:false,
-        error:"Operations Hub is a protected system service and cannot be deactivated."
-      }, {status:400})
-    }
 
     // Other Core feature codes are not independent plugins.
     // Restaurant Core controls them as a group.

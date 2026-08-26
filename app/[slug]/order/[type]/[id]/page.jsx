@@ -8,6 +8,39 @@ export default function OrderPage() {
 
   const params = useParams()
   const { refreshTheme } = useTheme()
+
+  const comboModalBox = {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--surface, #ffffff)"
+  }
+  const comboLine = {
+    padding: "7px 9px",
+    borderRadius: 8,
+    background: "var(--surface-muted, #f8fafc)",
+    color: "var(--text, #111827)"
+  }
+  const comboChoice = {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--surface, #ffffff)",
+    color: "var(--text, #111827)",
+    cursor: "pointer",
+    textAlign: "left"
+  }
+  const comboChoiceActive = {
+    border: "1px solid var(--primary, #059669)",
+    background: "var(--primary-soft, #ecfdf5)"
+  }
+
   const slug = params?.slug
   const type = params?.type
   const id = params?.id
@@ -31,7 +64,17 @@ const [currentBanner, setCurrentBanner] = useState(0)
 const [touchStart,setTouchStart]=useState(null)
 
 const [touchEnd,setTouchEnd]=useState(null)
+
+function getComboUnitPrice(item, selection = []) {
+  const base = Number(item?.comboBasePrice ?? item?.price ?? 0)
+  if (item?.item_type !== "combo") return base
+  const options = item?.combo_config?.groups?.[0]?.options || []
+  const selectedIds = new Set((selection || []).map(row => typeof row === "string" ? row : row?.item_id).filter(Boolean))
+  return base + options.reduce((sum, option) => selectedIds.has(option.item_id) ? sum + Number(option.price_delta || 0) : sum, 0)
+}
 const [ratingSummary, setRatingSummary] = useState({ average: 0, count: 0 })
+const [feedbackEnabled, setFeedbackEnabled] = useState(false)
+const [qrThemeEnabled, setQrThemeEnabled] = useState(true)
 const [rating, setRating] = useState(0)
 const [ratingHover, setRatingHover] = useState(0)
 const [ratingFeedback, setRatingFeedback] = useState("")
@@ -167,6 +210,11 @@ async function init() {
       const nextRestaurant = payload.restaurant || null
       setRestaurant(nextRestaurant)
 
+      const nextFeedbackEnabled = payload?.feedback_enabled === true
+      const nextQrThemeEnabled = payload?.theme_runtime?.qr_enabled !== false
+      setFeedbackEnabled(nextFeedbackEnabled)
+      setQrThemeEnabled(nextQrThemeEnabled)
+
       const selectedThemeId = payload?.theme_config?.selected
       const customThemes = Array.isArray(payload?.theme_config?.themes)
         ? payload.theme_config.themes
@@ -175,7 +223,7 @@ async function init() {
       const selectedTheme =
         themePool.find((item) => item?.id === selectedThemeId) || DEFAULT_THEME
 
-      applyTheme(selectedTheme)
+      applyTheme(nextQrThemeEnabled ? selectedTheme : DEFAULT_THEME)
       setThemeReady(true)
 
       setBanners(payload.banners || [])
@@ -185,6 +233,8 @@ async function init() {
       setRatingSummary(payload.rating || { average: 0, count: 0 })
     } catch (error) {
       console.error("QR INIT ERROR:", error)
+      setFeedbackEnabled(false)
+      setQrThemeEnabled(false)
       applyTheme(DEFAULT_THEME)
       setThemeReady(true)
       setPageError(error?.message || "Unable to load restaurant")
@@ -204,79 +254,29 @@ async function init() {
   
   // 🛒 ADD
   function addToCart(item) {
-    const exist = cart.find(i => i.id === item.id)
-
-    if (exist) {
-
-  setCart(
-
-    cart.map(i =>
-
-      i.id === item.id
-
-        ? {
-
-            ...i,
-
-            qty: i.qty + (item.qty || 1),
-
-            cooking_request:
-              item.cooking_request || i.cooking_request
-
-          }
-
-        : i
-
-    )
-
-  )
-
-} else {
-
-  setCart([
-
-    ...cart,
-
-    {
-
-      ...item,
-
-      qty: item.qty || 1,
-
-      cooking_request:
-        item.cooking_request || ""
-
-    }
-
-  ])
-
-}
+    const cartKey = item.cartKey || `${item.id}:base`
+    setCart(prev => {
+      const exist = prev.find(i => i.cartKey === cartKey)
+      if (exist) {
+        return prev.map(i => i.cartKey === cartKey
+          ? { ...i, qty: i.qty + (item.qty || 1), cooking_request: item.cooking_request || i.cooking_request }
+          : i
+        )
+      }
+      return [...prev, { ...item, qty: item.qty || 1, cartKey, cooking_request: item.cooking_request || "" }]
+    })
   }
 
   // ➕➖
-  function updateQty(id, change) {
-
-  setCart(prev =>
-    prev.flatMap(item => {
-
-      if (item.id !== id)
-        return item
-
-      const qty =
-        item.qty + change
-
-      return qty <= 0
-        ? []
-        : { ...item, qty }
-
-    })
-  )
-
-}
-  function removeItem(id) {
-  setCart(
-    cart.filter(item => item.id !== id)
-  )
+  function updateQty(cartKey, change) {
+    setCart(prev => prev.flatMap(item => {
+      if (item.cartKey !== cartKey) return [item]
+      const qty = Number(item.qty || 0) + change
+      return qty <= 0 ? [] : [{ ...item, qty }]
+    }))
+  }
+  function removeItem(cartKey) {
+  setCart(cart.filter(item => item.cartKey !== cartKey))
 }
 
   // 🚀 PLACE ORDER
@@ -334,7 +334,7 @@ async function init() {
   )
 ]
 const subtotal = cart.reduce(
-  (t, i) => t + Number(i.price || 0) * Number(i.qty || 0),
+  (t, i) => t + getComboUnitPrice(i, i.combo_selection || []) * Number(i.qty || 0),
   0
 )
 
@@ -360,9 +360,9 @@ const eligibleOffers = (offers || [])
 
     if (targetType === "products") {
       const ids = new Set((o.offer_products || []).map(x => x.menu_item_id))
-      eligibleSubtotal = cart.reduce((sum, item) => ids.has(item.id) ? sum + Number(item.price || 0) * Number(item.qty || 0) : sum, 0)
+      eligibleSubtotal = cart.reduce((sum, item) => ids.has(item.id) ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0) : sum, 0)
     } else if (targetType === "category") {
-      eligibleSubtotal = cart.reduce((sum, item) => item.category === o.target_category ? sum + Number(item.price || 0) * Number(item.qty || 0) : sum, 0)
+      eligibleSubtotal = cart.reduce((sum, item) => item.category === o.target_category ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0) : sum, 0)
     }
 
     if (eligibleSubtotal <= 0) return { ...o, calculated_discount: 0 }
@@ -701,16 +701,18 @@ currentBanner===index
     </div>
 
     <div className="qr-header-actions" style={{display:"flex",alignItems:"center",gap:8}}>
-      <button
-        type="button"
-        className="qr-header-action"
-        onClick={() => document.getElementById("qr-rating")?.scrollIntoView({behavior:"smooth",block:"center"})}
-        style={headerActionButton}
-        aria-label="Rate this restaurant"
-      >
-        <span style={{fontSize:17}}>⭐</span>
-        <span>Rate Us</span>
-      </button>
+      {feedbackEnabled && (
+        <button
+          type="button"
+          className="qr-header-action"
+          onClick={() => document.getElementById("qr-rating")?.scrollIntoView({behavior:"smooth",block:"center"})}
+          style={headerActionButton}
+          aria-label="Rate this restaurant"
+        >
+          <span style={{fontSize:17}}>⭐</span>
+          <span>Rate Us</span>
+        </button>
+      )}
 
       <button
         type="button"
@@ -983,7 +985,7 @@ border:
 )}
 
       
-      <section id="qr-rating" style={ratingCard}>
+      {feedbackEnabled && <section id="qr-rating" style={ratingCard}>
         <div style={ratingEyebrow}>YOUR EXPERIENCE MATTERS</div>
         <div style={ratingTop}>
           <div>
@@ -1039,7 +1041,7 @@ border:
             <span>Your feedback helps us serve you better.</span>
           </div>
         )}
-      </section>
+      </section>}
 
       {cart.length > 0 && (
 
@@ -1236,9 +1238,7 @@ fontSize:13,
 color:"var(--muted)"
 }}
 >
-
-₹{item.price}
-
+₹{getComboUnitPrice(item, item.combo_selection || []).toFixed(2)}
 </div>
 
 </div>
@@ -1257,14 +1257,14 @@ color:"var(--muted)"
     type="button"
     className="qr-delete-btn"
     style={deleteBtn}
-    onClick={() => removeItem(item.id)}
+    onClick={() => removeItem(item.cartKey)}
   >
     🗑️
   </button>
 
   <button
     style={qtyBtn}
-    onClick={() => updateQty(item.id,-1)}
+    onClick={() => updateQty(item.cartKey,-1)}
   >
     −
   </button>
@@ -1273,7 +1273,7 @@ color:"var(--muted)"
 
   <button
     style={qtyBtn}
-    onClick={() => updateQty(item.id,1)}
+    onClick={() => updateQty(item.cartKey,1)}
   >
     +
   </button>
@@ -1511,9 +1511,7 @@ margin:"14px 0"
       </div>
 
       <div style={modalPrice}>
-
-        ₹{selectedFood.price}
-
+        ₹{getComboUnitPrice(selectedFood, comboSelection).toFixed(2)}
       </div>
 
       {selectedFood.item_type === "combo" && (selectedFood.combo_config?.mode === "fixed" ? (
@@ -1533,7 +1531,7 @@ margin:"14px 0"
             {(selectedFood.combo_config?.groups?.[0]?.options || []).map(option => {
               const component = menu.find(m => m.id === option.item_id)
               const chosen = comboSelection.includes(option.item_id)
-              return <button type="button" key={option.item_id} onClick={() => { const max=Number(selectedFood.combo_config?.groups?.[0]?.max || 1); setComboSelection(prev => prev.includes(option.item_id) ? prev.filter(id=>id!==option.item_id) : (prev.length>=max ? prev : [...prev,option.item_id])) }} style={{...comboChoice, ...(chosen ? comboChoiceActive : {})}}><span>{chosen ? "✓" : "○"} {component?.name || "Item"}</span><span>{Number(option.price_delta||0)>0 ? `+₹${option.price_delta}` : "Included"}</span></button>
+              return <button type="button" key={option.item_id} onClick={() => { const max=Number(selectedFood.combo_config?.groups?.[0]?.max || 1); setComboSelection(prev => prev.includes(option.item_id) ? prev.filter(id=>id!==option.item_id) : (prev.length>=max ? prev : [...prev,option.item_id])) }} style={{...comboChoice, ...(chosen ? comboChoiceActive : {})}}><span>{chosen ? "✓" : "○"} {component?.name || "Item"}</span><span>{Number(option.price_delta || 0) > 0 ? `+₹${Number(option.price_delta).toFixed(2)}` : Number(option.price_delta || 0) < 0 ? `−₹${Math.abs(Number(option.price_delta)).toFixed(2)}` : "Included"}</span></button>
             })}
           </div>
         </div>
@@ -1621,11 +1619,16 @@ margin:"14px 0"
         return
       }
     }
+    const comboSelectionRows = comboSelection.map(id => ({ item_id: id }))
+    const configuredPrice = getComboUnitPrice(selectedFood, comboSelectionRows)
     addToCart({
       ...selectedFood,
       qty:modalQty,
+      price: configuredPrice,
+      comboBasePrice: Number(selectedFood.price || 0),
       cooking_request:modalRequest,
-      combo_selection:comboSelection.map(id => ({ item_id: id }))
+      combo_selection:comboSelectionRows,
+      cartKey: `${selectedFood.id}:combo:${comboSelection.slice().sort().join(",") || "base"}`
     })
     setShowFoodModal(false)
     setModalQty(1)
@@ -1636,7 +1639,7 @@ margin:"14px 0"
   }}
 >
 
-  Add To Cart • ₹{selectedFood.price * modalQty}
+  Add To Cart • ₹{(getComboUnitPrice(selectedFood, comboSelection) * modalQty).toFixed(2)}
 
 </button>
 

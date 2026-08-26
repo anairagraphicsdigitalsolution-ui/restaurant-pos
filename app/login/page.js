@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { DEFAULT_THEME, applyTheme } from "@/components/ThemeProvider"
 
 export default function Login() {
 
@@ -16,6 +17,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
+    // Login is platform-neutral: always render the canonical Logo Premium theme.
+    applyTheme(DEFAULT_THEME)
+
     const reason = new URLSearchParams(window.location.search).get("reason")
     if (reason) setErrorMsg(`⚠️ ${reason}`)
   }, [])

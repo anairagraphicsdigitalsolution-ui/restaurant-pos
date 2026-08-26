@@ -4,6 +4,9 @@ import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
+const money = (value) =>
+  `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
+
 async function resolveRestaurant(userId) {
   const { data: profile } = await supabaseAdmin
     .from("profiles")
@@ -102,6 +105,84 @@ export async function POST(req) {
 
     const body = await req.json()
     const action = String(body?.action || "").trim().toLowerCase()
+
+    if (action === "complete") {
+      const deliveryId = String(body?.delivery_id || "").trim()
+      if (!deliveryId) {
+        return Response.json({ success:false, error:"Delivery is required" }, { status:400 })
+      }
+
+      const { data: delivery, error: deliveryError } = await supabaseAdmin
+        .from("restaurant_deliveries")
+        .select("*")
+        .eq("id", deliveryId)
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle()
+
+      if (deliveryError || !delivery) {
+        return Response.json({ success:false, error:deliveryError?.message || "Delivery not found" }, { status:404 })
+      }
+
+      if (!delivery.order_id) {
+        return Response.json({ success:false, error:"Delivery order is missing" }, { status:400 })
+      }
+
+      if (delivery.settlement_status !== "settled") {
+        return Response.json({ success:false, error:"Settle the delivery payment before marking the order done." }, { status:400 })
+      }
+
+      // One idempotent operation for Delivery -> Kitchen -> Billing. If the
+      // kitchen order is already done, do not create a second transition.
+      const { data: order, error: orderError } = await supabaseAdmin
+        .from("orders")
+        .select("id,status,payment_status,total_amount,paid_amount")
+        .eq("id", delivery.order_id)
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle()
+
+      if (orderError || !order) {
+        return Response.json({ success:false, error:orderError?.message || "Order not found" }, { status:404 })
+      }
+
+      let updatedOrder = order
+      if (!["done", "completed", "served", "paid"].includes(String(order.status || "").toLowerCase())) {
+        const { data: statusResult, error: statusError } = await supabaseAdmin.rpc("stage3_update_order_status", {
+          p_actor_id: user.id,
+          p_order_id: delivery.order_id,
+          p_status: "done",
+          p_reason: "Delivery marked done after settlement"
+        })
+        if (statusError) {
+          return Response.json({ success:false, error:statusError.message || "Unable to complete kitchen order" }, { status:400 })
+        }
+        updatedOrder = { ...order, status: statusResult?.status || "done" }
+      }
+
+      const { data: updatedDelivery, error: updateError } = await supabaseAdmin
+        .from("restaurant_deliveries")
+        .update({
+          status: delivery.status === "cancelled" ? "cancelled" : "delivered",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", deliveryId)
+        .eq("restaurant_id", restaurantId)
+        .select("*")
+        .single()
+
+      if (updateError) {
+        return Response.json({ success:false, error:updateError.message || "Unable to update delivery" }, { status:400 })
+      }
+
+      await addEvent({
+        restaurantId,
+        deliveryId,
+        status: "completed",
+        note: "Delivery completed and kitchen order marked done.",
+        userId: user.id
+      })
+
+      return Response.json({ success:true, delivery:updatedDelivery, order:updatedOrder, idempotent: String(order.status || "").toLowerCase() === "done" })
+    }
 
     if (action === "create") {
       const orderId = String(body?.order_id || "").trim()

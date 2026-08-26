@@ -19,7 +19,7 @@ const TABS = [
   ["permissions", "🔐 Permissions"],
 ]
 
-const PERMS = ["orders", "kitchen", "billing", "tables", "customers", "expenses", "reports", "settings"]
+const PERMS = ["orders", "kitchen", "billing", "tables", "customers", "expenses", "attendance", "reports", "settings"]
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 
 export default function BusinessOperations() {
@@ -62,7 +62,7 @@ export default function BusinessOperations() {
   const [campaignForm, setCampaignForm] = useState({ name: "", description: "", bonus_points: "", starts_at: "", ends_at: "" })
 
   const [cf, setCf] = useState({ name: "", phone: "", email: "" })
-  const [gf, setGf] = useState({ name: "", selection_type: "single", required: false })
+  const [gf, setGf] = useState({ name: "", selection_type: "single", required: false, min_select: 0, max_select: "" })
   const [mf, setMf] = useState({ name: "", price: "", group_id: "" })
   const [ef, setEf] = useState({ category: "General", description: "", amount: "", payment_method: "cash" })
   const [ff, setFf] = useState({ rating: 5, feedback: "" })
@@ -98,9 +98,20 @@ export default function BusinessOperations() {
 
     setRid(p.restaurant_id)
 
-    // Operations Hub itself is Core and must remain available regardless of
-    // Restaurant Pro / individual plugin state.
-    setPluginEnabled(true)
+    const { data: hubRow } = await supabase
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", p.restaurant_id)
+      .eq("plugin_code", "operations-hub")
+      .maybeSingle()
+
+    const hubOn = hubRow?.enabled === true
+    setPluginEnabled(hubOn)
+
+    if (!hubOn) {
+      setLoading(false)
+      return
+    }
 
     const { data: loyaltyRow } = await supabase
       .from("restaurant_plugins")
@@ -224,9 +235,19 @@ export default function BusinessOperations() {
   async function addGroup(e) {
     e.preventDefault()
     if (!gf.name.trim()) return notify("Modifier group name is required")
-    const { error } = await supabase.from("modifier_groups").insert({ restaurant_id: rid, ...gf })
+    const minSelect = Math.max(0, Number(gf.min_select || 0))
+    const maxSelect = gf.max_select === "" ? null : Math.max(0, Number(gf.max_select))
+    if (maxSelect !== null && maxSelect < minSelect) return notify("Maximum selections cannot be less than minimum")
+    const { error } = await supabase.from("modifier_groups").insert({
+      restaurant_id: rid,
+      name: gf.name.trim(),
+      selection_type: gf.selection_type,
+      required: !!gf.required,
+      min_select: minSelect,
+      max_select: maxSelect,
+    })
     if (error) return notify(error.message)
-    setGf({ name: "", selection_type: "single", required: false })
+    setGf({ name: "", selection_type: "single", required: false, min_select: 0, max_select: "" })
     await loadMods(rid)
     notify("Modifier group added")
   }
@@ -934,7 +955,7 @@ export default function BusinessOperations() {
         </Card>
       </div>}
 
-      {tab === "modifiers" && <div style={grid}><Card title="Modifier groups" subtitle="Examples: Size, Add-ons, Spice level."><form onSubmit={addGroup} style={form}><Field label="Group name"><input placeholder="e.g. Add-ons" value={gf.name} onChange={e => setGf({ ...gf, name: e.target.value })} /></Field><Field label="Selection"><select value={gf.selection_type} onChange={e => setGf({ ...gf, selection_type: e.target.value })}><option value="single">Single choice</option><option value="multiple">Multiple choice</option></select></Field><label style={check}><input type="checkbox" checked={gf.required} onChange={e => setGf({ ...gf, required: e.target.checked })} /> Required selection</label><button style={primary}>Create Group</button></form><hr style={divider} /><form onSubmit={addMod} style={form}><Field label="Group"><select value={mf.group_id} onChange={e => setMf({ ...mf, group_id: e.target.value })}><option value="">Choose group</option>{groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></Field><Field label="Modifier name"><input placeholder="e.g. Extra Cheese" value={mf.name} onChange={e => setMf({ ...mf, name: e.target.value })} /></Field><Field label="Additional price"><input type="number" min="0" step="0.01" placeholder="0" value={mf.price} onChange={e => setMf({ ...mf, price: e.target.value })} /></Field><button style={primary}>Add Modifier</button></form></Card><Card title="Modifier catalog" subtitle={`${groups.length} groups • ${mods.length} modifiers`}><List>{groups.map(g => <div key={g.id} style={group}><b>{g.name}</b><small>{g.selection_type} • {g.required ? "required" : "optional"}</small>{mods.filter(m => m.group_id === g.id).map(m => <Row key={m.id}><span>{m.name}</span><strong>{money(m.price)}</strong></Row>)}</div>)}</List></Card>
+      {tab === "modifiers" && <div style={grid}><Card title="Modifier groups" subtitle="Examples: Size, Add-ons, Spice level."><form onSubmit={addGroup} style={form}><Field label="Group name"><input placeholder="e.g. Add-ons" value={gf.name} onChange={e => setGf({ ...gf, name: e.target.value })} /></Field><Field label="Selection"><select value={gf.selection_type} onChange={e => setGf({ ...gf, selection_type: e.target.value })}><option value="single">Single choice</option><option value="multiple">Multiple choice</option></select></Field><Field label="Minimum choices"><input type="number" min="0" step="1" value={gf.min_select} onChange={e => setGf({ ...gf, min_select: e.target.value })} /></Field><Field label="Maximum choices"><input type="number" min="0" step="1" placeholder="No limit" value={gf.max_select} onChange={e => setGf({ ...gf, max_select: e.target.value })} /></Field><label style={check}><input type="checkbox" checked={gf.required} onChange={e => setGf({ ...gf, required: e.target.checked })} /> Required selection</label><button style={primary}>Create Group</button></form><hr style={divider} /><form onSubmit={addMod} style={form}><Field label="Group"><select value={mf.group_id} onChange={e => setMf({ ...mf, group_id: e.target.value })}><option value="">Choose group</option>{groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></Field><Field label="Modifier name"><input placeholder="e.g. Extra Cheese" value={mf.name} onChange={e => setMf({ ...mf, name: e.target.value })} /></Field><Field label="Additional price"><input type="number" min="0" step="0.01" placeholder="0" value={mf.price} onChange={e => setMf({ ...mf, price: e.target.value })} /></Field><button style={primary}>Add Modifier</button></form></Card><Card title="Modifier catalog" subtitle={`${groups.length} groups • ${mods.length} modifiers`}><List>{groups.map(g => <div key={g.id} style={group}><b>{g.name}</b><small>{g.selection_type} • {g.required ? "required" : "optional"}</small>{mods.filter(m => m.group_id === g.id).map(m => <Row key={m.id}><span>{m.name}</span><strong>{money(m.price)}</strong></Row>)}</div>)}</List></Card>
         <Card title="Assign modifiers to menu items" subtitle="This makes the modifier picker appear when staff adds that item to an order.">
           <Field label="Menu item"><select value={selectedMenuItem} onChange={e => setSelectedMenuItem(e.target.value)}><option value="">Choose menu item</option>{menuItems.map(m => <option key={m.id} value={m.id}>{m.name} • {money(m.price)}</option>)}</select></Field>
           {selectedMenuItem && <div style={{display:"grid",gap:8,marginTop:14}}>{groups.map(g => <ModifierAssignment key={g.id} rid={rid} menuItemId={selectedMenuItem} group={g} onToggle={toggleMenuModifierGroup} />)}</div>}

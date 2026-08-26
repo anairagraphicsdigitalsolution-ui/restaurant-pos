@@ -6,6 +6,8 @@ import "@fontsource/inter/800.css"
 import AuthProvider from "@/components/AuthProvider"
 import { ThemeProvider } from "@/components/ThemeProvider"
 import RealtimeNotificationProvider from "@/components/RealtimeNotificationProvider"
+import OrderNotificationListener from "@/components/OrderNotificationListener"
+import CallingRuntimeProvider from "@/components/CallingRuntimeProvider"
 import "./globals.css"
 
 export const viewport = {
@@ -33,6 +35,8 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <RealtimeNotificationProvider />
+            <OrderNotificationListener />
+            <CallingRuntimeProvider />
             {children}
           </ThemeProvider>
         </AuthProvider>
