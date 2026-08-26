@@ -786,17 +786,20 @@ export async function POST(req) {
     // KOT integration is primarily trigger-backed at order creation. The
     // idempotent upserts below also repair legacy orders created before the
     // KOT trigger existed, without creating duplicates.
+    // Repair only missing legacy KOT rows. Never update an existing ticket here:
+    // Billing must not reset a kitchen ticket from ready/done back to new when
+    // a bill is finalized or a finalize request is retried.
     await supabaseAdmin.from("kitchen_order_tickets").upsert({
       restaurant_id: order.restaurant_id,
       order_id: order.id,
       status: "new",
       priority: "normal"
-    }, { onConflict: "order_id" })
+    }, { onConflict: "order_id", ignoreDuplicates: true })
     await supabaseAdmin.from("kot_tickets").upsert({
       restaurant_id: order.restaurant_id,
       order_id: order.id,
       status: "new"
-    }, { onConflict: "order_id" })
+    }, { onConflict: "order_id", ignoreDuplicates: true })
 
     if (idempotencyReservation) {
       await supabaseAdmin

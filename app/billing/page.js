@@ -239,14 +239,13 @@ export default function BillingPage() {
       return
     }
 
-    // Takeaway/table/room orders become billable only after Kitchen marks Done.
-    // Delivery keeps its existing Billing visibility behavior.
-    const orderRows = (data || []).filter(order =>
-      String(order.source_type || "").toLowerCase() === "delivery" ||
-      ["done", "completed", "served", "paid"].includes(
-        String(order.status || "").toLowerCase()
-      )
-    )
+    // Billing is the financial history and must not hide legitimate orders
+    // merely because a legacy/alternate workflow used a different status.
+    // Only explicitly cancelled orders are excluded.
+    const orderRows = (data || []).filter(order => {
+      const status = String(order.status || "").trim().toLowerCase()
+      return !["cancelled", "canceled"].includes(status)
+    })
 
     const orderIds = orderRows.map(o => o.id)
 

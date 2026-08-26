@@ -6,9 +6,3 @@ out/
 !.env.example
 !.env.local.example
 *.log
-anaIra_latest_backup.sql
-schema_backup.sql
-supabase-data.sql
-supabase-schema.sql
-ORDER_KITCHEN_BILLING_VOICE_FIX_AUDIT.md
-THEME_BRANDING_QR_PLUGIN_FINAL_AUDIT.md
