@@ -67,8 +67,7 @@ export default function CallingRuntimeProvider() {
 
     seen.current.add(row.id)
     void speakCallingAnnouncement(text, config, {
-    onError: (error: unknown) =>
-    console.error("CALLING VOICE ERROR:", error),
+      onError: (error: unknown) => console.error("CALLING VOICE ERROR:", error),
     })
     window.dispatchEvent(new CustomEvent("anaira:calling", { detail: row }))
   }, [])
