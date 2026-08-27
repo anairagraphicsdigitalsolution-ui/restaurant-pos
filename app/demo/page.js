@@ -906,6 +906,13 @@ export default function DemoPage() {
             </a>
 
             <a
+              href="/pricing"
+              onClick={() => setMobileOpen(false)}
+            >
+              Pricing
+            </a>
+
+            <a
               href="/contact"
               className="navContact"
               onClick={() => setMobileOpen(false)}
@@ -964,6 +971,13 @@ export default function DemoPage() {
                   className="heroCta secondary"
                 >
                   Contact Us
+                </a>
+
+                <a
+                  href="/pricing"
+                  className="heroCta secondary"
+                >
+                  View Pricing
                 </a>
 
               </div>
@@ -1326,6 +1340,13 @@ export default function DemoPage() {
               className="heroCta primary"
             >
               Contact Anaira POS →
+            </a>
+
+            <a
+              href="/pricing"
+              className="heroCta secondary"
+            >
+              View Plans & Plugins →
             </a>
 
           </section>
