@@ -1,5 +1,6 @@
 import OpenAI from "openai"
 import { requireApiUser } from "@/lib/serverAuth"
+import { supabaseAdmin } from "@/lib/supabaseServer"
 
 export const runtime = "nodejs"
 
@@ -13,6 +14,46 @@ export async function POST(req) {
 
     const body = await req.json()
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
+    const pluginCode = String(body?.plugin_code || "").trim()
+    const allowedPlugins = new Set(["ai-image-studio", "ai-poster-studio", "ai-logo-studio"])
+    if (!allowedPlugins.has(pluginCode)) {
+      return Response.json({ success:false, error:"AI plugin is required" }, { status:400 })
+    }
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select("restaurant_id, role")
+      .eq("id", user.id)
+      .maybeSingle()
+    if (profileError || !profile) {
+      return Response.json({ success:false, error:"Profile not found" }, { status:403 })
+    }
+    const isSuperAdmin = profile.role === "super_admin"
+    const restaurantId = profile.restaurant_id
+
+    // Super Admin is unrestricted. Restaurant users remain protected by
+    // their restaurant plugin row.
+    if (!isSuperAdmin) {
+      if (!restaurantId) {
+        return Response.json({ success:false, error:"Restaurant context required" }, { status:403 })
+      }
+
+      const { data: pluginRow, error: pluginError } = await supabaseAdmin
+        .from("restaurant_plugins")
+        .select("enabled")
+        .eq("restaurant_id", restaurantId)
+        .eq("plugin_code", pluginCode)
+        .maybeSingle()
+
+      if (pluginError) throw pluginError
+
+      if (pluginRow?.enabled !== true) {
+        return Response.json(
+          { success:false, error:"This AI plugin is not active for this restaurant." },
+          { status:403 }
+        )
+      }
+    }
 
     if (!prompt) {
       return Response.json(
