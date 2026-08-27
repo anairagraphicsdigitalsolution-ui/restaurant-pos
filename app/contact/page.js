@@ -1146,15 +1146,6 @@ export default function ContactPage() {
             </a>
 
             <a
-              href="/pricing"
-              onClick={() =>
-                setMobileOpen(false)
-              }
-            >
-              Pricing
-            </a>
-
-            <a
               href="/demo#how"
               onClick={() =>
                 setMobileOpen(false)
@@ -1968,14 +1959,6 @@ export default function ContactPage() {
               We’ll use them to understand your
               workflow.
             </p>
-
-            <a
-              href="/pricing"
-              className="navContact"
-              style={{ display: "inline-flex", marginBottom: 18, textDecoration: "none" }}
-            >
-              View Pricing & Plugins →
-            </a>
 
             <form
               onSubmit={(e) => {
