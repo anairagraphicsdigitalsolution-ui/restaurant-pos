@@ -3,7 +3,7 @@
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud as supabase } from "@/lib/supabase"
 import { CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
 import { BRAND_THEMES, DEFAULT_THEME } from "@/components/ThemeProvider"

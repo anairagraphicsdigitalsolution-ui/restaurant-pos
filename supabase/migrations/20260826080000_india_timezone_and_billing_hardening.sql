@@ -274,8 +274,7 @@ BEGIN
   );
 END;
 $function$;
-
-ALTER FUNCTION public.stage3_finalize_order(uuid,uuid,text,numeric,uuid,uuid,numeric,text) OWNER TO postgres;
+DO $$ BEGIN IF to_regprocedure('public.stage3_finalize_order(uuid,uuid,text,numeric,uuid,uuid,numeric,text)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.stage3_finalize_order(uuid,uuid,text,numeric,uuid,uuid,numeric,text) OWNER TO postgres'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid,uuid,text,numeric,uuid,uuid,numeric,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid,uuid,text,numeric,uuid,uuid,numeric,text) TO service_role;
 
@@ -406,8 +405,7 @@ BEGIN
   RETURN ROUND(GREATEST(v_discount,0),2);
 END;
 $function$;
-
-ALTER FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) OWNER TO postgres;
+DO $$ BEGIN IF to_regprocedure('public.calculate_offer_discount(uuid,uuid,numeric)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) OWNER TO postgres'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) TO authenticated,service_role;
 
 

@@ -422,8 +422,7 @@ BEGIN
   );
 END;
 $function$;
-
-ALTER FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid) OWNER TO postgres;
+DO $$ BEGIN IF to_regprocedure('public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid) OWNER TO postgres'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid) TO service_role;
 
@@ -862,7 +861,6 @@ BEGIN
   );
 END;
 $function$;
-
-ALTER FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid, numeric, text) OWNER TO postgres;
+DO $$ BEGIN IF to_regprocedure('public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid, numeric, text)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid, numeric, text) OWNER TO postgres'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid, numeric, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(uuid, uuid, text, numeric, uuid, uuid, numeric, text) TO service_role;

@@ -219,13 +219,14 @@ export default function BillingPage() {
   async function fetchOrders(restId) {
     if (!restId) return
 
-    // Billing must not depend on one exact order status. Older POS builds
-    // used "done", while newer builds may use completed/served/paid.
+    // Billing is unlocked only after the kitchen/operator explicitly marks
+    // the order as DONE. Pending and Preparing orders must never enter the
+    // billing queue, reports, or bill selector.
     const { data, error } = await supabase
       .from("orders")
       .select("*")
       .eq("restaurant_id", restId)
-      .not("status", "in", '("cancelled","canceled")')
+      .eq("status", "done")
       .order("created_at", { ascending: false })
       .limit(500)
 
@@ -239,13 +240,11 @@ export default function BillingPage() {
       return
     }
 
-    // Billing is the financial history and must not hide legitimate orders
-    // merely because a legacy/alternate workflow used a different status.
-    // Only explicitly cancelled orders are excluded.
-    const orderRows = (data || []).filter(order => {
-      const status = String(order.status || "").trim().toLowerCase()
-      return !["cancelled", "canceled"].includes(status)
-    })
+    // The database query is the primary gate. Keep a small client-side
+    // guard as defense-in-depth against stale/realtime rows.
+    const orderRows = (data || []).filter(order =>
+      String(order.status || "").trim().toLowerCase() === "done"
+    )
 
     const orderIds = orderRows.map(o => o.id)
 
@@ -655,12 +654,30 @@ export default function BillingPage() {
       console.warn("Billing selected payment ledger refresh:", error)
     }
 
-    const selectedTotalForReconcile = Number((freshOrder || selectedFromOrders)?.total_amount || 0)
+    const selectedBase = freshOrder || selectedFromOrders
+
+    // Never allow a stale localStorage value, old selector state, or a direct
+    // navigation to open Billing for an order that has not been marked DONE.
+    // The fresh database row is authoritative whenever it is available.
+    const selectedStatus = String(selectedBase?.status || "").trim().toLowerCase()
+    if (selectedBase && selectedStatus !== "done") {
+      setSelectedOrder("")
+      setCurrentOrder(null)
+      setItems([])
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("anaira_pos_selected_order")
+      }
+      if (isBillScreen) {
+        alert("This order is not marked Done yet. It will appear in Billing after Mark Done.")
+      }
+      return
+    }
+
+    const selectedTotalForReconcile = Number(selectedBase?.total_amount || 0)
     const ledgerPaidState = selectedLedgerPaid >= selectedTotalForReconcile && selectedTotalForReconcile > 0
       ? "paid"
       : selectedLedgerPaid > 0 ? "partially_paid" : null
 
-    const selectedBase = freshOrder || selectedFromOrders
     const preservedPaidOrder =
       currentOrder?.id === orderId &&
       String(currentOrder?.payment_status || "").toLowerCase() === "paid"
@@ -1204,6 +1221,13 @@ export default function BillingPage() {
       !selectedOrder ||
       !currentOrder
     ) {
+      return
+    }
+
+    // Billing can only be finalized for an order that has explicitly reached
+    // DONE in the kitchen/order workflow.
+    if (String(currentOrder.status || "").trim().toLowerCase() !== "done") {
+      alert("Order is not marked Done yet. Mark it Done from Kitchen first.")
       return
     }
 

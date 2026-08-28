@@ -127,8 +127,6 @@ BEGIN
   RETURN ROUND(GREATEST(v_discount,0),2);
 END;
 $function$;
-
-
-ALTER FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) OWNER TO postgres;
+DO $$ BEGIN IF to_regprocedure('public.calculate_offer_discount(uuid,uuid,numeric)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) OWNER TO postgres'; END IF; END $$;
 REVOKE ALL ON FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.calculate_offer_discount(uuid,uuid,numeric) TO authenticated, service_role;

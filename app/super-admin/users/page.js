@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud as supabase } from "@/lib/supabase"
 
 export default function SuperAdminUsersPage() {
   const [restaurants, setRestaurants] = useState([])

@@ -412,12 +412,11 @@ BEGIN
   );
 END;
 $$;
-
-
-ALTER FUNCTION public.stage3_finalize_order(
+DO $$ BEGIN IF to_regprocedure('public.stage3_finalize_order(
   uuid, uuid, text, numeric, uuid, uuid
-) OWNER TO postgres;
-
+)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.stage3_finalize_order(
+  uuid, uuid, text, numeric, uuid, uuid
+) OWNER TO postgres'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.stage3_finalize_order(
   uuid, uuid, text, numeric, uuid, uuid
 ) TO authenticated;

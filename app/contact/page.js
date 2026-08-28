@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 const products = [
   ["🍽️", "Restaurant POS", "Orders, tables, billing and daily restaurant operations in one workspace."],
@@ -95,6 +95,15 @@ export default function ContactPage() {
   const [active, setActive] = useState("dashboard")
   const [mobileOpen, setMobileOpen] = useState(false)
   const [sent, setSent] = useState(false)
+  const [selectedPlan, setSelectedPlan] = useState("")
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const plan = params.get("plan")
+    if (plan && ["starter", "professional", "enterprise"].includes(plan)) {
+      setSelectedPlan(plan)
+    }
+  }, [])
 
   const preview = previewData[active]
 
@@ -1155,6 +1164,15 @@ export default function ContactPage() {
             </a>
 
             <a
+              href="/pricing"
+              onClick={() =>
+                setMobileOpen(false)
+              }
+            >
+              Pricing
+            </a>
+
+            <a
               href="/contact"
               className="navContact"
               onClick={() =>
@@ -2024,6 +2042,29 @@ export default function ContactPage() {
 
                 </select>
 
+              </label>
+
+              <label>
+                Plan
+
+                <select
+                  value={selectedPlan}
+                  onChange={(e) => setSelectedPlan(e.target.value)}
+                >
+                  <option value="">Select a plan</option>
+                  <option value="starter">Starter — ₹999/month</option>
+                  <option value="professional">Professional — ₹1,999/month</option>
+                  <option value="enterprise">Enterprise — ₹3,999/month</option>
+                </select>
+              </label>
+
+              <label>
+                Preferred contact
+
+                <select defaultValue="Phone / WhatsApp">
+                  <option>Phone / WhatsApp</option>
+                  <option>Email</option>
+                </select>
               </label>
 
               <label className="full">

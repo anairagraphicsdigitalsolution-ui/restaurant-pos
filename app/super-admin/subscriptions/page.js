@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud as supabase } from "@/lib/supabase"
 import Link from "next/link"
 
 const money = n => `₹${Number(n || 0).toLocaleString("en-IN")}`

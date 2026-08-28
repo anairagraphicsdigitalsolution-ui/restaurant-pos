@@ -971,13 +971,9 @@ GRANT EXECUTE ON FUNCTION public.stage3_update_order_status(uuid, text, text)
 -- 13. FUNCTION PRIVILEGES
 -- ------------------------------------------------------------
 
-REVOKE EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer)
-  FROM anon, authenticated;
-
+DO $$ BEGIN IF to_regprocedure('public.decrease_inventory(uuid, integer)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer) FROM anon, authenticated'; END IF; END $$;
 -- Keep the existing server-only WhatsApp config function server-only.
-REVOKE EXECUTE ON FUNCTION public.set_whatsapp_config(uuid, text)
-  FROM anon, authenticated;
-
+DO $$ BEGIN IF to_regprocedure('public.set_whatsapp_config(uuid, text)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.set_whatsapp_config(uuid, text) FROM anon, authenticated'; END IF; END $$;
 -- ------------------------------------------------------------
 -- 14. REALTIME: ORDERS + ORDER ITEMS + INVENTORY
 -- ------------------------------------------------------------

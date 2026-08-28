@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud as supabase } from "@/lib/supabase"
 
 export default function RestaurantsPage() {
 

@@ -121,14 +121,13 @@ GRANT EXECUTE ON FUNCTION public.is_staff_or_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_restaurant_member(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_manage_restaurant(uuid) TO authenticated;
 
-REVOKE EXECUTE ON FUNCTION public.current_restaurant_id() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.current_user_role() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_super_admin() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_admin() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_staff_or_admin() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_restaurant_member(uuid) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.can_manage_restaurant(uuid) FROM anon;
-
+DO $$ BEGIN IF to_regprocedure('public.current_restaurant_id()') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.current_restaurant_id() FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.current_user_role()') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.current_user_role() FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.is_super_admin()') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.is_super_admin() FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.is_admin()') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.is_admin() FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.is_staff_or_admin()') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.is_staff_or_admin() FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.is_restaurant_member(uuid)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.is_restaurant_member(uuid) FROM anon'; END IF; END $$;
+DO $$ BEGIN IF to_regprocedure('public.can_manage_restaurant(uuid)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.can_manage_restaurant(uuid) FROM anon'; END IF; END $$;
 -- ------------------------------------------------------------
 -- 2. Remove the existing permissive policies
 -- ------------------------------------------------------------
@@ -1098,7 +1097,7 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer) FROM anon;
+DO $$ BEGIN IF to_regprocedure('public.decrease_inventory(uuid, integer)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer) FROM anon'; END IF; END $$;
 GRANT EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.decrease_inventory(uuid, integer) TO service_role;
 

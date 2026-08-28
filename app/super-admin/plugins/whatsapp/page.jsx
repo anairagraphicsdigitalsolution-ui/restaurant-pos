@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud as supabase } from "@/lib/supabase"
 
 const EMPTY={
   number:"", credential_owner:"restaurant", phone_number_id:"", access_token:"", webhook_verify_token:"", webhook_app_secret:"",

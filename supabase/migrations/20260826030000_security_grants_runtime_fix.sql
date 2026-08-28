@@ -17,6 +17,5 @@ GRANT EXECUTE ON FUNCTION public.seed_default_loyalty_config(uuid) TO authentica
 
 -- Keep privileged destructive/admin RPCs server-side unless the application
 -- explicitly exposes them through an authenticated API route.
-REVOKE EXECUTE ON FUNCTION public.delete_restaurant_cascade(uuid) FROM anon, authenticated;
-
+DO $$ BEGIN IF to_regprocedure('public.delete_restaurant_cascade(uuid)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.delete_restaurant_cascade(uuid) FROM anon, authenticated'; END IF; END $$;
 COMMIT;

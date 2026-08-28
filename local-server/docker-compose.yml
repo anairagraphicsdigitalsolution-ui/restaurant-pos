@@ -1,0 +1,22 @@
+services:
+  anaira-postgres:
+    image: postgres:17-alpine
+    container_name: anaira-pos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LOCAL_DB_NAME:-anaira_pos}
+      POSTGRES_USER: ${LOCAL_DB_USER:-anaira}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-change-me}
+    ports:
+      - "127.0.0.1:${LOCAL_DB_PORT:-54329}:5432"
+    volumes:
+      - anaira_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LOCAL_DB_USER:-anaira} -d ${LOCAL_DB_NAME:-anaira_pos}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  anaira_postgres_data:

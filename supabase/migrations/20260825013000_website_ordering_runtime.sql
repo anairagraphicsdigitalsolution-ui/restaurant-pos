@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION public.create_public_website_order(
   p_slug text,
   p_type text DEFAULT 'website',
-  p_source_id uuid,
-  p_items jsonb,
+  p_source_id uuid DEFAULT NULL,
+  p_items jsonb DEFAULT '[]'::jsonb,
   p_overall_note text DEFAULT NULL,
   p_offer_id text DEFAULT NULL
 )

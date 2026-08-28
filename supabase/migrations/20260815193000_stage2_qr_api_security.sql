@@ -279,6 +279,5 @@ GRANT EXECUTE ON FUNCTION public.get_public_qr_context(text, text, text) TO serv
 GRANT EXECUTE ON FUNCTION public.create_public_qr_order(text, text, uuid, jsonb, text) TO service_role;
 
 -- The old WhatsApp config RPC must never be callable anonymously.
-REVOKE EXECUTE ON FUNCTION public.set_whatsapp_config(uuid, text) FROM anon;
-
+DO $$ BEGIN IF to_regprocedure('public.set_whatsapp_config(uuid, text)') IS NOT NULL THEN EXECUTE 'REVOKE EXECUTE ON FUNCTION public.set_whatsapp_config(uuid, text) FROM anon'; END IF; END $$;
 COMMIT;

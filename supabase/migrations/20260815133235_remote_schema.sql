@@ -54,11 +54,7 @@ begin
   where id = item_id;
 end;
 $$;
-
-
-ALTER FUNCTION "public"."decrease_inventory"("item_id" "uuid", "qty" integer) OWNER TO "postgres";
-
-
+DO $$ BEGIN IF to_regprocedure('public.decrease_inventory(uuid, integer)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.decrease_inventory(uuid, integer) OWNER TO postgres'; END IF; END $$;
 CREATE OR REPLACE FUNCTION "public"."set_whatsapp_config"("p_restaurant_id" "uuid", "p_number" "text") RETURNS "void"
     LANGUAGE "plpgsql"
     AS $$
@@ -73,10 +69,7 @@ begin
   do update set config = jsonb_build_object('number', p_number);
 end;
 $$;
-
-
-ALTER FUNCTION "public"."set_whatsapp_config"("p_restaurant_id" "uuid", "p_number" "text") OWNER TO "postgres";
-
+DO $$ BEGIN IF to_regprocedure('public.set_whatsapp_config(uuid, text)') IS NOT NULL THEN EXECUTE 'ALTER FUNCTION public.set_whatsapp_config(uuid, text) OWNER TO postgres'; END IF; END $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = "heap";
@@ -736,7 +729,7 @@ ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY;
 
 
 
-ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN BEGIN ALTER PUBLICATION supabase_realtime OWNER TO postgres; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END IF; END $$;
 
 
 

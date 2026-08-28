@@ -8,7 +8,17 @@
     "start": "next start",
     "lint": "next lint",
     "audit:migrations": "node scripts/audit-migrations.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "phase5:local:start": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-start.ps1",
+    "phase5:local:stop": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-stop.ps1",
+    "phase5:local:status": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-status.ps1",
+    "phase5:cloud:backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-cloud-backup.ps1",
+    "phase5:local:restore": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-restore.ps1",
+    "phase5:data:verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-data-verify.ps1",
+    "phase5:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-start-sync.ps1",
+    "phase5:schema:compat": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-schema-compat.ps1",
+    "sync:worker": "node .\\scripts\\sync-worker.mjs",
+    "sync:repair": "powershell -ExecutionPolicy Bypass -File .\\scripts\\repair-bidirectional-sync.ps1"
   },
   "dependencies": {
     "@capacitor-community/text-to-speech": "^8.0.2",
@@ -25,6 +35,7 @@
     "jspdf": "^3.0.1",
     "next": "^15.5.23",
     "openai": "^5.12.2",
+    "pg": "^8.23.0",
     "react": "^19.1.1",
     "react-barcode": "^1.5.3",
     "react-dom": "^19.1.1",

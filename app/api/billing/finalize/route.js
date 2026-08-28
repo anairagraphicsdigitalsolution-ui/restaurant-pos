@@ -91,7 +91,7 @@ export async function POST(req) {
       .from("orders")
 
       .select(
-        "id,restaurant_id,invoice_no,payment_status,subtotal,discount_amount,tax_amount,total_amount,paid_amount,payment_method,offer_id,customer_id,delivery_charge"
+        "id,restaurant_id,status,invoice_no,payment_status,subtotal,discount_amount,tax_amount,total_amount,paid_amount,payment_method,offer_id,customer_id,delivery_charge"
       )
 
       .eq(
@@ -143,6 +143,19 @@ export async function POST(req) {
         { status: 400 }
       )
 
+    }
+
+    // Billing is unlocked only after the operator explicitly marks the order
+    // DONE. This server-side check prevents direct API calls from generating
+    // invoices for Pending/Preparing orders, even if the UI is bypassed.
+    if (String(order.status || "").trim().toLowerCase() !== "done") {
+      return Response.json(
+        {
+          success: false,
+          error: "Order is not marked Done yet. Mark the order Done before billing."
+        },
+        { status: 409 }
+      )
     }
 
     // Optional explicit idempotency key. Frontends should reuse the same key
