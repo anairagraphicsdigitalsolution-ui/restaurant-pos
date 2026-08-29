@@ -86,7 +86,7 @@ function Start-Docker {
 
 try {
   $cfg = Get-Content -Raw -Path $ConfigFile | ConvertFrom-Json
-  Log "Starting runtime installation for restaurant $($cfg.restaurantId)."
+  Log "Starting runtime installation. Restaurant=$($cfg.restaurantId) ProjectRef=$($cfg.projectRef)."
 
   Ensure-Node
   Ensure-Docker
@@ -96,6 +96,8 @@ try {
   $env:NEXT_PUBLIC_SUPABASE_URL = [string]$cfg.cloudUrl
   $env:NEXT_PUBLIC_SUPABASE_ANON_KEY = [string]$cfg.cloudAnonKey
   $env:SUPABASE_SERVICE_ROLE_KEY = [string]$cfg.cloudServiceRoleKey
+  $env:SUPABASE_ACCESS_TOKEN = [string]$cfg.accessToken
+  $env:SUPABASE_REFRESH_TOKEN = [string]$cfg.refreshToken
   $env:ANAIRA_SYNC_NODE = 'restaurant-local-server'
   $env:ANAIRA_LOCAL_PRIMARY = 'true'
   $env:NEXT_PUBLIC_ANAIRA_LOCAL_PRIMARY = 'true'
@@ -109,6 +111,8 @@ try {
     "NEXT_PUBLIC_SUPABASE_URL=$($cfg.cloudUrl)",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY=$($cfg.cloudAnonKey)",
     "SUPABASE_SERVICE_ROLE_KEY=$($cfg.cloudServiceRoleKey)",
+    "SUPABASE_ACCESS_TOKEN=$($cfg.accessToken)",
+    "SUPABASE_REFRESH_TOKEN=$($cfg.refreshToken)",
     "ANAIRA_RESTAURANT_ID=$($cfg.restaurantId)",
     'ANAIRA_SYNC_NODE=restaurant-local-server',
     'ANAIRA_SYNC_INTERVAL_MS=5000',
@@ -123,12 +127,53 @@ try {
   Set-Content -Path (Join-Path $root '.env.local') -Value $envFile -Encoding UTF8
   Log '.env.local written.'
 
+  # Optional: when Advanced Supabase mode is selected, provision ONLY the bundled schema/migrations.
+  # `supabase db push` applies migrations and does not copy application table rows.
+  if ($cfg.projectRef -and $cfg.dbPassword) {
+    Log "Provisioning custom Supabase project $($cfg.projectRef) from bundled migrations only."
+    npx --yes supabase@latest link --project-ref ([string]$cfg.projectRef) --password ([string]$cfg.dbPassword) --yes
+    if ($LASTEXITCODE -ne 0) { throw 'Custom Supabase project linking failed.' }
+    npx --yes supabase@latest db push
+    if ($LASTEXITCODE -ne 0) { throw 'Custom Supabase schema migration failed.' }
+    Log 'Custom Supabase schema migration completed; application rows were not copied by the installer.'
+  }
+
   if (Test-Path (Join-Path $root 'supabase\config.toml')) {
     Log 'Starting local Supabase stack and applying local migrations.'
     npx --yes supabase@latest start
     if ($LASTEXITCODE -ne 0) { throw 'Local Supabase could not be started.' }
     npx --yes supabase@latest db push --local --yes
     if ($LASTEXITCODE -ne 0) { throw 'Local Supabase migrations failed.' }
+  }
+
+  if ($cfg.createSuperAdmin -and $cfg.cloudServiceRoleKey -and $cfg.superAdminEmail -and $cfg.superAdminPassword) {
+    Log "Creating Super Admin in custom Supabase project."
+    $saScript = Join-Path $root 'installer\provision-custom-super-admin.ps1'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $saScript `
+      -SupabaseUrl ([string]$cfg.cloudUrl) `
+      -ServiceRoleKey ([string]$cfg.cloudServiceRoleKey) `
+      -Email ([string]$cfg.superAdminEmail) `
+      -Password ([string]$cfg.superAdminPassword) `
+      -RestaurantId ([string]$cfg.restaurantId)
+    if ($LASTEXITCODE -ne 0) { throw 'Super Admin creation failed.' }
+    Log 'Super Admin creation completed.'
+  }
+
+  # The local-primary Next server needs a local service-role key. Obtain it from the local Supabase stack when the Cloud service-role key is intentionally omitted.
+  if ([string]::IsNullOrWhiteSpace([string]$cfg.cloudServiceRoleKey) -and (Test-Path (Join-Path $root 'supabase\config.toml'))) {
+    try {
+      $status = npx --yes supabase@latest status -o env 2>$null | Out-String
+      $match = [regex]::Match($status, '(?m)^SERVICE_ROLE_KEY=(.+)$')
+      if ($match.Success) {
+        $localServiceRole = $match.Groups[1].Value.Trim().Trim('"')
+        if ($localServiceRole) {
+          $env:SUPABASE_LOCAL_SERVICE_ROLE_KEY = $localServiceRole
+          $envFile += "SUPABASE_LOCAL_SERVICE_ROLE_KEY=$localServiceRole"
+          Set-Content -Path (Join-Path $root '.env.local') -Value $envFile -Encoding UTF8
+          Log 'Local Supabase service-role key provisioned from local stack.'
+        }
+      }
+    } catch { Log "WARN: Could not read local Supabase service-role key: $($_.Exception.Message)" }
   }
 
   Log 'Installing Node dependencies.'

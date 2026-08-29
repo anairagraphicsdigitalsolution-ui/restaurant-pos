@@ -260,7 +260,7 @@ export async function POST(req) {
       {
         success: false,
         error: "Order could not be created. Please try again."
-      },.gitignore
+      },
       { status: 400 }
     )
   }

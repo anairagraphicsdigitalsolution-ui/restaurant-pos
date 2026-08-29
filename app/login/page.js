@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { mobileDbMetaGet } from "@/lib/mobileLocalDb"
 import { DEFAULT_THEME, applyTheme } from "@/components/ThemeProvider"
 
 export default function Login() {
@@ -17,6 +18,18 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
+    // Restore the last successful local identity while offline. This avoids
+    // presenting a cloud-login requirement after the device has already been
+    // prepared for offline use.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      void mobileDbMetaGet("auth-user").then((cachedUser) => {
+        if (cachedUser?.email) {
+          setEmail(cachedUser.email)
+          setSuccessMsg("Offline mode ready — reconnect once to refresh cloud data.")
+        }
+      }).catch(() => {})
+    }
+
     // Login is platform-neutral: always render the canonical Logo Premium theme.
     applyTheme(DEFAULT_THEME)
 
@@ -27,6 +40,28 @@ export default function Login() {
   // ==========================================
   // NORMAL LOGIN
   // ==========================================
+
+  async function continueOffline() {
+    setLoading(true)
+    setErrorMsg("")
+    try {
+      const cachedUser = await mobileDbMetaGet("auth-user")
+      const cachedProfile = cachedUser?.id
+        ? await mobileDbMetaGet(`auth-profile:${cachedUser.id}`)
+        : null
+      if (!cachedUser || !cachedProfile) {
+        setErrorMsg("❌ This device has not been prepared for offline use yet. Connect to the internet once and sign in.")
+        setLoading(false)
+        return
+      }
+      // AuthProvider will restore the same cached identity/profile on the next tick.
+      window.location.href = cachedProfile.role === "super_admin" ? "/super-admin" : cachedProfile.role === "admin" ? "/dashboard" : "/staff"
+    } catch (error) {
+      console.error("OFFLINE CONTINUE ERROR:", error)
+      setErrorMsg("❌ Offline session could not be restored.")
+      setLoading(false)
+    }
+  }
 
   async function handleLogin() {
     if (!email.trim() || !password) {
@@ -283,6 +318,26 @@ export default function Login() {
 
         </div>
 
+
+        {typeof navigator !== "undefined" && navigator.onLine === false && (
+          <button
+            type="button"
+            onClick={continueOffline}
+            style={{
+              width: "100%",
+              marginTop: 12,
+              padding: "13px 16px",
+              borderRadius: 12,
+              border: "1px solid rgba(198,138,53,.45)",
+              background: "rgba(198,138,53,.10)",
+              color: "inherit",
+              fontWeight: 800,
+              cursor: "pointer"
+            }}
+          >
+            Continue Offline
+          </button>
+        )}
 
         {/* =====================================
             FORGOT PASSWORD

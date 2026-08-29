@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process"
 
 const cloudUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "")
-const cloudKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+let cloudKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+const cloudAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+let cloudAccessToken = process.env.SUPABASE_ACCESS_TOKEN || ""
+let cloudRefreshToken = process.env.SUPABASE_REFRESH_TOKEN || ""
+let cloudTokenExpiresAt = 0
 const restaurantId = process.env.ANAIRA_RESTAURANT_ID || ""
 const nodeBase = process.env.ANAIRA_SYNC_NODE || "restaurant-local-server"
 const nodeName = `${nodeBase}:${restaurantId}`
@@ -20,7 +24,7 @@ const SYNC_TABLES = [
 ]
 
 if (!cloudUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required")
-if (!cloudKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required")
+if (!cloudKey && !cloudAccessToken) throw new Error("A cloud service-role key or authenticated access token is required")
 if (!restaurantId) throw new Error("ANAIRA_RESTAURANT_ID is required")
 
 function dockerArgs(sql) {
@@ -53,12 +57,44 @@ function sqlJson(value) {
 function qi(name) { return `"${String(name).replaceAll('"','""')}"` }
 function allowedTable(table) { return SYNC_TABLES.includes(table) }
 
+function jwtExpiry(token) {
+  try {
+    const part = String(token || '').split('.')[1]
+    if (!part) return 0
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64url').toString('utf8')
+    return Number(JSON.parse(json)?.exp || 0)
+  } catch { return 0 }
+}
+
+async function refreshCloudSession(force = false) {
+  if (!cloudRefreshToken || !cloudAnonKey) return false
+  const now = Math.floor(Date.now() / 1000)
+  if (!force && cloudAccessToken && cloudTokenExpiresAt - now > 300) return true
+  const response = await fetch(`${cloudUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: { apikey: cloudAnonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: cloudRefreshToken })
+  })
+  const text = await response.text()
+  let body = null
+  try { body = text ? JSON.parse(text) : null } catch {}
+  if (!response.ok || !body?.access_token) throw new Error(`Cloud session refresh failed: ${response.status}`)
+  cloudAccessToken = body.access_token
+  cloudRefreshToken = body.refresh_token || cloudRefreshToken
+  cloudTokenExpiresAt = Number(body.expires_at || jwtExpiry(cloudAccessToken) || 0)
+  return true
+}
+
 async function cloudFetch(path, options = {}) {
+  if (!cloudKey) await refreshCloudSession(false)
+  const apikey = cloudKey || cloudAnonKey
+  const bearer = cloudKey || cloudAccessToken
+  if (!apikey || !bearer) throw new Error("Cloud authentication is unavailable")
   const response = await fetch(`${cloudUrl}/rest/v1/${path}`, {
     ...options,
     headers: {
-      apikey: cloudKey,
-      Authorization: `Bearer ${cloudKey}`,
+      apikey,
+      Authorization: `Bearer ${bearer}`,
       "Content-Type": "application/json",
       ...(options.headers || {})
     }
@@ -151,11 +187,15 @@ async function cloudUpsert(table, row) {
 
 }
 async function cloudRpc(functionName, body) {
+  if (!cloudKey) await refreshCloudSession(false)
+  const apikey = cloudKey || cloudAnonKey
+  const bearer = cloudKey || cloudAccessToken
+  if (!apikey || !bearer) throw new Error("Cloud authentication is unavailable")
   const response = await fetch(`${cloudUrl}/rest/v1/rpc/${functionName}`, {
     method: "POST",
     headers: {
-      apikey: cloudKey,
-      Authorization: `Bearer ${cloudKey}`,
+      apikey,
+      Authorization: `Bearer ${bearer}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(body || {})
@@ -285,6 +325,8 @@ async function pumpCloudToLocal() {
   return processed
 }
 
+cloudTokenExpiresAt = jwtExpiry(cloudAccessToken)
+await refreshCloudSession(false).catch(() => {})
 await ensureState()
 console.log("============================================")
 console.log(" Anaira POS - Automatic Bidirectional Sync")

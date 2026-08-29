@@ -35,6 +35,23 @@ function isInternalPath(pathname: string) {
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
 
+async function cacheOfflineAuthState(user: any, profile: any, session: any = null) {
+  if (!user) return
+  await mobileDbMetaPut("auth-user", user).catch(() => {})
+  if (session) await mobileDbMetaPut("auth-session", session).catch(() => {})
+  if (profile) await mobileDbMetaPut(`auth-profile:${user.id}`, profile).catch(() => {})
+  if (profile?.restaurantId) await mobileDbMetaPut("auth-restaurant-id", profile.restaurantId).catch(() => {})
+}
+
+function isOfflineRuntime() {
+  return typeof navigator !== "undefined" && navigator.onLine === false
+}
+
+async function getCachedOfflineUser() {
+  const cached = await mobileDbMetaGet("auth-user").catch(() => null)
+  return cached || null
+}
+
 function requiredFeatureForPath(pathname: string) {
   // Offers is a legacy/core restaurant feature and must remain accessible.
   // Combo Meals is embedded inside Offers, so it must not be redirected by
@@ -209,9 +226,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         // current auth user instead of asking Supabase Auth again.
         currentUser = bootstrapped.current ? currentUserRef.current : undefined
         if (currentUser === undefined) {
-          if (typeof navigator !== "undefined" && navigator.onLine === false) {
-            const { data: sessionData } = await supabase.auth.getSession()
-            currentUser = sessionData?.session?.user || null
+          if (isOfflineRuntime()) {
+            // Offline startup must never depend on a network auth call.
+            // Restore the last successful authenticated identity from local metadata.
+            const cachedUser = await getCachedOfflineUser()
+            if (cachedUser) {
+              currentUser = cachedUser
+            } else {
+              const { data: sessionData } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }))
+              currentUser = sessionData?.session?.user || null
+            }
           } else {
             const { data: { user } } = await supabase.auth.getUser()
             currentUser = user
@@ -245,8 +269,17 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         }
       }
 
+      if (!profile && isOfflineRuntime()) {
+        profile = await mobileDbMetaGet(`auth-profile:${currentUser.id}`).catch(() => null)
+        if (profile) profileCacheRef.current = { userId: currentUser.id, profile }
+      }
+
       if (!profile) {
-        await supabase.auth.signOut()
+        // Never sign out a locally cached identity simply because the network
+        // is unavailable. Only redirect when this is a genuine online auth failure.
+        if (!isOfflineRuntime()) {
+          await supabase.auth.signOut()
+        }
         currentUserRef.current = null
         profileCacheRef.current = null
         setUser(null)
@@ -271,6 +304,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       setRole(profile.role)
       setRestaurantId(profile.restaurantId)
+      await cacheOfflineAuthState(currentUser, profile).catch(() => {})
 
       if (pathname === "/login") {
         // Keep the auth gate in its loading state until the role dashboard
@@ -282,7 +316,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       let resolvedStaffPermissions: Record<string, boolean> = {}
-      if (profile.role === "staff" && profile.restaurantId) {
+      if (profile.role === "staff" && profile.restaurantId && !isOfflineRuntime()) {
         const { data: permissionRows } = await supabase
           .from("staff_permissions")
           .select("permission_key,enabled")
@@ -304,7 +338,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       if (
         profile.role === "admin" &&
-        requiredFeature
+        requiredFeature &&
+        !isOfflineRuntime()
       ) {
         const featureCodes = requiredFeature === "reservations-pro"
           ? ["reservations-pro", "reservations"]
@@ -333,6 +368,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       if (
         profile.role === "admin" &&
         requiredFeature &&
+        !isOfflineRuntime() &&
         (profile as any).planFeatures?.[requiredFeature] !== true &&
         !pluginFeatureEnabled
       ) {
@@ -347,12 +383,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
     } catch (error) {
       console.error("AUTH SYNC ERROR:", error)
-      currentUserRef.current = null
-      profileCacheRef.current = null
-      setUser(null)
-      setRole("")
-      setRestaurantId(null)
-      if (isInternalPath(pathname)) router.replace("/login")
+      if (!isOfflineRuntime()) {
+        currentUserRef.current = null
+        profileCacheRef.current = null
+        setUser(null)
+        setRole("")
+        setRestaurantId(null)
+        if (isInternalPath(pathname)) router.replace("/login")
+      }
     } finally {
       bootstrapped.current = true
       syncInFlight.current = false
@@ -393,6 +431,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       if (event === "SIGNED_IN" && session?.user) {
         bootstrapped.current = false
+        void mobileDbMetaPut("auth-user", session.user).catch(() => {})
+        void mobileDbMetaPut("auth-session", session).catch(() => {})
         window.setTimeout(() => syncAuth(session.user), 0)
       }
     })

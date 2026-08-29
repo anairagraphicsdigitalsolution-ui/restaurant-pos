@@ -18,9 +18,11 @@ self.addEventListener("install", event => {
 
 self.addEventListener("activate", event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(key => key.startsWith("anaira-shell-") && key !== CACHE).map(key => caches.delete(key))
-    )).then(() => self.clients.claim())
+    Promise.resolve(self.registration.navigationPreload?.enable()).catch(() => {})
+      .then(() => caches.keys().then(keys => Promise.all(
+        keys.filter(key => key.startsWith("anaira-shell-") && key !== CACHE).map(key => caches.delete(key))
+      )))
+      .then(() => self.clients.claim())
   )
 })
 
@@ -62,7 +64,7 @@ self.addEventListener("fetch", event => {
 
   if (request.mode === "navigate" || request.destination === "document") {
     event.respondWith(
-      fetch(request).then(response => {
+      (event.preloadResponse ? event.preloadResponse.then(r => r || fetch(request)) : fetch(request)).then(response => {
         if (response.ok) event.waitUntil(caches.open(CACHE).then(cache => cache.put(request, response.clone())).catch(() => {}))
         return response
       }).catch(() => caches.match(request).then(cached => cached || caches.match("/").then(root => root || caches.match(OFFLINE))))

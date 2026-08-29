@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Anaira POS',
   webDir: 'public',
 
+
   server: {
     url: 'https://www.anairapos.in',
     cleartext: false,
