@@ -13,7 +13,7 @@ const localUser = process.env.LOCAL_DB_USER || "supabase_admin"
 const localDb = process.env.LOCAL_DB_NAME || "postgres"
 
 const SYNC_TABLES = [
-  "restaurants", "tables", "rooms", "menu_items", "orders", "order_items",
+  "restaurants", "tables", "rooms", "menu_items", "orders", "order_items", "kot_tickets",
   "customers", "inventory", "inventory_transactions", "restaurant_plugins",
   "plugin_settings", "reservations", "print_jobs", "invoice_sequences",
   "restaurant_banners"
@@ -104,14 +104,85 @@ async function localEvents(cursor) {
 
 async function cloudUpsert(table, row) {
   if (!allowedTable(table)) throw new Error(`Blocked sync table: ${table}`)
+
   const normalized = { ...(row || {}) }
-  if (table === "menu_items" && (normalized.item_type === null || normalized.item_type === undefined || normalized.item_type === "")) normalized.item_type = "single"
+
+  if (
+    table === "menu_items" &&
+    (normalized.item_type === null ||
+      normalized.item_type === undefined ||
+      normalized.item_type === "")
+  ) {
+    normalized.item_type = "single"
+  }
+
+  // Cloud orders schema requires these charge fields to be non-null.
+  if (table === "orders") {
+    if (
+      normalized.service_charge === null ||
+      normalized.service_charge === undefined ||
+      normalized.service_charge === ""
+    ) {
+      normalized.service_charge = 0
+    }
+
+    if (
+      normalized.packaging_charge === null ||
+      normalized.packaging_charge === undefined ||
+      normalized.packaging_charge === ""
+    ) {
+      normalized.packaging_charge = 0
+    }
+
+    if (
+      normalized.delivery_charge === null ||
+      normalized.delivery_charge === undefined ||
+      normalized.delivery_charge === ""
+    ) {
+      normalized.delivery_charge = 0
+    }
+  }
+
   await cloudFetch(table, {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
     body: JSON.stringify(normalized)
   })
+
 }
+async function cloudRpc(functionName, body) {
+  const response = await fetch(`${cloudUrl}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
+    headers: {
+      apikey: cloudKey,
+      Authorization: `Bearer ${cloudKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body || {})
+  })
+  const text = await response.text()
+  let payload = null
+  try { payload = text ? JSON.parse(text) : null } catch { payload = text }
+  if (!response.ok) {
+    const message = typeof payload === "string" ? payload : payload?.message || payload?.hint || JSON.stringify(payload)
+    throw new Error(`Cloud RPC ${functionName} HTTP ${response.status}: ${message}`)
+  }
+  return payload
+}
+
+async function cloudOrderFinalization(orderId) {
+  return cloudRpc("finalize_synced_order_numbers", { p_order_id: orderId })
+}
+
+async function refreshLocalOrderFromCloud(orderId) {
+  const rows = await cloudFetch(`orders?id=eq.${encodeURIComponent(orderId)}&select=*`)
+  const row = Array.isArray(rows) ? rows[0] : null
+  if (!row) return null
+  const local = JSON.stringify(row).replaceAll("\\", "\\\\").replaceAll("'", "''")
+  await localSql(`WITH incoming AS (SELECT '${local}'::jsonb AS j) UPDATE public.orders o SET invoice_no=NULLIF(incoming.j->>'invoice_no',''), sync_status=COALESCE(NULLIF(incoming.j->>'sync_status',''),'synced'), cloud_received_at=NULLIF(incoming.j->>'cloud_received_at','')::timestamptz, invoice_generated_at=NULLIF(incoming.j->>'invoice_generated_at','')::timestamptz, kot_generated_at=NULLIF(incoming.j->>'kot_generated_at','')::timestamptz, updated_at=now() FROM incoming WHERE o.id=${sqlText(orderId)};`, { syncApply: true })
+  return row
+}
+
 async function cloudDelete(table, pk) {
   if (!allowedTable(table)) throw new Error(`Blocked sync table: ${table}`)
   const params = new URLSearchParams()
@@ -126,8 +197,21 @@ async function pumpLocalToCloud() {
     try {
       if (ev.schema_name !== "public" || !allowedTable(ev.table_name) || !ev.primary_key || !Object.keys(ev.primary_key).length) { cursor = Number(ev.id); await setState("last_pushed_id", cursor); continue }
       if (ev.operation === "DELETE") await cloudDelete(ev.table_name, ev.primary_key)
-      else if (ev.operation === "INSERT" || ev.operation === "UPDATE") await cloudUpsert(ev.table_name, ev.row_data)
-      else { cursor = Number(ev.id); await setState("last_pushed_id", cursor); continue }
+      else if (ev.operation === "INSERT" || ev.operation === "UPDATE") {
+        const row = { ...(ev.row_data || {}) }
+        if (ev.table_name === "orders") {
+          if (!row.id) throw new Error("Offline order is missing its UUID")
+          if (!row.invoice_no || ["PENDING","SYNCING","LOCAL"].includes(String(row.invoice_no).trim().toUpperCase())) row.invoice_no = null
+          row.sync_status = "pending"
+          row.offline_created_at = row.offline_created_at || row.created_at || null
+        }
+        await cloudUpsert(ev.table_name, row)
+        if (ev.table_name === "orders") {
+          const finalized = await cloudOrderFinalization(row.id)
+          await refreshLocalOrderFromCloud(row.id)
+          if (finalized?.invoice_no) console.log(new Date().toISOString(), "OFFLINE BILL FINALIZED", row.id, finalized.invoice_no, finalized.kot_no ?? "")
+        }
+      } else { cursor = Number(ev.id); await setState("last_pushed_id", cursor); continue }
       cursor = Number(ev.id); await setState("last_pushed_id", cursor); processed++
       console.log(new Date().toISOString(), "LOCAL -> CLOUD OK", ev.id, ev.table_name, ev.operation)
     } catch (e) {

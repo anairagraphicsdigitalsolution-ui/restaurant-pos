@@ -38,7 +38,6 @@ if ($localService) {
   # Local-primary is a desktop/local-network installation. The local service key
   # is intentionally exposed only to this local POS data plane; never use this
   # setting for a public cloud deployment.
-  $values['NEXT_PUBLIC_LOCAL_SUPABASE_SERVICE_ROLE_KEY'] = $localService
 }
 
 $content = Get-Content '.env.local'

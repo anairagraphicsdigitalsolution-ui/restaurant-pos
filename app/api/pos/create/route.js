@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
@@ -23,8 +24,8 @@ export async function POST(req) {
 
     if (
       !restaurantId ||
-      !sourceId ||
-      !["table", "room"].includes(sourceType)
+      !sourceId && ["table", "room"].includes(sourceType) ||
+      !["table", "room", "takeaway", "delivery"].includes(sourceType)
     ) {
       return Response.json(
         {
@@ -88,76 +89,14 @@ export async function POST(req) {
 
     /*
      * ============================================================
-     * POS PLAN FEATURE CHECK
+     * RESTAURANT CORE ACCESS
      * ============================================================
+     * Order creation is Core. Optional plugins must not block the base POS.
      */
-
-    const { data: posEnabled, error: planError } =
-      await supabaseAdmin.rpc(
-        "has_restaurant_plan_feature",
-        {
-          p_restaurant_id: restaurantId,
-          p_plugin_code: "pos"
-        }
-      )
-
-    if (planError) {
-      console.error("POS PLAN CHECK ERROR:", planError)
-
-      return Response.json(
-        {
-          success: false,
-          error: "Unable to verify POS plan"
-        },
-        { status: 500 }
-      )
-    }
-
-    if (posEnabled !== true) {
-      return Response.json(
-        {
-          success: false,
-          error: "POS is not available on your current plan"
-        },
-        { status: 403 }
-      )
-    }
-
-    /*
-     * ============================================================
-     * VERIFY POS PLUGIN
-     * ============================================================
-     */
-
-    const { data: plugin, error: pluginError } =
-      await supabaseAdmin
-        .from("restaurant_plugins")
-        .select("enabled")
-        .eq("restaurant_id", restaurantId)
-        .in("plugin_code", ["pos", "pos-core"])
-        .eq("enabled", true)
-        .limit(1)
-
-    if (pluginError) {
-      console.error("POS PLUGIN CHECK ERROR:", pluginError)
-
-      return Response.json(
-        {
-          success: false,
-          error: "Unable to verify POS plugin"
-        },
-        { status: 500 }
-      )
-    }
-
-    if (!plugin?.length) {
-      return Response.json(
-        {
-          success: false,
-          error: "POS plugin is disabled"
-        },
-        { status: 403 }
-      )
+    try {
+      await requireFeature(restaurantId, "restaurant-core")
+    } catch (featureError) {
+      return Response.json({ success:false, error:featureError.message || "Restaurant Core is disabled" }, { status:403 })
     }
 
     /*
@@ -166,42 +105,28 @@ export async function POST(req) {
      * ============================================================
      */
 
-    const sourceTable =
-      sourceType === "table"
-        ? "tables"
-        : "rooms"
-
-    const { data: source, error: sourceError } =
-      await supabaseAdmin
+    let source = null
+    if (sourceType === "table" || sourceType === "room") {
+      const sourceTable = sourceType === "table" ? "tables" : "rooms"
+      const { data, error: sourceError } = await supabaseAdmin
         .from(sourceTable)
         .select("*")
         .eq("id", sourceId)
         .eq("restaurant_id", restaurantId)
         .maybeSingle()
-
-    if (sourceError || !source) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            sourceType === "table"
-              ? "Table not found"
-              : "Room not found"
-        },
-        { status: 400 }
-      )
+      if (sourceError || !data) {
+        return Response.json({ success:false, error:sourceType === "table" ? "Table not found" : "Room not found" }, { status:400 })
+      }
+      source = data
     }
 
-    /*
-     * ============================================================
-     * CREATE ORDER
-     * ============================================================
-     */
-
-    const sourceLabel =
-      sourceType === "table"
-        ? `Table ${source.table_number}`
-        : `Room ${source.room_number}`
+    const sourceLabel = sourceType === "table"
+      ? `Table ${source.table_number}`
+      : sourceType === "room"
+        ? `Room ${source.room_number}`
+        : sourceType === "delivery"
+          ? `Delivery - ${cleanText(body?.customer_name, 120) || "Customer"}`
+          : "Takeaway"
 
     const { data: order, error: orderError } =
       await supabaseAdmin
@@ -210,11 +135,22 @@ export async function POST(req) {
           {
             restaurant_id: restaurantId,
             source_type: sourceType,
-            source_id: sourceId,
+            source_id: sourceId || null,
             source_label: sourceLabel,
-            // Every fresh POS order must enter the kitchen queue first.
-            // Kitchen moves it through preparing -> done.
-            status: "pending"
+            order_mode: sourceType === "table" || sourceType === "room" ? "dine_in" : sourceType,
+            status: "pending",
+            subtotal: Number(body?.subtotal || 0),
+            discount_amount: Number(body?.discount_amount || 0),
+            tax_amount: Number(body?.tax_amount || 0),
+            delivery_charge: Number(body?.delivery_charge || 0),
+            total_amount: Number(body?.total_amount || 0),
+            payment_status: "unpaid",
+            payment_method: sourceType === "delivery" ? cleanText(body?.payment_method, 30) : null,
+            paid_amount: 0,
+            customer_name: cleanText(body?.customer_name, 120),
+            customer_phone: cleanText(body?.customer_phone, 30),
+            delivery_address: cleanText(body?.delivery_address, 500),
+            customer_note: cleanText(body?.customer_notes, 500)
           }
         ])
         .select()
@@ -241,15 +177,20 @@ export async function POST(req) {
     const orderItems = items.map((item) => ({
       order_id: order.id,
       item_id: item.item_id,
-      quantity: Number(item.quantity)
+      quantity: Number(item.quantity),
+      item_name: cleanText(item.item_name || item.name, 200),
+      unit_price: Number(item.unit_price || 0),
+      line_total: Number(item.line_total || 0),
+      cooking_request: cleanText(item.cooking_request, 500)
     }))
 
-    const { error: itemError } =
+    const { data: insertedItems, error: itemError } =
       await supabaseAdmin
         .from("order_items")
         .insert(orderItems)
+        .select("id")
 
-    if (itemError) {
+    if (itemError || !insertedItems || insertedItems.length !== orderItems.length) {
       console.error("POS ORDER ITEMS ERROR:", itemError)
 
       /*
@@ -266,17 +207,35 @@ export async function POST(req) {
         {
           success: false,
           error:
-            itemError.message ||
+            itemError?.message ||
             "Unable to create order items"
         },
         { status: 400 }
       )
     }
 
-    return Response.json({
-      success: true,
-      order
+    const modifierRows = []
+    items.forEach((item, index) => {
+      const mods = Array.isArray(item?.selected_modifiers) ? item.selected_modifiers : []
+      for (const modifier of mods) {
+        modifierRows.push({
+          order_item_id: insertedItems[index].id,
+          modifier_id: modifier.id || null,
+          modifier_name: cleanText(modifier.name, 200) || "Modifier",
+          price: Number(modifier.price || 0),
+          quantity: Number(modifier.quantity || 1)
+        })
+      }
     })
+    if (modifierRows.length) {
+      const { error: modifierError } = await supabaseAdmin.from("order_item_modifiers").insert(modifierRows)
+      if (modifierError) {
+        await supabaseAdmin.from("orders").delete().eq("id", order.id).eq("restaurant_id", restaurantId)
+        return Response.json({ success:false, error:modifierError.message || "Unable to create order modifiers" }, { status:400 })
+      }
+    }
+
+    return Response.json({ success: true, order })
   } catch (error) {
     console.error("POS CREATE ERROR:", error)
 

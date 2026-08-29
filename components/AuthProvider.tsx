@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabase, supabaseCloud } from "@/lib/supabase"
+import { mobileDbMetaGet, mobileDbMetaPut } from "@/lib/mobileLocalDb"
 import Sidebar from "@/components/Sidebar"
 import AppUtilities from "@/components/AppUtilities"
 
@@ -93,7 +94,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const syncingUserIdRef = useRef<string | null | undefined>(undefined)
 
   const getProfile = useCallback(async (userId: string, authUser: any = null) => {
-    const { data } = await supabase
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false
+    if (offline) {
+      const cached = await mobileDbMetaGet(`auth-profile:${userId}`).catch(() => null)
+      if (cached) return cached
+      return null
+    }
+
+    const { data } = await supabaseCloud
       .from("profiles")
       .select("role, restaurant_id")
       .eq("id", userId)
@@ -159,10 +167,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       if (!subscriptionLive || !plan) {
         return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: true, reason: "Your restaurant does not have an active subscription.", planFeatures } as any
       }
-      return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures } as any
+      const cachedProfile = { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures } as any
+      await mobileDbMetaPut(`auth-profile:${userId}`, cachedProfile).catch(() => {})
+      if (resolvedRestaurantId) await mobileDbMetaPut("auth-restaurant-id", resolvedRestaurantId).catch(() => {})
+      return cachedProfile
     }
 
-    return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures: {} } as any
+    const cachedProfile = { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures: {} } as any
+    await mobileDbMetaPut(`auth-profile:${userId}`, cachedProfile).catch(() => {})
+    if (resolvedRestaurantId) await mobileDbMetaPut("auth-restaurant-id", resolvedRestaurantId).catch(() => {})
+    return cachedProfile
   }, [])
 
   const syncQueued = useRef(false)
@@ -195,8 +209,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         // current auth user instead of asking Supabase Auth again.
         currentUser = bootstrapped.current ? currentUserRef.current : undefined
         if (currentUser === undefined) {
-          const { data: { user } } = await supabase.auth.getUser()
-          currentUser = user
+          if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            const { data: sessionData } = await supabase.auth.getSession()
+            currentUser = sessionData?.session?.user || null
+          } else {
+            const { data: { user } } = await supabase.auth.getUser()
+            currentUser = user
+          }
         }
       }
 

@@ -28,7 +28,7 @@ export async function POST(req) {
     }
 
     try {
-      await requireFeature(order.restaurant_id, "kds")
+      await requireFeature(order.restaurant_id, "restaurant-core")
     } catch (featureError) {
       return Response.json({ success:false, error:featureError.message }, { status:403 })
     }

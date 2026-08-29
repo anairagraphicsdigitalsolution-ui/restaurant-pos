@@ -4,12 +4,14 @@ import { formatIndiaDateTime } from "@/lib/indiaTime"
 import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
+import { mobileDbMetaGet } from "@/lib/mobileLocalDb"
 import SalesChart from "@/components/SalesChart"
 import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { saveMobileOfflineOrder } from "@/lib/mobileOffline"
 
 function indiaDateKey(value) {
   if (!value) return ""
@@ -69,6 +71,9 @@ export default function BillingPage() {
   // Prevent a successfully finalized order from being submitted a second time
   // while background order/offer refreshes are still reconciling the UI.
   const finalizeLockRef = useRef(null)
+  // One stable idempotency key per order. Reusing it makes a network retry
+  // safe when the first finalize reached the server but its response was lost.
+  const finalizeIdempotencyRef = useRef(new Map())
   const [gstSaving, setGstSaving] = useState(false)
   // Keep both legacy loyalty flags so all three billing versions remain compatible.
   const [loyaltyFeatureEnabled, setLoyaltyFeatureEnabled] = useState(false)
@@ -97,6 +102,22 @@ export default function BillingPage() {
     }
     init()
   }, [billingRefresh, isDedicatedBillPage, pathname])
+
+  useEffect(() => {
+    const onMobileSync = (event) => {
+      const synced = event?.detail
+      if (!synced?.id) return
+      setOrders(prev => prev.map(o => o.id === synced.id ? { ...o, ...synced } : o))
+      if (synced.id === selectedOrder) {
+        setCurrentOrder(prev => ({ ...prev, ...synced }))
+        if (synced.invoice_no) {
+          setFinalizedBill(prev => ({ ...(prev || {}), order_id: synced.id, invoice_no: synced.invoice_no, total: Number(synced.total_amount || prev?.total || 0), paid_amount: Number(synced.paid_amount || 0), payment_status: synced.payment_status || prev?.payment_status || "paid", payment_method: synced.payment_method || prev?.payment_method || "cash", offline: false }))
+        }
+      }
+    }
+    window.addEventListener("anaira:mobile-sync", onMobileSync)
+    return () => window.removeEventListener("anaira:mobile-sync", onMobileSync)
+  }, [selectedOrder])
 
   useEffect(() => {
     if (!currentOrder?.restaurant_id || !customerProfile?.id || !items.length) {
@@ -131,15 +152,20 @@ export default function BillingPage() {
   }, [isBillScreen, orders, selectedOrder])
 
   async function init() {
-    const { data: auth } = await supabase.auth.getUser()
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false
+    let user = null
+    if (offline) {
+      const { data: sessionData } = await supabase.auth.getSession()
+      user = sessionData?.session?.user || null
+    } else {
+      const { data: auth } = await supabase.auth.getUser()
+      user = auth?.user || null
+    }
+    if (!user) return
 
-    if (!auth?.user) return
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("restaurant_id")
-      .eq("id", auth.user.id)
-      .single()
+    let profile = null
+    if (offline) profile = await mobileDbMetaGet(`auth-profile:${user.id}`).catch(() => null)
+    else profile = (await supabase.from("profiles").select("restaurant_id").eq("id", user.id).single()).data
 
     const restId = profile?.restaurant_id
 
@@ -689,10 +715,13 @@ export default function BillingPage() {
             ...(ledgerPaidState ? { payment_status: ledgerPaidState, paid_amount: Math.max(Number(selectedBase.paid_amount || 0), selectedLedgerPaid) } : {})
           }
         : selectedBase
+    // Payment collection and invoice finalization are separate states.
+    // A delivery can collect money before Billing generates the invoice.
+    // Therefore payment_status=paid must NOT lock the Finalize button.
     const sameFinalizedOrder =
       finalizeLockRef.current === orderId ||
       finalizedBill?.order_id === orderId ||
-      String(selected?.payment_status || "").toLowerCase() === "paid"
+      Boolean(String(selected?.invoice_no || "").trim() && String(selected?.invoice_no || "").trim() !== "PENDING")
 
     // Keep a successful finalize locked for the same order. Background order,
     // offer or payment-ledger refreshes must never replace a paid snapshot with
@@ -766,17 +795,76 @@ export default function BillingPage() {
       console.error("Billing customer load:", error)
     }
 
-    const { data: orderItems, error } =
-      await supabase
+    // Read line items from the active data client first. On the Android/local
+    // runtime the browser data client can briefly be unavailable while the
+    // local server is coming up, so fall back to the authenticated local
+    // billing API instead of opening a blank bill.
+    let orderItems = null
+    let orderItemsError = null
+
+    try {
+      const result = await supabase
         .from("order_items")
         .select(
           "id,item_id,item_name,unit_price,quantity,line_total,cooking_request"
         )
         .eq("order_id", orderId)
         .order("id")
+      orderItems = result.data || []
+      orderItemsError = result.error || null
+    } catch (error) {
+      orderItemsError = error
+    }
 
-    if (error) {
-      alert(error.message)
+    if (orderItemsError || !orderItems.length) {
+      try {
+        const { data: authData } = await supabase.auth.getSession()
+        const token = authData?.session?.access_token
+        const restaurantId = selected?.restaurant_id || currentOrder?.restaurant_id
+
+        if (token && restaurantId) {
+          const fallbackResponse = await fetch(
+            `/api/local/billing?restaurant_id=${encodeURIComponent(restaurantId)}`,
+            {
+              cache: "no-store",
+              headers: { Authorization: `Bearer ${token}` }
+            }
+          )
+          const fallbackResult = await fallbackResponse.json().catch(() => ({}))
+          const fallbackOrder = (fallbackResult.orders || []).find(
+            order => order.id === orderId
+          )
+
+          if (fallbackResponse.ok && fallbackOrder) {
+            orderItems = Array.isArray(fallbackOrder.items)
+              ? fallbackOrder.items
+              : []
+
+            // Keep the local API's authoritative order snapshot when the
+            // direct browser query was unavailable.
+            if (orderItems.length) {
+              setCurrentOrder(prev => ({
+                ...(prev || {}),
+                ...fallbackOrder,
+                id: orderId
+              }))
+            }
+          }
+        }
+      } catch (fallbackError) {
+        console.error("Billing local item fallback:", fallbackError)
+      }
+    }
+
+    if (orderItemsError && !orderItems.length) {
+      alert(orderItemsError.message || "Unable to load bill items")
+      setItems([])
+      return
+    }
+
+    if (!orderItems.length) {
+      alert("No bill items found for this order.")
+      setItems([])
       return
     }
 
@@ -1026,10 +1114,11 @@ export default function BillingPage() {
         ? 0
         : Math.max(0, Number((selectedTotal - selectedPaid).toFixed(2)))
     setPaymentReference(paymentLedgerByOrder[orderId]?.latestReference || "")
+    // If money was already collected (for example through Delivery COD
+    // settlement), show zero remaining to collect. Billing Finalize will
+    // credit the existing payment ledger and generate the invoice.
     setPaidAmount(
-      String(selected?.payment_status || "").toLowerCase() === "paid"
-        ? ""
-        : outstanding > 0 ? String(outstanding.toFixed(2)) : ""
+      outstanding > 0 ? String(outstanding.toFixed(2)) : "0.00"
     )
   }
 
@@ -1211,8 +1300,7 @@ export default function BillingPage() {
     if (
       finalizing ||
       finalizeLockRef.current === selectedOrder ||
-      finalizedBill?.order_id === selectedOrder ||
-      String(currentOrder?.payment_status || "").toLowerCase() === "paid"
+      finalizedBill?.order_id === selectedOrder
     ) {
       return
     }
@@ -1287,9 +1375,11 @@ export default function BillingPage() {
         )
       }
 
-      const response =
-        await fetch(
-          "/api/billing/finalize",
+      let response
+      try {
+        response =
+          await fetch(
+            "/api/billing/finalize",
           {
             method: "POST",
 
@@ -1306,12 +1396,19 @@ export default function BillingPage() {
               order_id:
                 selectedOrder,
 
-              // Each click is a distinct payment attempt. The server still
-              // protects true retries through paid-state/idempotency handling.
-              idempotency_key:
-                (typeof crypto !== "undefined" && crypto.randomUUID)
-                  ? crypto.randomUUID()
-                  : `billing-finalize:${selectedOrder}:${Date.now()}`,
+              // Keep the same key for this order until a finalize succeeds.
+              // This makes a timeout/retry safe instead of creating a second
+              // payment attempt with a brand-new UUID.
+              idempotency_key: (() => {
+                const existing = finalizeIdempotencyRef.current.get(selectedOrder)
+                if (existing) return existing
+                const key =
+                  (typeof crypto !== "undefined" && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : `billing-finalize:${selectedOrder}:${Date.now()}`
+                finalizeIdempotencyRef.current.set(selectedOrder, key)
+                return key
+              })(),
 
               payment_method:
                 paymentMethod,
@@ -1395,6 +1492,52 @@ export default function BillingPage() {
             })
           }
         )
+      } catch (networkError) {
+        const offlineBill = {
+          ...(currentOrder || {}),
+          id: selectedOrder,
+          restaurant_id: currentOrder?.restaurant_id || selected?.restaurant_id,
+          status: "done",
+          payment_status: "paid",
+          paid_amount: Number(Math.max(0, total || 0)),
+          total_amount: Number(Math.max(0, total || 0)),
+          payment_method: paymentMethod,
+          payment_reference: paymentReference || null,
+          invoice_no: "PENDING",
+          sync_status: "pending",
+          offline_bill_ready: true,
+          offline_bill_ready_at: new Date().toISOString(),
+          offline_payment_id: crypto.randomUUID(),
+          offline_created_at: currentOrder?.offline_created_at || currentOrder?.created_at || new Date().toISOString(),
+          items: (items || []).map(item => ({
+            id: item.id || crypto.randomUUID(),
+            item_id: item.item_id || null,
+            item_name: item.item_name || item.name || "Item",
+            quantity: Number(item.quantity || 0),
+            unit_price: Number(item.unit_price || 0),
+            line_total: Number(item.line_total || 0),
+            cooking_request: item.cooking_request || null,
+          }))
+        }
+        if (!offlineBill.restaurant_id) throw networkError
+        await saveMobileOfflineOrder(offlineBill)
+        setFinalizedBill({
+          order_id: selectedOrder,
+          invoice_no: "PENDING",
+          subtotal: Number(currentOrder?.subtotal || 0),
+          discount: Number(discountAmount || 0),
+          tax: Number(currentOrder?.tax_amount || 0),
+          total: Number(total || 0),
+          paid_amount: Number(total || 0),
+          payment_status: "paid",
+          payment_method: paymentMethod,
+          offline: true
+        })
+        setCurrentOrder(prev => ({ ...prev, ...offlineBill }))
+        setOrders(prev => prev.map(o => o.id === selectedOrder ? { ...o, ...offlineBill } : o))
+        alert("Bill saved offline. Invoice No: PENDING\nIt will be generated automatically when internet returns.")
+        return
+      }
 
       const result =
         await response.json()
@@ -1506,8 +1649,8 @@ export default function BillingPage() {
 
     } catch (error) {
 
-      // The request did not complete successfully, so the order may be
-      // retried. Clear the synchronous lock only on failure.
+      // Keep the idempotency key across retries. The server can therefore
+      // recognize a request whose first response was lost or timed out.
       finalizeLockRef.current = null
 
       console.error(error)
@@ -3036,8 +3179,10 @@ export default function BillingPage() {
                     finalizing ||
                     finalizeLockRef.current === selectedOrder ||
                     finalizedBill?.order_id === selectedOrder ||
-                    String(currentOrder?.payment_status || "").toLowerCase() ===
-                      "paid"
+                    Boolean(
+                      String(currentOrder?.invoice_no || "").trim() &&
+                      String(currentOrder?.invoice_no || "").trim() !== "PENDING"
+                    )
                   }
                   style={{
                     ...btnGreen,
@@ -3054,11 +3199,14 @@ export default function BillingPage() {
                     ? "Finalizing..."
 
                     : (
-                        String(currentOrder?.payment_status || "").toLowerCase() === "paid" ||
                         finalizeLockRef.current === selectedOrder ||
-                        finalizedBill?.order_id === selectedOrder
+                        finalizedBill?.order_id === selectedOrder ||
+                        Boolean(
+                          String(currentOrder?.invoice_no || "").trim() &&
+                          String(currentOrder?.invoice_no || "").trim() !== "PENDING"
+                        )
                       )
-                      ? "Paid"
+                      ? "Invoice Generated"
                       : "Finalize & Generate Invoice"}
 
                 </button>

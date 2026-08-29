@@ -85,63 +85,55 @@ export default function BusinessOperations() {
   }, [])
 
   async function init() {
-    const { data: u } = await supabase.auth.getUser()
-    if (!u?.user) return setLoading(false)
+    try {
+      const { data: u } = await supabase.auth.getSession()
+      const token = u?.session?.access_token
+      if (!token) return setLoading(false)
 
-    const { data: p } = await supabase
-      .from("profiles")
-      .select("restaurant_id")
-      .eq("id", u.user.id)
-      .single()
+      const response = await fetch("/api/restaurant-operations", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.success) {
+        console.error("Operations Hub load failed", payload)
+        return setLoading(false)
+      }
 
-    if (!p?.restaurant_id) return setLoading(false)
+      setRid(payload.restaurant_id || null)
+      setName(payload.name || "Restaurant")
+      setPluginEnabled(payload.enabled === true)
+      if (payload.enabled !== true) return setLoading(false)
 
-    setRid(p.restaurant_id)
-
-    const { data: hubRow } = await supabase
-      .from("restaurant_plugins")
-      .select("enabled")
-      .eq("restaurant_id", p.restaurant_id)
-      .eq("plugin_code", "operations-hub")
-      .maybeSingle()
-
-    const hubOn = hubRow?.enabled === true
-    setPluginEnabled(hubOn)
-
-    if (!hubOn) {
+      const d = payload.data || {}
+      setCustomers(d.customers || [])
+      setGroups(d.groups || [])
+      setMods(d.mods || [])
+      setMenuItems(d.menu || [])
+      setExpenses(d.expenses || [])
+      setAttendance(d.attendance || [])
+      setFeedback(d.feedback || [])
+      setStaff(d.staff || [])
+      setKots(d.kots || [])
+      setOrders(d.orders || [])
+      setLoyaltyTransactions(d.loyaltyTx || [])
+      if (d.loyaltySettings) setLoyaltySettings(prev => ({ ...prev, ...d.loyaltySettings, max_points_per_order: d.loyaltySettings.max_points_per_order ?? "", expiry_days: d.loyaltySettings.expiry_days ?? "" }))
+      setLoyaltyTiers(d.loyaltyTiers || [])
+      setLoyaltyRewards(d.loyaltyRewards || [])
+      setLoyaltyCampaigns(d.loyaltyCampaigns || [])
+      setLoyaltyReferrals(d.loyaltyReferrals || [])
+      setLoyaltyRedemptions(d.loyaltyRedemptions || [])
+      const pluginMap = payload.plugins || {}
+      const loyaltyOn = pluginMap.loyalty === true
+      setLoyaltyEnabled(loyaltyOn)
+      if (searchParams.get("tab") === "loyalty" && !loyaltyOn) setTab("overview")
+      if (payload.errors?.length) console.warn("Operations Hub partial data errors", payload.errors)
+    } catch (e) {
+      console.error("Operations Hub init error", e)
+    } finally {
       setLoading(false)
-      return
     }
-
-    const { data: loyaltyRow } = await supabase
-      .from("restaurant_plugins")
-      .select("enabled")
-      .eq("restaurant_id", p.restaurant_id)
-      .eq("plugin_code", "loyalty")
-      .maybeSingle()
-
-    const loyaltyOn = loyaltyRow?.enabled === true
-    setLoyaltyEnabled(loyaltyOn)
-
-    if (searchParams.get("tab") === "loyalty" && !loyaltyOn) {
-      setTab("overview")
-    }
-
-    const { data: r } = await supabase.from("restaurants").select("name").eq("id", p.restaurant_id).single()
-    setName(r?.name || "Restaurant")
-
-    await Promise.all([
-      loadCustomers(p.restaurant_id),
-      loadMods(p.restaurant_id),
-      loadExpenses(p.restaurant_id),
-      loadAttendance(p.restaurant_id),
-      loadFeedback(p.restaurant_id),
-      ...(loyaltyOn ? [loadLoyaltyTransactions(p.restaurant_id), loadAdvancedLoyalty(p.restaurant_id)] : []),
-      loadStaff(p.restaurant_id),
-      loadKots(p.restaurant_id),
-      loadOrders(p.restaurant_id),
-    ])
-    setLoading(false)
   }
 
   const loadCustomers = async (r) => {

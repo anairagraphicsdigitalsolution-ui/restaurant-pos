@@ -1,5 +1,5 @@
 #define MyAppName "Anaira POS"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyPublisher "Anaira Graphics & Digital Solution"
 
 [Setup]
@@ -39,7 +39,7 @@ Name: "{app}\logs"
 Filename: "powershell.exe"; \
 Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\anaira-customer-install.ps1"" -RestaurantId ""{code:GetRestaurantId}"" -CloudUrl ""{code:GetCloudUrl}"" -CloudServiceRoleKey ""{code:GetCloudServiceKey}"" -CloudAnonKey ""{code:GetCloudAnonKey}"""; \
 Flags: runhidden waituntilterminated; \
-StatusMsg: "Installing Anaira POS and configuring local services..."
+StatusMsg: "Installing Anaira POS, required Windows dependencies, Local Supabase and automatic sync..."
 
 [Code]
 

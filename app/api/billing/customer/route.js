@@ -1,6 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseServer"
 import { requireApiUser } from "@/lib/serverAuth"
-import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime = "nodejs"
 
@@ -28,7 +27,6 @@ export async function GET(req) {
     const phone = normalizePhone(searchParams.get("phone"))
     if (!orderId) return Response.json({ customer: null }, { status: 200 })
     const order = await getOrder(orderId)
-    await requireFeature(order.restaurant_id, "loyalty")
 
     if (order.customer_id) {
       const { data: customer } = await supabaseAdmin
@@ -68,7 +66,6 @@ export async function POST(req) {
     }
 
     const order = await getOrder(orderId)
-    await requireFeature(order.restaurant_id, "loyalty")
 
     let customer = null
     const { data: existing, error: existingError } = await supabaseAdmin

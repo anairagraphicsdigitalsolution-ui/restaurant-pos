@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { mobileDbMetaGet } from "@/lib/mobileLocalDb"
 
 export default function KitchenPage() {
 
@@ -34,19 +35,29 @@ const [kotSize, setKotSize] = useState("80mm")
     let refreshTimer
 
     async function init() {
-      const { data: userData } = await supabase.auth.getUser()
-      if (!userData?.user) return
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false
+      let user = null
+      if (offline) {
+        const { data: sessionData } = await supabase.auth.getSession()
+        user = sessionData?.session?.user || null
+      } else {
+        const { data: userData } = await supabase.auth.getUser()
+        user = userData?.user || null
+      }
+      if (!user) return
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("restaurant_id,role")
-        .eq("id", userData.user.id)
-        .maybeSingle()
+      let profile = null
+      if (offline) {
+        profile = await mobileDbMetaGet(`auth-profile:${user.id}`).catch(() => null)
+      } else {
+        const result = await supabase.from("profiles").select("restaurant_id,role").eq("id", user.id).maybeSingle()
+        profile = result.data
+      }
 
       // Older accounts can have restaurant_id only in auth metadata.
       // Prefer the profile row, but fall back to the trusted server-created metadata
       // value so KDS does not fail just because the legacy profile row was incomplete.
-      const metadataRestaurantId = userData.user.user_metadata?.restaurant_id || null
+      const metadataRestaurantId = user.user_metadata?.restaurant_id || null
       const resolvedRestaurantId = profile?.restaurant_id || metadataRestaurantId
 
       if (!resolvedRestaurantId) return

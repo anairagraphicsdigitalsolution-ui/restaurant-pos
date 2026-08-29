@@ -18,7 +18,11 @@
     "phase5:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-start-sync.ps1",
     "phase5:schema:compat": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-schema-compat.ps1",
     "sync:worker": "node .\\scripts\\sync-worker.mjs",
-    "sync:repair": "powershell -ExecutionPolicy Bypass -File .\\scripts\\repair-bidirectional-sync.ps1"
+    "sync:repair": "powershell -ExecutionPolicy Bypass -File .\\scripts\\repair-bidirectional-sync.ps1",
+    "audit:offline": "node scripts/validate-offline-contract.mjs",
+    "phase:android:check": "node scripts/phase11-android-check.mjs",
+    "android:prepare": "powershell -ExecutionPolicy Bypass -File .\\scripts\\prepare-android-platform.ps1",
+    "phase12:android:offline-audit": "node scripts/phase12-android-offline-audit.mjs"
   },
   "dependencies": {
     "@capacitor-community/text-to-speech": "^8.0.2",

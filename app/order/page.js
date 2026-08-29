@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import { useSearchParams, useParams } from "next/navigation"
 import { supabase } from "@/lib/supabase"
+import { mobileDbGet, mobileDbPut } from "@/lib/mobileLocalDb"
+import { saveMobileOfflineOrder } from "@/lib/mobileOffline"
 
 export default function OrderPage() {
   const params = useSearchParams()
@@ -78,27 +80,38 @@ export default function OrderPage() {
 
   async function init() {
     try {
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false
       if (slug) {
+        const cached = await mobileDbGet("__slug__", "restaurant_slug", slug).catch(() => null)
+        if (offline && cached?.id) {
+          setRestaurantId(cached.id)
+          setRestaurantName(cached.name || "")
+          await fetchAll(cached.id)
+          return
+        }
+
         const { data: rest, error } = await supabase
           .from("restaurants")
           .select("*")
           .eq("slug", slug)
           .maybeSingle()
 
-        if (error) {
+        if (error || !rest) {
+          if (cached?.id) {
+            setRestaurantId(cached.id)
+            setRestaurantName(cached.name || "")
+            await fetchAll(cached.id)
+            return
+          }
           console.error("RESTAURANT ERROR:", error)
-          alert("Restaurant could not be loaded.")
-          return
-        }
-
-        if (!rest) {
-          alert("Restaurant not found")
+          alert("This device has not been prepared for offline use yet. Connect once and open this restaurant to download its local data.")
           return
         }
 
         setRestaurantId(rest.id)
+        if (typeof window !== "undefined") window.localStorage.setItem("anaira.restaurant_id", rest.id)
         setRestaurantName(rest.name || "")
-
+        await mobileDbPut("__slug__", "restaurant_slug", slug, rest).catch(() => {})
         await fetchAll(rest.id)
         return
       }
@@ -107,6 +120,7 @@ export default function OrderPage() {
 
       if (rid) {
         setRestaurantId(rid)
+        if (typeof window !== "undefined") window.localStorage.setItem("anaira.restaurant_id", rid)
         await fetchAll(rid)
         return
       }
@@ -147,6 +161,26 @@ export default function OrderPage() {
 
   async function fetchAll(rid) {
     if (!rid) return
+
+    const cached = async (entity) => mobileDbGet(rid, entity, "snapshot").catch(() => null)
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false
+
+    if (offline) {
+      const [menu, tables, rooms, groups, mods, links, zones] = await Promise.all([
+        cached("menu"), cached("tables"), cached("rooms"), cached("modifier_groups"),
+        cached("modifiers"), cached("modifier_links"), cached("delivery_zones")
+      ])
+      if (Array.isArray(menu)) setMenu(menu)
+      if (Array.isArray(tables)) setTables(tables)
+      if (Array.isArray(rooms)) setRooms(rooms)
+      if (Array.isArray(groups)) setModifierGroups(groups)
+      if (Array.isArray(mods)) setModifiers(mods)
+      if (Array.isArray(links)) setModifierLinks(links)
+      if (Array.isArray(zones)) setDeliveryZones(zones)
+      const hubCached = await cached("operations_hub")
+      if (hubCached && typeof hubCached === "object") setOperationsHubEnabled(hubCached.enabled !== false)
+      return
+    }
 
     const { data: hubRow } = await supabase
       .from("restaurant_plugins")
@@ -239,13 +273,32 @@ export default function OrderPage() {
       console.error("DELIVERY ZONE ERROR:", zonesResult.error)
     }
 
-    setMenu(menuResult.data || [])
-    setTables(tablesResult.data || [])
-    setRooms(roomsResult.data || [])
-    setModifierGroups(groupsResult.data || [])
-    setModifiers(modifiersResult.data || [])
-    setModifierLinks(linksResult.data || [])
-    setDeliveryZones(zonesResult.data || [])
+    const menu = menuResult.data?.length ? menuResult.data : (await cached("menu")) || []
+    const tables = tablesResult.data?.length ? tablesResult.data : (await cached("tables")) || []
+    const rooms = roomsResult.data?.length ? roomsResult.data : (await cached("rooms")) || []
+    const groups = groupsResult.data?.length ? groupsResult.data : (await cached("modifier_groups")) || []
+    const mods = modifiersResult.data?.length ? modifiersResult.data : (await cached("modifiers")) || []
+    const links = linksResult.data?.length ? linksResult.data : (await cached("modifier_links")) || []
+    const zones = zonesResult.data?.length ? zonesResult.data : (await cached("delivery_zones")) || []
+
+    setMenu(menu)
+    setTables(tables)
+    setRooms(rooms)
+    setModifierGroups(groups)
+    setModifiers(mods)
+    setModifierLinks(links)
+    setDeliveryZones(zones)
+
+    await Promise.all([
+      mobileDbPut(rid, "operations_hub", "snapshot", { enabled: hubOn }).catch(() => {}),
+      mobileDbPut(rid, "menu", "snapshot", menu),
+      mobileDbPut(rid, "tables", "snapshot", tables),
+      mobileDbPut(rid, "rooms", "snapshot", rooms),
+      mobileDbPut(rid, "modifier_groups", "snapshot", groups),
+      mobileDbPut(rid, "modifiers", "snapshot", mods),
+      mobileDbPut(rid, "modifier_links", "snapshot", links),
+      mobileDbPut(rid, "delivery_zones", "snapshot", zones),
+    ].map(p => p.catch(() => {})))
   }
 
   /* =========================================================
@@ -709,211 +762,109 @@ export default function OrderPage() {
           ? "Takeaway"
           : `Delivery - ${customerName.trim()}`
 
-      const {
-        data: order,
-        error,
-      } = await supabase
-        .from("orders")
-        .insert([
-          {
-            source_type: type,
-            source_id:
-              selected?.id || null,
-            source_label:
-              sourceLabel,
-
-            order_mode:
-              type === "table" ||
-              type === "room"
-                ? "dine_in"
-                : type,
-
-            restaurant_id:
-              restaurantId,
-
-            status: "pending",
-
-            subtotal:
-              foodTotal,
-
-            delivery_charge:
-              type === "delivery"
-                ? Number(deliveryCharge || 0)
-                : 0,
-
-            total_amount:
-              orderTotal,
-
-            payment_status:
-              "unpaid",
-
-            payment_method:
-              type === "delivery"
-                ? paymentMethod
-                : null,
-
-            paid_amount: 0,
-          },
-        ])
-        .select()
-        .single()
-
-      if (error || !order) {
-        console.error(
-          "ORDER ERROR:",
-          error
-        )
-
-        alert(
-          error?.message ||
-            "Order could not be created."
-        )
-
+      const { data: authData, error: authError } = await supabase.auth.getSession()
+      const token = authData?.session?.access_token
+      if (authError || !token) {
+        alert("Login session expired. Please login again.")
         return
       }
 
-      /* =====================================================
-         ORDER ITEMS
-         ===================================================== */
-
-      for (
-        const cartItem of cart
-      ) {
-        const {
-          data: orderItem,
-          error: itemError,
-        } = await supabase
-          .from("order_items")
-          .insert([
-            {
-              order_id:
-                order.id,
-
-              item_id:
-                cartItem.id,
-
-              quantity:
-                cartItem.qty,
-
-              item_name:
-                comboDisplayName(
-                  cartItem
-                ),
-
-              unit_price:
-                Number(
-                  cartItem.price ||
-                    0
-                ),
-
-              line_total:
-                (
-                  Number(
-                    cartItem.price ||
-                      0
-                  ) +
-                  Number(
-                    cartItem.modifierTotal ||
-                      0
-                  )
-                ) *
-                Number(
-                  cartItem.qty ||
-                    0
-                ),
-            },
-          ])
-          .select("id")
-          .single()
-
-        if (
-          itemError ||
-          !orderItem
-        ) {
-          console.error(
-            "ITEM ERROR:",
-            itemError
-          )
-
-          alert(
-            itemError?.message ||
-              "Order item could not be saved."
-          )
-
-          return
+      let response
+      try {
+        response = await fetch("/api/pos/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({
+          restaurant_id: restaurantId,
+          source_type: type,
+          source_id: selected?.id || null,
+          subtotal: foodTotal,
+          discount_amount: 0,
+          tax_amount: 0,
+          delivery_charge: type === "delivery" ? Number(deliveryCharge || 0) : 0,
+          total_amount: orderTotal,
+          payment_method: type === "delivery" ? paymentMethod : null,
+          customer_name: type === "delivery" ? customerName.trim() : null,
+          customer_phone: type === "delivery" ? customerPhone.trim() : null,
+          delivery_address: type === "delivery" ? deliveryAddress.trim() : null,
+          customer_notes: type === "delivery" ? customerNotes.trim() : null,
+          items: cart.map(cartItem => ({
+            item_id: cartItem.id, quantity: Number(cartItem.qty || 0),
+            item_name: comboDisplayName(cartItem), name: comboDisplayName(cartItem),
+            unit_price: Number(cartItem.price || 0),
+            line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
+            cooking_request: cartItem.cooking_request || null,
+            selected_modifiers: Array.isArray(cartItem.selectedModifiers) ? cartItem.selectedModifiers : []
+          }))
+        })
+      })
+      } catch (networkError) {
+        const offlineOrder = {
+          id: crypto.randomUUID(),
+          restaurant_id: restaurantId,
+          source_type: type,
+          source_id: selected?.id || null,
+          source_label: sourceLabel,
+          overall_note: customerNotes || null,
+          status: "pending",
+          created_at: new Date().toISOString(),
+          offline_created_at: new Date().toISOString(),
+          subtotal: foodTotal,
+          discount_amount: 0,
+          tax_amount: 0,
+          delivery_charge: type === "delivery" ? Number(deliveryCharge || 0) : 0,
+          total_amount: orderTotal,
+          payment_status: "unpaid",
+          paid_amount: 0,
+          payment_method: type === "delivery" ? paymentMethod : null,
+          invoice_no: "PENDING",
+          sync_status: "pending",
+          items: cart.map(cartItem => ({
+            id: crypto.randomUUID(), item_id: cartItem.id, quantity: Number(cartItem.qty || 0),
+            item_name: comboDisplayName(cartItem), name: comboDisplayName(cartItem),
+            unit_price: Number(cartItem.price || 0),
+            line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
+            cooking_request: cartItem.cooking_request || null,
+          }))
         }
-
-        /* ===================================================
-           ORDER MODIFIERS
-           =================================================== */
-
-        if (
-          cartItem
-            .selectedModifiers
-            ?.length
-        ) {
-          const modifierRows =
-            cartItem.selectedModifiers.map(
-              (modifier) => ({
-                order_item_id:
-                  orderItem.id,
-
-                modifier_id:
-                  modifier.id,
-
-                modifier_name:
-                  modifier.name,
-
-                price:
-                  Number(
-                    modifier.price ||
-                      0
-                  ),
-
-                quantity:
-                  Number(
-                    modifier.quantity ||
-                      1
-                  ),
-              })
-            )
-
-          const {
-            error:
-              modifierError,
-          } =
-            await supabase
-              .from(
-                "order_item_modifiers"
-              )
-              .insert(
-                modifierRows
-              )
-
-          if (
-            modifierError
-          ) {
-            console.error(
-              "MODIFIER ERROR:",
-              modifierError
-            )
-
-            alert(
-              modifierError.message ||
-                "Modifier save failed."
-            )
-
-            return
-          }
-        }
+        await saveMobileOfflineOrder(offlineOrder)
+        alert(`Order saved offline. Bill: PENDING\nOrder ID: ${offlineOrder.id.slice(0, 8).toUpperCase()}`)
+        setCart([])
+        setSelected(null)
+        return
       }
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success || !result.order) {
+        console.error("ORDER ERROR:", result)
+        alert(result.error || "Order could not be created.")
+        return
+      }
+      const order = result.order
+      await mobileDbPut(restaurantId, "order_snapshot", order.id, {
+        ...order,
+        restaurant_id: restaurantId,
+        invoice_no: order.invoice_no || null,
+        sync_status: order.invoice_no ? "synced" : "online",
+        items: cart.map(cartItem => ({
+          id: crypto.randomUUID(),
+          item_id: cartItem.id,
+          quantity: Number(cartItem.qty || 0),
+          item_name: comboDisplayName(cartItem),
+          unit_price: Number(cartItem.price || 0),
+          line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
+          cooking_request: cartItem.cooking_request || null,
+        }))
+      }).catch(() => {})
 
       // Every POS source (table, room, takeaway and delivery) gets the same
       // KOT/order-slip runtime. Delivery still continues into the Kitchen flow.
       try {
         await fetch("/api/printing/order-slip", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({ order_id: order.id }),
         })
       } catch (printError) {
@@ -924,145 +875,36 @@ export default function OrderPage() {
          DELIVERY SLIP
          ===================================================== */
 
-      if (
-        type === "delivery"
-      ) {
-        const {
-          data: slipNo,
-          error: slipError,
-        } = await supabase.rpc(
-          "next_delivery_slip_no",
-          {
-            p_restaurant_id:
-              restaurantId,
+      if (type === "delivery") {
+        try {
+          const deliveryResponse = await fetch("/api/delivery", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              action: "create", order_id: order.id, order_mode: "delivery",
+              customer_name: customerName.trim(), phone: customerPhone.trim(),
+              address: deliveryAddress.trim(), zone: deliveryZone || null,
+              delivery_charge: Number(deliveryCharge || 0), payment_method: paymentMethod,
+              customer_notes: customerNotes.trim()
+            })
+          })
+          const deliveryResult = await deliveryResponse.json().catch(() => ({}))
+          if (!deliveryResponse.ok || !deliveryResult.success) {
+            console.error("DELIVERY CREATE ERROR:", deliveryResult)
+            alert(`Order created, but delivery slip could not be saved: ${deliveryResult.error || "Unknown error"}`)
+            return
           }
-        )
-
-        if (slipError) {
-          console.error(
-            "DELIVERY SLIP ERROR:",
-            slipError
-          )
-
-          alert(
-            "Order created, but delivery slip could not be generated. Open Delivery Management and create the slip there."
-          )
-
+          alert(`Delivery order created. Slip ${deliveryResult.delivery?.slip_no || "generated"}`)
+          window.location.href = `/kitchen?order_id=${encodeURIComponent(order.id)}&next=delivery`
+          return
+        } catch (deliveryError) {
+          console.error("DELIVERY CREATE ERROR:", deliveryError)
+          alert(`Order created, but delivery slip could not be saved: ${deliveryError.message || "Unknown error"}`)
           return
         }
-
-        const {
-          data: delivery,
-          error:
-            deliveryError,
-        } = await supabase
-          .from(
-            "restaurant_deliveries"
-          )
-          .insert([
-            {
-              restaurant_id:
-                restaurantId,
-
-              order_id:
-                order.id,
-
-              slip_no:
-                slipNo,
-
-              order_mode:
-                "delivery",
-
-              customer_name:
-                customerName.trim(),
-
-              phone:
-                customerPhone.trim(),
-
-              address:
-                deliveryAddress.trim(),
-
-              zone:
-                deliveryZone ||
-                null,
-
-              delivery_charge:
-                Number(
-                  deliveryCharge ||
-                    0
-                ),
-
-              payment_method:
-                paymentMethod,
-
-              expected_amount:
-                orderTotal,
-
-              /*
-               * Delivery/COD payment remains
-               * pending until settlement.
-               */
-              payment_status:
-                "pending",
-
-              settlement_status:
-                "pending",
-
-              status:
-                "pending",
-
-              customer_notes:
-                customerNotes.trim() ||
-                null,
-            },
-          ])
-          .select("*")
-          .single()
-
-        if (
-          deliveryError
-        ) {
-          console.error(
-            "DELIVERY CREATE ERROR:",
-            deliveryError
-          )
-
-          alert(
-            "Order created, but delivery slip could not be saved: " +
-              deliveryError.message
-          )
-
-          return
-        }
-
-        await supabase
-          .from("delivery_events")
-          .insert([
-            {
-              restaurant_id:
-                restaurantId,
-
-              delivery_id:
-                delivery.id,
-
-              status:
-                "pending",
-
-              note:
-                "Delivery slip created from POS",
-            },
-          ])
-
-        alert(
-          `Delivery order created. Slip ${delivery.slip_no}`
-        )
-
-        // Delivery orders always enter Kitchen/KOT first.
-        // The KDS Mark Done action then redirects to Delivery Management.
-        window.location.href =
-          `/kitchen?order_id=${encodeURIComponent(order.id)}&next=delivery`
-
-        return
       }
 
       // Takeaway/table/room must be prepared in Kitchen before Billing.

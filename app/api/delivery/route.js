@@ -145,7 +145,11 @@ export async function POST(req) {
       }
 
       let updatedOrder = order
-      if (!["done", "completed", "served", "paid"].includes(String(order.status || "").toLowerCase())) {
+      // Delivery Mark Done is the explicit gate into Billing. Payment settlement
+      // can leave the order status as `paid` (via payment-ledger/runtime logic),
+      // so every non-done order must be transitioned to the canonical `done`
+      // state here. Otherwise Billing filters it out and Finalize never appears.
+      if (String(order.status || "").toLowerCase() !== "done") {
         const { data: statusResult, error: statusError } = await supabaseAdmin.rpc("stage3_update_order_status", {
           p_actor_id: user.id,
           p_order_id: delivery.order_id,
@@ -680,24 +684,8 @@ export async function POST(req) {
           remaining = Math.max(0, remaining - n)
         }
 
-        const newPaid = alreadyPaid + Math.min(totalCollected, expected)
-        const paymentStatus =
-          newPaid >= expected && expected > 0
-            ? "paid"
-            : newPaid > 0
-              ? "partially_paid"
-              : "unpaid"
-
-        await supabaseAdmin
-          .from("orders")
-          .update({
-            paid_amount:newPaid,
-            payment_status:paymentStatus,
-            payment_method:primaryMethod,
-            status:paymentStatus === "paid" ? "completed" : "delivered"
-          })
-          .eq("id",delivery.order_id)
-          .eq("restaurant_id",restaurantId)
+        // Delivery settlement records payment only in order_payments.
+        // Invoice generation remains a Billing Finalize responsibility.
       }
 
       const resultStatus =

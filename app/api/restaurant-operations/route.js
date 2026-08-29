@@ -14,6 +14,51 @@ async function audit(rid, userId, action, entityType, entityId, afterData = null
   await supabaseAdmin.from("pos_audit_events").insert({ restaurant_id: rid, actor_id: userId, action, entity_type: entityType, entity_id: entityId || null, after_data: afterData, reason })
 }
 
+export async function GET(req) {
+  try {
+    const user = await requireApiUser(req)
+    const resolved = await resolveRestaurantForUser(user)
+    const rid = resolved.restaurantId
+    if (!rid) throw new Error("Restaurant profile not found")
+
+    const pluginRes = await supabaseAdmin.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", rid)
+    if (pluginRes.error) throw pluginRes.error
+    const plugins = Object.fromEntries((pluginRes.data || []).map(x => [x.plugin_code, x.enabled === true]))
+    if (!plugins["operations-hub"]) return NextResponse.json({ success: true, enabled: false, restaurant_id: rid, data: {}, plugins })
+
+    const queries = {
+      restaurant: supabaseAdmin.from("restaurants").select("name").eq("id", rid).maybeSingle(),
+      customers: supabaseAdmin.from("customers").select("*").eq("restaurant_id", rid).order("updated_at", { ascending: false }),
+      groups: supabaseAdmin.from("modifier_groups").select("*").eq("restaurant_id", rid).order("created_at"),
+      mods: supabaseAdmin.from("modifiers").select("*").eq("restaurant_id", rid).order("created_at"),
+      menu: supabaseAdmin.from("menu_items").select("id,name,category,price").eq("restaurant_id", rid).order("name"),
+      expenses: supabaseAdmin.from("expenses").select("*").eq("restaurant_id", rid).order("expense_date", { ascending: false }).limit(100),
+      attendance: supabaseAdmin.from("staff_attendance").select("*").eq("restaurant_id", rid).order("clock_in", { ascending: false }).limit(100),
+      feedback: supabaseAdmin.from("customer_feedback").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      staff: supabaseAdmin.from("profiles").select("id,email,role").eq("restaurant_id", rid).order("email"),
+      kots: supabaseAdmin.from("kot_tickets").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(50),
+      orders: supabaseAdmin.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltyTx: supabaseAdmin.from("loyalty_transactions").select("id,customer_id,points,transaction_type,note,created_at").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltySettings: supabaseAdmin.from("loyalty_settings").select("*").eq("restaurant_id", rid).maybeSingle(),
+      loyaltyTiers: supabaseAdmin.from("loyalty_tiers").select("*").eq("restaurant_id", rid).order("min_points"),
+      loyaltyRewards: supabaseAdmin.from("loyalty_rewards").select("*").eq("restaurant_id", rid).order("points_cost"),
+      loyaltyCampaigns: supabaseAdmin.from("loyalty_campaigns").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }),
+      loyaltyReferrals: supabaseAdmin.from("loyalty_referrals").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltyRedemptions: supabaseAdmin.from("loyalty_redemptions").select("id,customer_id,reward_id,points,status,created_at").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      permissions: supabaseAdmin.from("staff_permissions").select("id,staff_id,permission_key,enabled,updated_at").eq("restaurant_id", rid),
+    }
+    const settled = await Promise.all(Object.entries(queries).map(async ([key, query]) => [key, await query]))
+    const results = Object.fromEntries(settled)
+    const errors = Object.entries(results).filter(([, v]) => v?.error).map(([key, v]) => ({ key, error: v.error.message, code: v.error.code }))
+    if (errors.length) console.error("Operations Hub data query failures", { rid, errors })
+    const data = Object.fromEntries(Object.entries(results).map(([key, value]) => [key, value?.data || []]))
+    return NextResponse.json({ success: true, enabled: true, restaurant_id: rid, name: results.restaurant?.data?.name || "Restaurant", plugins, data, errors })
+  } catch (e) {
+    console.error("restaurant operations GET", e)
+    return NextResponse.json({ success: false, error: e.message || "Unable to load Operations Hub data" }, { status: 400 })
+  }
+}
+
 export async function POST(req) {
   try {
     const user = await requireApiUser(req)
