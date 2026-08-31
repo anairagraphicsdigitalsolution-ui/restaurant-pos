@@ -973,7 +973,8 @@ export default function BillingPage() {
             id: i.item_id,
             name: i.item_name || menu?.name || "Item",
             price,
-            category: menu?.category || null
+            category: menu?.category || null,
+            item_type: menu?.item_type || "single"
           }
         }
       })
@@ -1009,6 +1010,21 @@ export default function BillingPage() {
       } else {
         rankedOffers = Array.isArray(preview) ? preview : []
       }
+    }
+
+    // Defense-in-depth: a bill containing only combo menu items can never
+    // receive a normal offer discount. Mixed carts are left untouched so
+    // normal eligible menu items can still receive their offers. The
+    // authoritative database function enforces the same rule at preview and
+    // finalize time.
+    const hasComboItems = finalItems.some(
+      item => String(item?.menu_items?.item_type || "single").toLowerCase() === "combo"
+    )
+    const hasNonComboItems = finalItems.some(
+      item => String(item?.menu_items?.item_type || "single").toLowerCase() !== "combo"
+    )
+    if (hasComboItems && !hasNonComboItems) {
+      rankedOffers = []
     }
 
     // The preview RPC is authoritative. Never reconstruct an offer discount

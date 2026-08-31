@@ -356,13 +356,30 @@ const eligibleOffers = (offers || [])
   })
   .map((o) => {
     const targetType = String(o.target_type || "all")
-    let eligibleSubtotal = subtotal
+    // Normal offers must never discount combo menu items. Combo pricing is
+    // already the configured selling price. Only explicitly non-combo items
+    // can contribute to the client-side offer preview.
+    const nonComboCart = cart.filter(item => String(item?.item_type || "").toLowerCase() !== "combo")
+    let eligibleSubtotal = nonComboCart.reduce(
+      (sum, item) => sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0),
+      0
+    )
 
     if (targetType === "products") {
-      const ids = new Set((o.offer_products || []).map(x => x.menu_item_id))
-      eligibleSubtotal = cart.reduce((sum, item) => ids.has(item.id) ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0) : sum, 0)
+      const ids = new Set((o.offer_products || []).map(x => String(x?.menu_item_id ?? x?.item_id ?? "")).filter(Boolean))
+      eligibleSubtotal = nonComboCart.reduce(
+        (sum, item) => ids.has(String(item.id))
+          ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0)
+          : sum,
+        0
+      )
     } else if (targetType === "category") {
-      eligibleSubtotal = cart.reduce((sum, item) => item.category === o.target_category ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0) : sum, 0)
+      eligibleSubtotal = nonComboCart.reduce(
+        (sum, item) => item.category === o.target_category
+          ? sum + getComboUnitPrice(item, item.combo_selection || []) * Number(item.qty || 0)
+          : sum,
+        0
+      )
     }
 
     if (eligibleSubtotal <= 0) return { ...o, calculated_discount: 0 }
@@ -1287,19 +1304,19 @@ color:"var(--muted)"
           <input
             value={customerName}
             onChange={e=>setCustomerName(e.target.value.slice(0,80))}
-            placeholder="Your name"
+            placeholder="Your name (optional)"
             style={{width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:12,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}
           />
           <input
             value={customerPhone}
             onChange={e=>setCustomerPhone(e.target.value.replace(/[^0-9+ ]/g,"").slice(0,18))}
-            placeholder="WhatsApp number"
+            placeholder="WhatsApp number (optional)"
             inputMode="tel"
             style={{width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:12,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}
           />
         </div>
         <div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>
-          Enter your WhatsApp number to receive order confirmation. To send the order from your own WhatsApp to the restaurant, WhatsApp requires your confirmation/tap.
+          Name and WhatsApp number are optional. Enter WhatsApp only if you want order confirmation. To send the order from your own WhatsApp to the restaurant, WhatsApp requires your confirmation/tap.
         </div>
 <textarea
   value={orderNote}
