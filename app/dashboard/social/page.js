@@ -2,24 +2,24 @@
 
 import {useEffect,useState} from "react"
 import {useRouter} from "next/navigation"
-import {supabase} from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function SocialPage(){
  const router=useRouter()
  const [rid,setRid]=useState(""),[active,setActive]=useState({}),[cfg,setCfg]=useState({}),[platform,setPlatform]=useState("facebook"),[message,setMessage]=useState(""),[image,setImage]=useState(""),[msg,setMsg]=useState("")
  useEffect(()=>{load()},[])
  async function load(){
-  const {data:{user}}=await supabase.auth.getUser();if(!user)return
-  const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle();if(!p?.restaurant_id)return
+  const {data:{user}}=await supabaseCloud.auth.getUser();if(!user)return
+  const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle();if(!p?.restaurant_id)return
   if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
   setRid(p.restaurant_id)
-  const {data:r}=await supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id).in("plugin_code",["facebook-integration","instagram-integration"])
+  const {data:r}=await supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id).in("plugin_code",["facebook-integration","instagram-integration"])
   const a={};for(const x of r||[])a[x.plugin_code]=x.enabled===true;setActive(a)
-  const {data:s}=await supabase.from("plugin_settings").select("plugin_code,config").eq("restaurant_id",p.restaurant_id).in("plugin_code",["facebook-integration","instagram-integration"])
+  const {data:s}=await supabaseCloud.from("plugin_settings").select("plugin_code,config").eq("restaurant_id",p.restaurant_id).in("plugin_code",["facebook-integration","instagram-integration"])
   const c={};for(const x of s||[])c[x.plugin_code]=x.config||{};setCfg(c)
  }
  async function save(code){
-  const {error}=await supabase.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:code,config:cfg[code]||{}},{onConflict:"restaurant_id,plugin_code"})
+  const {error}=await supabaseCloud.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:code,config:cfg[code]||{}},{onConflict:"restaurant_id,plugin_code"})
   setMsg(error?`❌ ${error.message}`:"✅ Connection saved")
  }
  async function publish(){

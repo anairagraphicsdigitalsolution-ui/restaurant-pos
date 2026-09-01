@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { supabaseCloudAdmin, supabaseCloudAuth } from "@/lib/supabaseCloudServer"
 import {
   featureCodes,
   FEATURE_CATALOG,
@@ -12,10 +12,6 @@ import { sanitizeConfigForClient, mergeConfigPreservingSecrets } from "@/lib/plu
 
 export const runtime = "nodejs"
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
 function aliasCodes(pluginCode) {
   if (pluginCode === "whatsapp-invoice" || pluginCode === "whatsapp") {
     return ["whatsapp-invoice"]
@@ -24,9 +20,7 @@ function aliasCodes(pluginCode) {
 }
 
 function db() {
-  return createClient(url, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
+  return supabaseCloudAdmin
 }
 
 async function ensureRestaurant(admin, restaurantId) {
@@ -95,11 +89,7 @@ async function authSuperAdmin(request) {
   const token = header.slice(7).trim()
   if (!token) return { error: "Authentication required", status: 401 }
 
-  const authClient = createClient(url, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
-
-  const { data: { user }, error } = await authClient.auth.getUser(token)
+  const { data: { user }, error } = await supabaseCloudAuth.auth.getUser(token)
 
   if (error || !user) {
     return { error: "Invalid or expired session", status: 401 }
@@ -298,6 +288,24 @@ export async function POST(request) {
           .maybeSingle()
         if (seedError) throw new Error(seedError.message)
         catalog = seeded
+      }
+    }
+    // The runtime catalog is authoritative even when the optional DB catalog
+    // migration has not been applied yet. This is especially important for
+    // optional integrations such as Cashfree: the plugin must be activatable
+    // from Super Admin without requiring a separate seed step.
+    if (!catalog) {
+      const runtimeCatalog = PLUGIN_CATALOG.find(item => item.code === pluginCode)
+      if (runtimeCatalog) {
+        catalog = {
+          code: runtimeCatalog.code,
+          name: runtimeCatalog.name,
+          icon: runtimeCatalog.icon || "🧩",
+          category: runtimeCatalog.category || "General",
+          description: runtimeCatalog.description || "",
+          kind: "integration",
+          active: true
+        }
       }
     }
     if (!catalog) {

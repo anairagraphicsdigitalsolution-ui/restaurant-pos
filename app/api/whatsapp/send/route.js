@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 import { getWhatsAppConfig, sendWhatsAppMessage } from "@/lib/whatsappServer"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
@@ -23,7 +23,7 @@ export async function POST(req) {
     const body = await req.json()
     const action = String(body.action || "template").trim()
 
-    const { data: pluginRow, error: pluginError } = await supabaseAdmin
+    const { data: pluginRow, error: pluginError } = await supabaseCloudAdmin
     .from("restaurant_plugins")
     .select("enabled")
     .eq("restaurant_id", restaurantId)

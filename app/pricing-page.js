@@ -92,7 +92,6 @@ function featureLabel(key) {
     print_receipt: "Receipt printing",
     print_void: "Void printing",
     print_delivery: "Delivery printing",
-    offline_queue: "Offline print queue",
     send_invoice: "Send invoice",
     send_order_confirmation: "Order confirmation",
     send_payment_receipt: "Payment receipt",

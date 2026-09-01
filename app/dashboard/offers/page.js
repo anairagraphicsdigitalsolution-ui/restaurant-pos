@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import CombosPage from "@/app/dashboard/combos/page"
 
 const todayISO = () => new Date().toISOString().slice(0, 10)
@@ -80,7 +80,7 @@ export default function OffersPage() {
   async function getRestaurant() {
     const {
       data: { user }
-    } = await supabase.auth.getUser()
+    } = await supabaseCloud.auth.getUser()
 
     if (!user) {
       setLoading(false)
@@ -90,7 +90,7 @@ export default function OffersPage() {
     const {
       data: profile,
       error: profileError
-    } = await supabase
+    } = await supabaseCloud
       .from("profiles")
       .select("restaurant_id")
       .eq("id", user.id)
@@ -111,7 +111,7 @@ export default function OffersPage() {
     const {
       data,
       error
-    } = await supabase
+    } = await supabaseCloud
       .from("offers")
       .select("*, offer_products(menu_item_id)")
       .eq("restaurant_id", restaurantId)
@@ -131,7 +131,7 @@ export default function OffersPage() {
     const {
       data,
       error
-    } = await supabase
+    } = await supabaseCloud
       .from("menu_items")
       .select("id,name,price,category,image")
       .eq("restaurant_id", restaurantId)
@@ -149,8 +149,8 @@ export default function OffersPage() {
 
   async function fetchOfferConfig() {
     const [{data:plugin},{data:settings}]=await Promise.all([
-      supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
-      supabase.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
+      supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
+      supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
     ])
     const master=plugin?.enabled===true
     const next={monthly_limit:10,offers_enabled:true,combos_enabled:true,...(settings?.config||{})}
@@ -166,7 +166,7 @@ export default function OffersPage() {
     const {
       data,
       error
-    } = await supabase
+    } = await supabaseCloud
       .from("orders")
       .select("offer_id,total_amount,discount_amount,status")
       .eq("restaurant_id", restaurantId)
@@ -297,7 +297,7 @@ export default function OffersPage() {
     if (!editId) {
       const monthStart=new Date()
       monthStart.setDate(1); monthStart.setHours(0,0,0,0)
-      const {count}=await supabase.from("offers").select("id",{count:"exact",head:true})
+      const {count}=await supabaseCloud.from("offers").select("id",{count:"exact",head:true})
         .eq("restaurant_id",restaurantId).gte("created_at",monthStart.toISOString())
       const monthlyLimit=Math.max(0,Number(offerConfig.monthly_limit ?? 10))
       if (monthlyLimit && Number(count||0) >= monthlyLimit) {
@@ -421,13 +421,13 @@ export default function OffersPage() {
       let error
 
       if (editId) {
-        ;({ error } = await supabase
+        ;({ error } = await supabaseCloud
           .from("offers")
           .update(payload)
           .eq("id", editId)
           .eq("restaurant_id", restaurantId))
       } else {
-        const r = await supabase
+        const r = await supabaseCloud
           .from("offers")
           .insert([
             {
@@ -446,7 +446,7 @@ export default function OffersPage() {
         throw error
       }
 
-      await supabase
+      await supabaseCloud
         .from("offer_products")
         .delete()
         .eq("offer_id", offerId)
@@ -457,7 +457,7 @@ export default function OffersPage() {
       ) {
         const {
           error: e
-        } = await supabase
+        } = await supabaseCloud
           .from("offer_products")
           .insert(
             form.product_ids.map(
@@ -590,7 +590,7 @@ export default function OffersPage() {
 
     const {
       error
-    } = await supabase
+    } = await supabaseCloud
       .from("offers")
       .delete()
       .eq("id", id)
@@ -607,7 +607,7 @@ export default function OffersPage() {
   async function toggleActive(o) {
     const {
       error
-    } = await supabase
+    } = await supabaseCloud
       .from("offers")
       .update({
         active: !(o.active !== false)

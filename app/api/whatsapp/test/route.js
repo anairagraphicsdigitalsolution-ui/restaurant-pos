@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 import { getWhatsAppConfig, sendWhatsAppMessage } from "@/lib/whatsappServer"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
@@ -13,7 +13,7 @@ export async function POST(req) {
     let { restaurantId } = await resolveRestaurantForUser(user)
 
     if (!restaurantId && body.restaurant_id) {
-      const { data: profile } = await supabaseAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()
+      const { data: profile } = await supabaseCloudAdmin.from("profiles").select("role").eq("id", user.id).maybeSingle()
       if (profile?.role !== "super_admin") throw new Error("Restaurant profile not found")
       restaurantId = String(body.restaurant_id)
     }

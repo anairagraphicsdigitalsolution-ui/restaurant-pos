@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type Notice = {
   id: string
@@ -75,9 +75,9 @@ export default function OrderNotificationListener({ user: propUser, restaurantId
     if (propUser && propRestaurantId && propRole) return
     let active = true
     ;(async () => {
-      const { data: auth } = await supabase.auth.getUser()
+      const { data: auth } = await supabaseCloud.auth.getUser()
       if (!active || !auth?.user) return
-      const { data: profile } = await supabase.from("profiles").select("restaurant_id,role").eq("id", auth.user.id).maybeSingle()
+      const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id", auth.user.id).maybeSingle()
       if (!active) return
       setSelfUser(auth.user)
       setSelfRestaurantId(profile?.restaurant_id || null)

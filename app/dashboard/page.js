@@ -2,7 +2,7 @@
 import { formatIndiaDate, formatIndiaTime, indiaDateKey } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/AuthProvider"
 
@@ -72,7 +72,7 @@ export default function Dashboard() {
 
       if (cancelled) return
 
-      channel = supabase
+      channel = supabaseCloud
         .channel(`dashboard-${rid}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
         .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
@@ -85,7 +85,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true
       clearTimeout(refreshTimer)
-      if (channel) supabase.removeChannel(channel)
+      if (channel) supabaseCloud.removeChannel(channel)
     }
   }, [authLoading, authRestaurantId, authRole])
 
@@ -101,23 +101,25 @@ export default function Dashboard() {
     if (showLoading) setLoading(true)
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const token = sessionData?.session?.access_token
+      const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+      if (sessionError) throw sessionError
+      const accessToken = sessionData?.session?.access_token
+      if (!accessToken) throw new Error("Authentication session expired. Please sign in again.")
 
-      if (!token) {
-        if (showLoading) setLoading(false)
-        return
+      // Read dashboard data through the Cloud-only server endpoint. This keeps
+      // the browser and Electron builds on the exact same Cloud Supabase query
+      // path and avoids browser RLS differences for dashboard reporting.
+      const response = await fetch("/api/dashboard/overview", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || `Dashboard Cloud request failed (${response.status})`)
       }
 
-      const response = await fetch("/api/dashboard/overview", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store"
-      })
-
-      const payload = await response.json()
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Dashboard data unavailable")
+      if (String(payload.restaurant_id) !== String(rid)) {
+        throw new Error("Cloud restaurant context changed. Please refresh the dashboard.")
       }
 
       const orderData = payload.orders || []
@@ -125,68 +127,81 @@ export default function Dashboard() {
       const offerData = payload.offers || []
       const customerData = payload.customers || []
       const reservationData = payload.reservations || []
+      const tableData = payload.tables || []
+      const orderItems = payload.orderItems || []
+      const restaurantData = payload.restaurant
 
-      setRestaurant(payload.restaurant || null)
-      setRole(payload.role || "")
-      setRestaurantId(payload.restaurant_id || rid)
+      if (!restaurantData) throw new Error("Restaurant was not found in Cloud Supabase")
+
+      setRestaurant(restaurantData)
+      setRole(payload.role || authRole || "")
+      setRestaurantId(rid)
       setOrders(orderData)
       setItems(itemData)
       setOffers(offerData)
       setCustomers(customerData)
       setReservations(reservationData)
-      setTables(payload.tables || [])
-      setSummary(payload.summary || null)
+      setTables(tableData)
+      
+      const todayKey = indiaDateKey(new Date())
+      const cancelledStatuses = new Set(["cancelled", "canceled", "void", "voided", "refunded"])
+      const todayOrders = orderData.filter((order) => {
+        const status = String(order.status || "").toLowerCase()
+        return !cancelledStatuses.has(status) && indiaDateKey(order.created_at || order.billed_at) === todayKey
+      })
+      const todaySales = todayOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0)
+      const pendingOrders = orderData.filter((o) => ["pending", "new"].includes(String(o.status || "").toLowerCase())).length
+      const preparingOrders = orderData.filter((o) => ["preparing", "in_kitchen", "in-kitchen"].includes(String(o.status || "").toLowerCase())).length
+      const readyOrders = orderData.filter((o) => String(o.status || "").toLowerCase() === "ready").length
+
+      setSummary({
+        todayKey,
+        todayOrderCount: todayOrders.length,
+        todaySales,
+        averageBill: todayOrders.length ? todaySales / todayOrders.length : 0,
+        customerCount: Number(payload.summary?.customerCount ?? customerData.length),
+        todayReservationCount: reservationData.filter((r) => String(r.date || "").slice(0, 10) === todayKey).length,
+        pendingOrders,
+        preparingOrders,
+        readyOrders,
+        completedOrders: orderData.filter((o) => ["done", "completed", "served", "paid"].includes(String(o.status || "").toLowerCase())).length,
+      })
 
       const itemMap = new Map(itemData.map((item) => [String(item.id), item]))
       const salesMap = {}
-
-      for (const oi of payload.orderItems || []) {
+      for (const oi of orderItems) {
         const menuItem = itemMap.get(String(oi.item_id))
-        const name = menuItem?.name || "Unknown item"
+        const name = oi.item_name || menuItem?.name || "Unknown item"
         const qty = Number(oi.quantity || 0)
-        const amount = Number(menuItem?.price || 0) * qty
-
+        const unitPrice = Number(oi.unit_price ?? menuItem?.price ?? 0)
         if (!salesMap[name]) salesMap[name] = { name, qty: 0, amount: 0 }
         salesMap[name].qty += qty
-        salesMap[name].amount += amount
+        salesMap[name].amount += unitPrice * qty
       }
-
-      setTopSelling(
-        Object.values(salesMap)
-          .sort((a, b) => b.qty - a.qty)
-          .slice(0, 6)
-      )
+      setTopSelling(Object.values(salesMap).sort((a, b) => b.qty - a.qty).slice(0, 6))
 
       const days = []
-
       for (let offset = 6; offset >= 0; offset--) {
         const d = new Date()
         d.setHours(0, 0, 0, 0)
         d.setDate(d.getDate() - offset)
-
         const key = localDateKey(d)
         const total = orderData
-          .filter((o) => localDateKey(o.created_at || o.billed_at) === key)
+          .filter((o) => localDateKey(o.created_at || o.billed_at) === key && !cancelledStatuses.has(String(o.status || "").toLowerCase()))
           .reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
-
-        days.push({
-          key,
-          label: formatIndiaDate(d, { weekday: "short" }),
-          total
-        })
+        days.push({ key, label: formatIndiaDate(d, { weekday: "short" }), total })
       }
-
       setSalesDays(days)
-
-      const queryErrors = Object.entries(payload.errors || {})
-        .filter(([,value]) => value)
-        .map(([key,value]) => `${key}: ${value}`)
-
-      if (queryErrors.length) {
-        console.warn("Dashboard query warnings:", queryErrors)
-      }
     } catch (error) {
-      console.error("DASHBOARD LOAD ERROR:", error)
+      console.error("DASHBOARD CLOUD LOAD ERROR:", error)
+      setRestaurant(null)
+      setOrders([])
+      setItems([])
+      setOffers([])
+      setCustomers([])
+      setReservations([])
+      setTables([])
+      setSummary(null)
     } finally {
       setLoading(false)
     }
@@ -195,7 +210,7 @@ export default function Dashboard() {
   async function deleteItem(id) {
     if (!['admin', 'super_admin'].includes(role)) return alert("Only admin is allowed to delete menu items.")
     if (!confirm("Delete this menu item?")) return
-    const { error } = await supabase.from("menu_items").delete().eq("id", id).eq("restaurant_id", restaurantId)
+    const { error } = await supabaseCloud.from("menu_items").delete().eq("id", id).eq("restaurant_id", restaurantId)
     if (error) return alert(error.message)
     setItems((prev) => prev.filter((item) => item.id !== id))
   }
@@ -203,7 +218,7 @@ export default function Dashboard() {
   async function deleteCategory(category) {
     if (!['admin', 'super_admin'].includes(role)) return alert("Only admin is allowed to delete categories.")
     if (!confirm(`Delete all items in ${category}?`)) return
-    const { error } = await supabase.from("menu_items").delete().eq("category", category).eq("restaurant_id", restaurantId)
+    const { error } = await supabaseCloud.from("menu_items").delete().eq("category", category).eq("restaurant_id", restaurantId)
     if (error) return alert(error.message)
     setItems((prev) => prev.filter((item) => item.category !== category))
   }
@@ -211,7 +226,7 @@ export default function Dashboard() {
   async function deleteAllOrders() {
     if (!['admin', 'super_admin'].includes(role)) return alert("Only admin is allowed.")
     if (!confirm("⚠️ Delete ALL orders for this restaurant? This cannot be undone.")) return
-    const { error } = await supabase.from("orders").delete().eq("restaurant_id", restaurantId)
+    const { error } = await supabaseCloud.from("orders").delete().eq("restaurant_id", restaurantId)
     if (error) return alert(error.message)
     setOrders([])
   }

@@ -1,4 +1,4 @@
-import { supabaseCloudAdmin as supabaseAdmin } from "@/lib/supabaseCloudServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -7,7 +7,7 @@ export async function DELETE(req) {
   try {
     const user = await requireApiUser(req)
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("id, role")
       .eq("id", user.id)
@@ -23,7 +23,7 @@ export async function DELETE(req) {
       return Response.json({ success: false, error: "restaurant_id is required" }, { status: 400 })
     }
 
-    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+    const { data: restaurant, error: restaurantError } = await supabaseCloudAdmin
       .from("restaurants")
       .select("id,name,owner_id,logo")
       .eq("id", restaurantId)
@@ -34,8 +34,8 @@ export async function DELETE(req) {
     }
 
     const [{ data: restaurantProfiles }, { data: ownerRows }] = await Promise.all([
-      supabaseAdmin.from("profiles").select("id,role").eq("restaurant_id", restaurantId),
-      supabaseAdmin.from("restaurants").select("owner_id").eq("id", restaurantId).not("owner_id", "is", null),
+      supabaseCloudAdmin.from("profiles").select("id,role").eq("restaurant_id", restaurantId),
+      supabaseCloudAdmin.from("restaurants").select("owner_id").eq("id", restaurantId).not("owner_id", "is", null),
     ])
 
     const candidateUserIds = new Set([
@@ -43,7 +43,7 @@ export async function DELETE(req) {
       ...(ownerRows || []).map((r) => r.owner_id).filter(Boolean),
     ])
 
-    const { data: deleteResult, error: deleteError } = await supabaseAdmin.rpc(
+    const { data: deleteResult, error: deleteError } = await supabaseCloudAdmin.rpc(
       "delete_restaurant_cascade",
       { p_restaurant_id: restaurantId }
     )
@@ -60,22 +60,22 @@ export async function DELETE(req) {
       if (userId === user.id) continue
 
       const [{ data: remainingProfile }, { data: remainingOwnedRestaurant }] = await Promise.all([
-        supabaseAdmin.from("profiles").select("id,role").eq("id", userId).maybeSingle(),
-        supabaseAdmin.from("restaurants").select("id").eq("owner_id", userId).limit(1).maybeSingle(),
+        supabaseCloudAdmin.from("profiles").select("id,role").eq("id", userId).maybeSingle(),
+        supabaseCloudAdmin.from("restaurants").select("id").eq("owner_id", userId).limit(1).maybeSingle(),
       ])
 
       if (remainingProfile?.role === "super_admin" || remainingOwnedRestaurant || remainingProfile) continue
 
-      const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+      const { error: authDeleteError } = await supabaseCloudAdmin.auth.admin.deleteUser(userId)
       if (authDeleteError) authDeleteErrors.push({ user_id: userId, error: authDeleteError.message })
       else authUsersDeleted.push(userId)
     }
 
     // Logo uploads use <restaurant_id>/... paths.
     try {
-      const { data: logoFiles } = await supabaseAdmin.storage.from("logos").list(restaurantId, { limit: 1000 })
+      const { data: logoFiles } = await supabaseCloudAdmin.storage.from("logos").list(restaurantId, { limit: 1000 })
       const paths = (logoFiles || []).filter((file) => file?.name).map((file) => `${restaurantId}/${file.name}`)
-      if (paths.length) await supabaseAdmin.storage.from("logos").remove(paths)
+      if (paths.length) await supabaseCloudAdmin.storage.from("logos").remove(paths)
     } catch (storageError) {
       console.warn("RESTAURANT LOGO CLEANUP WARNING:", storageError)
     }

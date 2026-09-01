@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { CSSProperties } from "react"
 
 type MenuItem = {
@@ -50,28 +50,9 @@ useState<string | null>(null)
 
   useEffect(()=>{ init() },[])
 
-  async function localAdminRequest(body?: Record<string, any>, restaurantIdOverride?: string){
-    const { data: sessionData } = await supabase.auth.getSession()
-    const token = sessionData?.session?.access_token
-    if(!token) throw new Error("Session expired. Please login again.")
-    const url = restaurantIdOverride
-      ? `/api/local/admin?restaurant_id=${encodeURIComponent(restaurantIdOverride)}`
-      : "/api/local/admin"
-    const response = await fetch(url, {
-      method: body ? "POST" : "GET",
-      headers: { Authorization: `Bearer ${token}`, ...(body ? {"Content-Type":"application/json"} : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store"
-    })
-    const result = await response.json().catch(()=>({}))
-    if(response.status === 503 || result?.enabled === false) return null
-    if(!response.ok || !result?.success) throw new Error(result?.error || "Local admin operation failed")
-    return result
-  }
-
   async function init(){
 
-    const { data: userData } = await supabase.auth.getUser()
+    const { data: userData } = await supabaseCloud.auth.getUser()
 
     if(!userData?.user){
       alert("Login required")
@@ -81,7 +62,7 @@ useState<string | null>(null)
     // Resolve the restaurant from the authenticated profile first.
     // Legacy accounts may have restaurants.owner_id unset, while
     // profiles.restaurant_id is the authoritative tenant link.
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await supabaseCloud
       .from("profiles")
       .select("restaurant_id, role")
       .eq("id", userData.user.id)
@@ -102,7 +83,7 @@ useState<string | null>(null)
     let rest = null
 
     if (resolvedRestaurantId) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseCloud
         .from("restaurants")
         .select("*")
         .eq("id", resolvedRestaurantId)
@@ -116,7 +97,7 @@ useState<string | null>(null)
 
     // Final legacy fallback: owner_id.
     if (!rest) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseCloud
         .from("restaurants")
         .select("*")
         .eq("owner_id", userData.user.id)
@@ -144,36 +125,20 @@ setRestaurantDescription(rest.description || "")
   }
 
   async function loadData(id: string){
-    try {
-      const local = await localAdminRequest(undefined, id)
-      if(local){
-        const rest = local.restaurant
-        if(rest){
-          setOpeningTime(rest.opening_time || "")
-          setCuisine(rest.cuisine || "")
-          setRestaurantDescription(rest.description || "")
-          setLogo(rest.logo || null)
-        }
-        setMenu(local.menu || [])
-        setBanners(local.banners || [])
-        return
-      }
-    } catch(error){
-      console.warn("Local admin read unavailable; using cloud:", error)
+    const [{data: menuData},{data: bannerData},{data: restData}] = await Promise.all([
+      supabaseCloud.from("menu_items").select("*").eq("restaurant_id", id),
+      supabaseCloud.from("restaurant_banners").select("*").eq("restaurant_id", id),
+      supabaseCloud.from("restaurants").select("*").eq("id", id).maybeSingle(),
+    ])
+    if (restData) {
+      setOpeningTime(restData.opening_time || "")
+      setCuisine(restData.cuisine || "")
+      setRestaurantDescription(restData.description || "")
+      setLogo(restData.logo || null)
     }
-
-    const { data } = await supabase
-      .from("menu_items")
-      .select("*")
-      .eq("restaurant_id", id)
-    setMenu(data || [])
-
-    const { data: bannerData } = await supabase
-      .from("restaurant_banners")
-      .select("*")
-      .eq("restaurant_id", id)
+    setMenu(menuData || [])
     setBanners(bannerData || [])
-}
+  }
 
   async function addItem(){
 
@@ -188,7 +153,7 @@ setRestaurantDescription(rest.description || "")
       const ext = itemImageFile.name.split(".").pop()
       const fileName = `item-${Date.now()}.${ext}`
 
-      const { error } = await supabase.storage
+      const { error } = await supabaseCloud.storage
         .from("menu-images")
         .upload(fileName, itemImageFile)
 
@@ -197,38 +162,19 @@ setRestaurantDescription(rest.description || "")
         return
       }
 
-      const { data } = supabase.storage
+      const { data } = supabaseCloud.storage
         .from("menu-images")
         .getPublicUrl(fileName)
 
       imageUrl = data.publicUrl
     }
 
-    let localResult = null
-    try {
-      localResult = await localAdminRequest({
-        operation: editingId ? "menu.update" : "menu.insert",
-        restaurant_id: restaurantId,
-        ...(editingId ? { id: editingId } : {}),
-        name: itemName,
-        price: Number(price),
-        category: effectiveCategory,
-        description,
-        image: imageUrl
-      })
-    } catch(error){
-      alert(error instanceof Error ? error.message : "Unable to save menu item")
-      return
-    }
-
-    if(!localResult){
-      if(editingId){
-        const { error } = await supabase.from("menu_items").update({name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl || undefined}).eq("id",editingId).eq("restaurant_id",restaurantId)
-        if(error){ alert(error.message); return }
-      }else{
-        const { error } = await supabase.from("menu_items").insert([{name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl,restaurant_id:restaurantId}])
-        if(error){ alert(error.message); return }
-      }
+    if(editingId){
+      const { error } = await supabaseCloud.from("menu_items").update({name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl || undefined}).eq("id",editingId).eq("restaurant_id",restaurantId)
+      if(error){ alert(error.message); return }
+    }else{
+      const { error } = await supabaseCloud.from("menu_items").insert([{name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl,restaurant_id:restaurantId}])
+      if(error){ alert(error.message); return }
     }
 
     setItemName("")
@@ -260,14 +206,11 @@ setDescription((item as any).description || "")
     if(!restaurantId) return
 
     try {
-      const localResult = await localAdminRequest({operation:"menu.delete", restaurant_id:restaurantId, id})
-      if(!localResult){
-        const { error: orderError } = await supabase.from("order_items").delete().eq("menu_item_id", id)
-        if(orderError){ alert(orderError.message); return }
-        const { error } = await supabase.from("menu_items").delete().eq("id", id).eq("restaurant_id", restaurantId)
-        if(error){ alert(error.message); return }
-      }
-      loadData(restaurantId)
+      const { error: orderError } = await supabaseCloud.from("order_items").delete().eq("menu_item_id", id)
+    if(orderError){ alert(orderError.message); return }
+    const { error } = await supabaseCloud.from("menu_items").delete().eq("id", id).eq("restaurant_id", restaurantId)
+    if(error){ alert(error.message); return }
+    loadData(restaurantId)
     } catch(error){
       alert(error instanceof Error ? error.message : "Unable to delete menu item")
     }
@@ -276,7 +219,7 @@ setDescription((item as any).description || "")
   async function addTable(){
     if(!tableInput || !restaurantId) return
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if(!token) throw new Error("Session expired. Please login again.")
       const response = await fetch("/api/dashboard-add-table", {
@@ -297,7 +240,7 @@ setDescription((item as any).description || "")
   async function addRoom(){
     if(!roomInput || !restaurantId) return
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if(!token) throw new Error("Session expired. Please login again.")
       const response = await fetch("/api/dashboard-add-room", {
@@ -349,11 +292,8 @@ async function saveRestaurantInfo(){
 if(!restaurantId)return
 
 try {
-  const localResult = await localAdminRequest({operation:"restaurant.update",restaurant_id:restaurantId,opening_time:openingTime,cuisine,description:restaurantDescription})
-  if(!localResult){
-    const { error } = await supabase.from("restaurants").update({opening_time:openingTime,cuisine,description:restaurantDescription}).eq("id",restaurantId)
-    if(error){ alert(error.message); return }
-  }
+  const { error } = await supabaseCloud.from("restaurants").update({opening_time:openingTime,cuisine,description:restaurantDescription}).eq("id",restaurantId)
+  if(error){ alert(error.message); return }
   alert("Restaurant Updated ✅")
 } catch(error){
   alert(error instanceof Error ? error.message : "Unable to update restaurant")
@@ -371,7 +311,7 @@ try {
     const ext = logoFile.name.split(".").pop()
     const fileName = `logo-${restaurantId}-${Date.now()}.${ext}`
 
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabaseCloud.storage
       .from("logos")
       .upload(fileName, logoFile, { upsert: true })
 
@@ -380,22 +320,14 @@ try {
       return
     }
 
-    const { data } = supabase.storage
+    const { data } = supabaseCloud.storage
       .from("logos")
       .getPublicUrl(fileName)
 
     const publicUrl = data.publicUrl
 
-    try {
-      const localResult = await localAdminRequest({operation:"restaurant.update",restaurant_id:restaurantId,logo:publicUrl})
-      if(!localResult){
-        const { error } = await supabase.from("restaurants").update({ logo: publicUrl }).eq("id", restaurantId)
-        if(error){ alert(error.message); return }
-      }
-    } catch(error){
-      alert(error instanceof Error ? error.message : "Unable to save logo")
-      return
-    }
+    const { error: logoError } = await supabaseCloud.from("restaurants").update({ logo: publicUrl }).eq("id", restaurantId)
+    if(logoError){ alert(logoError.message); return }
 
     setLogo(publicUrl)
 
@@ -420,7 +352,7 @@ try {
       `banner-${Date.now()}-${Math.random()}.${ext}`
 
     const { error } =
-      await supabase.storage
+      await supabaseCloud.storage
       .from("restaurant-covers")
       .upload(fileName,file)
 
@@ -430,20 +362,22 @@ try {
     }
 
     const { data } =
-      supabase.storage
+      supabaseCloud.storage
       .from("restaurant-covers")
       .getPublicUrl(fileName)
 
     try {
-      const localResult = await localAdminRequest({
-        operation:"banner.insert",
-        restaurant_id:restaurantId,
-        image_url:data.publicUrl,
-        sort_order: banners.length + index + 1
-      })
-      if(!localResult){
-        const { error: insertError } = await supabase.from("restaurant_banners").insert({restaurant_id:restaurantId,image_url:data.publicUrl})
-        if(insertError){ alert(insertError.message); return }
+      const { error: insertError } = await supabaseCloud
+        .from("restaurant_banners")
+        .insert({
+          restaurant_id: restaurantId,
+          image_url: data.publicUrl,
+          sort_order: banners.length + index + 1
+        })
+
+      if(insertError){
+        alert(insertError.message)
+        return
       }
     } catch(error){
       alert(error instanceof Error ? error.message : "Unable to save banner")

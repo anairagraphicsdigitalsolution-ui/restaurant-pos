@@ -3,15 +3,13 @@ import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
-import { mobileDbMetaGet } from "@/lib/mobileLocalDb"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import SalesChart from "@/components/SalesChart"
 import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
-import { saveMobileOfflineOrder } from "@/lib/mobileOffline"
 
 function indiaDateKey(value) {
   if (!value) return ""
@@ -78,6 +76,9 @@ export default function BillingPage() {
   // Keep both legacy loyalty flags so all three billing versions remain compatible.
   const [loyaltyFeatureEnabled, setLoyaltyFeatureEnabled] = useState(false)
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false)
+  // Cashfree is an optional plugin. When disabled for this restaurant, the
+  // core billing/POS flow must remain completely unaffected.
+  const [cashfreeEnabled, setCashfreeEnabled] = useState(false)
 
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
@@ -103,21 +104,7 @@ export default function BillingPage() {
     init()
   }, [billingRefresh, isDedicatedBillPage, pathname])
 
-  useEffect(() => {
-    const onMobileSync = (event) => {
-      const synced = event?.detail
-      if (!synced?.id) return
-      setOrders(prev => prev.map(o => o.id === synced.id ? { ...o, ...synced } : o))
-      if (synced.id === selectedOrder) {
-        setCurrentOrder(prev => ({ ...prev, ...synced }))
-        if (synced.invoice_no) {
-          setFinalizedBill(prev => ({ ...(prev || {}), order_id: synced.id, invoice_no: synced.invoice_no, total: Number(synced.total_amount || prev?.total || 0), paid_amount: Number(synced.paid_amount || 0), payment_status: synced.payment_status || prev?.payment_status || "paid", payment_method: synced.payment_method || prev?.payment_method || "cash", offline: false }))
-        }
-      }
-    }
-    window.addEventListener("anaira:mobile-sync", onMobileSync)
-    return () => window.removeEventListener("anaira:mobile-sync", onMobileSync)
-  }, [selectedOrder])
+
 
   useEffect(() => {
     if (!currentOrder?.restaurant_id || !customerProfile?.id || !items.length) {
@@ -152,20 +139,12 @@ export default function BillingPage() {
   }, [isBillScreen, orders, selectedOrder])
 
   async function init() {
-    const offline = typeof navigator !== "undefined" && navigator.onLine === false
-    let user = null
-    if (offline) {
-      const { data: sessionData } = await supabase.auth.getSession()
-      user = sessionData?.session?.user || null
-    } else {
-      const { data: auth } = await supabase.auth.getUser()
-      user = auth?.user || null
-    }
+    const { data: auth, error: authError } = await supabaseCloud.auth.getUser()
+    if (authError) throw authError
+    const user = auth?.user || null
     if (!user) return
 
-    let profile = null
-    if (offline) profile = await mobileDbMetaGet(`auth-profile:${user.id}`).catch(() => null)
-    else profile = (await supabase.from("profiles").select("restaurant_id").eq("id", user.id).single()).data
+    const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", user.id).single()
 
     const restId = profile?.restaurant_id
 
@@ -174,7 +153,36 @@ export default function BillingPage() {
     fetchRestaurant(restId)
     fetchOrders(restId)
     fetchOffers(restId)
-    const { data: loyaltyPlugin } = await supabase
+
+    // Optional plugin gate: Cashfree must never be required for the normal
+    // restaurant billing workflow. Only expose it when both the plugin row
+    // and its restaurant setting explicitly allow it.
+    try {
+      const [{ data: cashfreePlugin }, { data: cashfreeSettings }] = await Promise.all([
+        supabaseCloud
+          .from("restaurant_plugins")
+          .select("enabled")
+          .eq("restaurant_id", restId)
+          .eq("plugin_code", "cashfree-payment-gateway")
+          .maybeSingle(),
+        supabaseCloud
+          .from("plugin_settings")
+          .select("config")
+          .eq("restaurant_id", restId)
+          .eq("plugin_code", "cashfree-payment-gateway")
+          .maybeSingle()
+      ])
+      setCashfreeEnabled(
+        cashfreePlugin?.enabled === true &&
+        cashfreeSettings?.config?.enabled_for_restaurant !== false
+      )
+    } catch (cashfreeGateError) {
+      // Cashfree is optional; a plugin lookup failure must not affect Billing.
+      console.warn("Cashfree plugin gate unavailable:", cashfreeGateError)
+      setCashfreeEnabled(false)
+    }
+
+    const { data: loyaltyPlugin } = await supabaseCloud
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", restId)
@@ -191,7 +199,7 @@ export default function BillingPage() {
     setGstSaving(true)
     const next = { ...restaurant, ...patch }
     setRestaurant(next)
-    const { error } = await supabase.from("restaurants").update(patch).eq("id", restaurant.id)
+    const { error } = await supabaseCloud.from("restaurants").update(patch).eq("id", restaurant.id)
     if (error) {
       console.error("GST setting save:", error)
       setRestaurant(restaurant)
@@ -201,7 +209,7 @@ export default function BillingPage() {
   }
 
   async function fetchRestaurant(restId) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("restaurants")
       .select("*")
       .eq("id", restId)
@@ -219,15 +227,15 @@ export default function BillingPage() {
     if (!restId) return
 
     const [{data:plugin},{data:settings}] = await Promise.all([
-      supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle(),
-      supabase.from("plugin_settings").select("config").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle()
+      supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle(),
+      supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",restId).eq("plugin_code","offers").maybeSingle()
     ])
     if (plugin?.enabled !== true || settings?.config?.offers_enabled === false) {
       setOffers([])
       return
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("offers")
       .select("*, offer_products(menu_item_id)")
       .eq("restaurant_id", restId)
@@ -248,7 +256,7 @@ export default function BillingPage() {
     // Billing is unlocked only after the kitchen/operator explicitly marks
     // the order as DONE. Pending and Preparing orders must never enter the
     // billing queue, reports, or bill selector.
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("orders")
       .select("*")
       .eq("restaurant_id", restId)
@@ -275,14 +283,14 @@ export default function BillingPage() {
     const orderIds = orderRows.map(o => o.id)
 
     const { data: paymentRows, error: paymentError } = orderIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("order_payments")
           .select("id,order_id,payment_method,amount,status,reference,paid_at,created_at")
           .in("order_id", orderIds)
       : { data: [], error: null }
 
     const { data: refundRows, error: refundError } = orderIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("order_refunds")
           .select("id,order_id,amount,status,created_at")
           .in("order_id", orderIds)
@@ -346,7 +354,7 @@ export default function BillingPage() {
 
 
     const { data: orderItems, error: orderItemsError } = orderIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("order_items")
           .select("id,order_id,item_id,item_name,unit_price,quantity,line_total")
           .in("order_id", orderIds)
@@ -356,7 +364,7 @@ export default function BillingPage() {
 
     const orderItemIds = (orderItems || []).map(i => i.id).filter(Boolean)
     const { data: modifierRows, error: modifierError } = orderItemIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("order_item_modifiers")
           .select("order_item_id,modifier_name,price,quantity")
           .in("order_item_id", orderItemIds)
@@ -375,7 +383,7 @@ export default function BillingPage() {
     ]
 
     const { data: menuRows, error: menuError } = itemIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("menu_items")
           .select("id,name,price,category")
           .in("id", itemIds)
@@ -465,7 +473,7 @@ export default function BillingPage() {
       setSelectedLoyaltyReward(null)
       return
     }
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("loyalty_rewards")
       .select("id,name,description,points_cost,reward_type,reward_value,min_order_amount,usage_limit,used_count,active")
       .eq("restaurant_id", restaurantId)
@@ -497,7 +505,7 @@ export default function BillingPage() {
 
     try {
       // Primary lookup keeps the customer API from the first/second billing version.
-      const { data: authData, error: authError } = await supabase.auth.getSession()
+      const { data: authData, error: authError } = await supabaseCloud.auth.getSession()
       if (authError || !authData?.session?.access_token) {
         throw new Error("Login session expired. Please login again.")
       }
@@ -524,7 +532,7 @@ export default function BillingPage() {
 
       // Fallback to Supabase customer table used by the third billing version.
       if (restaurant?.id) {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseCloud
           .from("customers")
           .select("id,name,phone,email,loyalty_points,total_orders,total_spend")
           .eq("restaurant_id", restaurant.id)
@@ -551,7 +559,7 @@ export default function BillingPage() {
       // Even if the API is unavailable, try the direct customer table.
       try {
         if (restaurant?.id) {
-          const { data } = await supabase
+          const { data } = await supabaseCloud
             .from("customers")
             .select("id,name,phone,email,loyalty_points,total_orders,total_spend")
             .eq("restaurant_id", restaurant.id)
@@ -591,7 +599,7 @@ export default function BillingPage() {
     setCustomerSaving(true)
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.getSession()
+      const { data: authData, error: authError } = await supabaseCloud.auth.getSession()
       if (authError || !authData?.session?.access_token) {
         throw new Error("Login session expired. Please login again.")
       }
@@ -646,7 +654,7 @@ export default function BillingPage() {
     // must use the database row as its authoritative payment state.
     let freshOrder = null
     try {
-      const { data: remoteOrder, error: remoteOrderError } = await supabase
+      const { data: remoteOrder, error: remoteOrderError } = await supabaseCloud
         .from("orders")
         .select("*")
         .eq("id", orderId)
@@ -661,14 +669,14 @@ export default function BillingPage() {
     // updated even though an actual paid payment already exists.
     let selectedLedgerPaid = 0
     try {
-      const { data: selectedPayments } = await supabase
+      const { data: selectedPayments } = await supabaseCloud
         .from("order_payments")
         .select("amount,status")
         .eq("order_id", orderId)
       selectedLedgerPaid = (selectedPayments || [])
         .filter(p => String(p.status || "").toLowerCase() === "paid")
         .reduce((sum, p) => sum + Number(p.amount || 0), 0)
-      const refundQuery = await supabase
+      const refundQuery = await supabaseCloud
         .from("order_refunds")
         .select("amount,status")
         .eq("order_id", orderId)
@@ -759,7 +767,7 @@ export default function BillingPage() {
     }
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.getSession()
+      const { data: authData, error: authError } = await supabaseCloud.auth.getSession()
       if (authError || !authData?.session?.access_token) {
         throw new Error("Login session expired. Please login again.")
       }
@@ -780,7 +788,7 @@ export default function BillingPage() {
           setCustomerPhone(customerResult.customer.phone || "")
           setCustomerEmail(customerResult.customer.email || "")
         } else if (selected.order_type === "delivery" || selected.order_type === "takeaway") {
-          const { data: delivery } = await supabase
+          const { data: delivery } = await supabaseCloud
             .from("restaurant_deliveries")
             .select("customer_name,phone")
             .eq("order_id", orderId)
@@ -803,7 +811,7 @@ export default function BillingPage() {
     let orderItemsError = null
 
     try {
-      const result = await supabase
+      const result = await supabaseCloud
         .from("order_items")
         .select(
           "id,item_id,item_name,unit_price,quantity,line_total,cooking_request"
@@ -814,46 +822,6 @@ export default function BillingPage() {
       orderItemsError = result.error || null
     } catch (error) {
       orderItemsError = error
-    }
-
-    if (orderItemsError || !orderItems.length) {
-      try {
-        const { data: authData } = await supabase.auth.getSession()
-        const token = authData?.session?.access_token
-        const restaurantId = selected?.restaurant_id || currentOrder?.restaurant_id
-
-        if (token && restaurantId) {
-          const fallbackResponse = await fetch(
-            `/api/local/billing?restaurant_id=${encodeURIComponent(restaurantId)}`,
-            {
-              cache: "no-store",
-              headers: { Authorization: `Bearer ${token}` }
-            }
-          )
-          const fallbackResult = await fallbackResponse.json().catch(() => ({}))
-          const fallbackOrder = (fallbackResult.orders || []).find(
-            order => order.id === orderId
-          )
-
-          if (fallbackResponse.ok && fallbackOrder) {
-            orderItems = Array.isArray(fallbackOrder.items)
-              ? fallbackOrder.items
-              : []
-
-            // Keep the local API's authoritative order snapshot when the
-            // direct browser query was unavailable.
-            if (orderItems.length) {
-              setCurrentOrder(prev => ({
-                ...(prev || {}),
-                ...fallbackOrder,
-                id: orderId
-              }))
-            }
-          }
-        }
-      } catch (fallbackError) {
-        console.error("Billing local item fallback:", fallbackError)
-      }
     }
 
     if (orderItemsError && !orderItems.length) {
@@ -870,7 +838,7 @@ export default function BillingPage() {
 
     const orderItemIds = (orderItems || []).map(i => i.id)
     const { data: modifierRows } = orderItemIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("order_item_modifiers")
           .select("order_item_id,modifier_name,price,quantity")
           .in("order_item_id", orderItemIds)
@@ -907,7 +875,7 @@ export default function BillingPage() {
       data: menuRows,
       error: menuError
     } = itemIds.length
-      ? await supabase
+      ? await supabaseCloud
           .from("menu_items")
           .select("id,name,price,category")
           .in("id", itemIds)
@@ -998,7 +966,7 @@ export default function BillingPage() {
     // usage limits and max discounts.  The UI only presents its result.
     let rankedOffers = []
     if (offers?.length) {
-      const { data: preview, error: previewError } = await supabase.rpc(
+      const { data: preview, error: previewError } = await supabaseCloud.rpc(
         "preview_order_offers",
         {
           p_order_id: orderId,
@@ -1068,7 +1036,7 @@ export default function BillingPage() {
     // Loyalty rewards are loaded only for the identified customer. Points are
     // NOT deducted here; the server redeems them atomically during finalization.
     if (customerProfile?.id) {
-      const { data: rewardRows, error: rewardError } = await supabase
+      const { data: rewardRows, error: rewardError } = await supabaseCloud
         .from("loyalty_rewards")
         .select("id,name,description,points_cost,reward_type,reward_value,min_order_amount,usage_limit,used_count,active")
         .eq("restaurant_id", selected.restaurant_id)
@@ -1308,6 +1276,57 @@ export default function BillingPage() {
     ).toFixed(2)
   )
 
+  async function payWithCashfree() {
+    if (!selectedOrder || !cashfreeEnabled) return
+    try {
+      const { data: { session } } = await supabaseCloud.auth.getSession()
+      if (!session?.access_token) throw new Error("Please sign in again.")
+      const origin = typeof window !== "undefined" ? window.location.origin : ""
+      const response = await fetch("/api/payments/cashfree/create-order", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          order_id: selectedOrder,
+          customer_phone: customerPhone || currentOrder?.customer_phone || "",
+          origin
+        })
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to start Cashfree payment")
+
+      if (!window.Cashfree) {
+        await new Promise((resolve, reject) => {
+          const existing = document.querySelector('script[data-cashfree-sdk="v3"]')
+          if (existing) {
+            existing.addEventListener("load", resolve, { once: true })
+            existing.addEventListener("error", reject, { once: true })
+            return
+          }
+          const script = document.createElement("script")
+          script.src = "https://sdk.cashfree.com/js/v3/cashfree.js"
+          script.async = true
+          script.dataset.cashfreeSdk = "v3"
+          script.onload = resolve
+          script.onerror = () => reject(new Error("Unable to load Cashfree Checkout SDK"))
+          document.head.appendChild(script)
+        })
+      }
+
+      const cashfree = window.Cashfree({
+        mode: result.environment === "production" ? "production" : "sandbox"
+      })
+      await cashfree.checkout({
+        paymentSessionId: result.payment_session_id,
+        redirectTarget: "_self"
+      })
+    } catch (error) {
+      alert(error?.message || "Cashfree payment could not be started")
+    }
+  }
+
   async function finalizeBill() {
 
     // A bill that has already completed successfully must never be posted
@@ -1379,7 +1398,7 @@ export default function BillingPage() {
         data: sessionData,
         error: sessionError
       } =
-        await supabase.auth.getSession()
+        await supabaseCloud.auth.getSession()
 
       if (
         sessionError ||
@@ -1391,9 +1410,7 @@ export default function BillingPage() {
         )
       }
 
-      let response
-      try {
-        response =
+      const response =
           await fetch(
             "/api/billing/finalize",
           {
@@ -1508,52 +1525,7 @@ export default function BillingPage() {
             })
           }
         )
-      } catch (networkError) {
-        const offlineBill = {
-          ...(currentOrder || {}),
-          id: selectedOrder,
-          restaurant_id: currentOrder?.restaurant_id || selected?.restaurant_id,
-          status: "done",
-          payment_status: "paid",
-          paid_amount: Number(Math.max(0, total || 0)),
-          total_amount: Number(Math.max(0, total || 0)),
-          payment_method: paymentMethod,
-          payment_reference: paymentReference || null,
-          invoice_no: "PENDING",
-          sync_status: "pending",
-          offline_bill_ready: true,
-          offline_bill_ready_at: new Date().toISOString(),
-          offline_payment_id: crypto.randomUUID(),
-          offline_created_at: currentOrder?.offline_created_at || currentOrder?.created_at || new Date().toISOString(),
-          items: (items || []).map(item => ({
-            id: item.id || crypto.randomUUID(),
-            item_id: item.item_id || null,
-            item_name: item.item_name || item.name || "Item",
-            quantity: Number(item.quantity || 0),
-            unit_price: Number(item.unit_price || 0),
-            line_total: Number(item.line_total || 0),
-            cooking_request: item.cooking_request || null,
-          }))
-        }
-        if (!offlineBill.restaurant_id) throw networkError
-        await saveMobileOfflineOrder(offlineBill)
-        setFinalizedBill({
-          order_id: selectedOrder,
-          invoice_no: "PENDING",
-          subtotal: Number(currentOrder?.subtotal || 0),
-          discount: Number(discountAmount || 0),
-          tax: Number(currentOrder?.tax_amount || 0),
-          total: Number(total || 0),
-          paid_amount: Number(total || 0),
-          payment_status: "paid",
-          payment_method: paymentMethod,
-          offline: true
-        })
-        setCurrentOrder(prev => ({ ...prev, ...offlineBill }))
-        setOrders(prev => prev.map(o => o.id === selectedOrder ? { ...o, ...offlineBill } : o))
-        alert("Bill saved offline. Invoice No: PENDING\nIt will be generated automatically when internet returns.")
-        return
-      }
+
 
       const result =
         await response.json()
@@ -3186,6 +3158,22 @@ export default function BillingPage() {
                     border:"1px solid var(--border)"
                   }}
                 />
+
+                {cashfreeEnabled && (
+                  <button
+                    type="button"
+                    onClick={payWithCashfree}
+                    disabled={!selectedOrder || finalizing}
+                    style={{
+                      ...btnGreen,
+                      marginTop:0,
+                      background:"#0f766e",
+                      opacity: (!selectedOrder || finalizing) ? .6 : 1
+                    }}
+                  >
+                    💳 Pay Online with Cashfree
+                  </button>
+                )}
 
                 <button
                   onClick={

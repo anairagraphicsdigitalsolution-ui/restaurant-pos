@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -7,7 +7,7 @@ export async function GET(req) {
   try {
     const user = await requireApiUser(req)
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("restaurant_id,role")
       .eq("id", user.id)
@@ -26,7 +26,7 @@ export async function GET(req) {
       )
     }
 
-    const { data: orders, error: ordersError } = await supabaseAdmin
+    const { data: orders, error: ordersError } = await supabaseCloudAdmin
       .from("orders")
       .select("*")
       .eq("restaurant_id", rid)
@@ -47,21 +47,21 @@ export async function GET(req) {
       { data: orderItems },
       { data: menuItems }
     ] = await Promise.all([
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("tables")
         .select("id,table_number")
         .eq("restaurant_id", rid),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("rooms")
         .select("id,room_number")
         .eq("restaurant_id", rid),
       orderIds.length
-        ? supabaseAdmin
+        ? supabaseCloudAdmin
             .from("order_items")
             .select("*")
             .in("order_id", orderIds)
         : Promise.resolve({ data: [] }),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("menu_items")
         .select("id,name")
         .eq("restaurant_id", rid)

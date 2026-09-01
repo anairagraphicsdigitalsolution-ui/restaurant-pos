@@ -7,22 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "audit:migrations": "node scripts/audit-migrations.mjs",
     "typecheck": "tsc --noEmit",
-    "phase5:local:start": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-start.ps1",
-    "phase5:local:stop": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-stop.ps1",
-    "phase5:local:status": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-status.ps1",
-    "phase5:cloud:backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-cloud-backup.ps1",
-    "phase5:local:restore": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-local-restore.ps1",
-    "phase5:data:verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-data-verify.ps1",
-    "phase5:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-start-sync.ps1",
-    "phase5:schema:compat": "powershell -ExecutionPolicy Bypass -File .\\scripts\\phase5-schema-compat.ps1",
-    "sync:worker": "node .\\scripts\\sync-worker.mjs",
-    "sync:repair": "powershell -ExecutionPolicy Bypass -File .\\scripts\\repair-bidirectional-sync.ps1",
-    "audit:offline": "node scripts/validate-offline-contract.mjs",
-    "phase:android:check": "node scripts/phase11-android-check.mjs",
-    "android:prepare": "powershell -ExecutionPolicy Bypass -File .\\scripts\\prepare-android-platform.ps1",
-    "phase12:android:offline-audit": "node scripts/phase12-android-offline-audit.mjs"
+    "electron": "electron electron/main.cjs",
+    "electron:build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-electron-windows.ps1 -CreateInstaller",
+    "electron:dist": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-electron-windows.ps1 -CreateInstaller",
+    "electron:dev": "node electron/main.cjs",
+    "electron:dir": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-electron-windows.ps1"
   },
   "dependencies": {
     "@capacitor-community/text-to-speech": "^8.0.2",
@@ -39,7 +29,6 @@
     "jspdf": "^3.0.1",
     "next": "^15.5.23",
     "openai": "^5.12.2",
-    "pg": "^8.23.0",
     "react": "^19.1.1",
     "react-barcode": "^1.5.3",
     "react-dom": "^19.1.1",
@@ -57,6 +46,11 @@
     "eslint-config-next": "^15.5.23",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.2"
-  }
+    "typescript": "^5.7.2",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "main": "electron/main.cjs",
+  "description": "Cloud-based Anaira Restaurant POS",
+  "author": "Anaira Graphics & Digital Solution"
 }

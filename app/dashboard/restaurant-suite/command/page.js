@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { supabasePublic as supabase } from "@/lib/supabasePublic"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 
@@ -28,20 +28,20 @@ export default function RestaurantCommandCenter() {
     if (!restaurantId) return
     setLoading(true)
     const queries = {
-      tables: supabase.from("dining_tables").select("id,table_no,status,x,y,width,height,capacity,area_id").eq("restaurant_id", restaurantId).order("table_no").limit(200),
-      areas: supabase.from("restaurant_areas").select("id,name").eq("restaurant_id", restaurantId).order("sort_order"),
-      orders: supabase.from("orders").select("id,status,total_amount,subtotal,discount_amount,tax_amount,payment_status,order_mode,waiter_id,customer_id,table_id,created_at,source_label").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(300),
-      payments: supabase.from("order_payments").select("id,order_id,payment_method,amount,status,created_at,created_by").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(300),
-      customers: supabase.from("customers").select("id,name,phone").eq("restaurant_id", restaurantId).order("name").limit(200),
-      wallets: supabase.from("customer_wallets").select("id,customer_id,balance,points,updated_at").eq("restaurant_id", restaurantId).limit(200),
-      walletTx: supabase.from("customer_wallet_transactions").select("id,customer_id,transaction_type,amount,points,notes,created_at").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(100),
-      riders: supabase.from("delivery_riders").select("id,name,phone").eq("restaurant_id", restaurantId).order("name"),
-      deliverySettlements: supabase.from("delivery_settlements").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(100),
-      payouts: supabase.from("aggregator_payouts").select("*").eq("restaurant_id", restaurantId).order("payout_date", { ascending: false }).limit(100),
-      displays: supabase.from("digital_display_calls").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(50),
-      terminals: supabase.from("pos_terminals").select("*").eq("restaurant_id", restaurantId).order("terminal_name"),
-      branches: supabase.from("restaurant_branches").select("id,name,code,active").eq("parent_restaurant_id", restaurantId).order("name"),
-      plugins: supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", restaurantId),
+      tables: supabaseCloud.from("dining_tables").select("id,table_no,status,x,y,width,height,capacity,area_id").eq("restaurant_id", restaurantId).order("table_no").limit(200),
+      areas: supabaseCloud.from("restaurant_areas").select("id,name").eq("restaurant_id", restaurantId).order("sort_order"),
+      orders: supabaseCloud.from("orders").select("id,status,total_amount,subtotal,discount_amount,tax_amount,payment_status,order_mode,waiter_id,customer_id,table_id,created_at,source_label").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(300),
+      payments: supabaseCloud.from("order_payments").select("id,order_id,payment_method,amount,status,created_at,created_by").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(300),
+      customers: supabaseCloud.from("customers").select("id,name,phone").eq("restaurant_id", restaurantId).order("name").limit(200),
+      wallets: supabaseCloud.from("customer_wallets").select("id,customer_id,balance,points,updated_at").eq("restaurant_id", restaurantId).limit(200),
+      walletTx: supabaseCloud.from("customer_wallet_transactions").select("id,customer_id,transaction_type,amount,points,notes,created_at").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(100),
+      riders: supabaseCloud.from("delivery_riders").select("id,name,phone").eq("restaurant_id", restaurantId).order("name"),
+      deliverySettlements: supabaseCloud.from("delivery_settlements").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(100),
+      payouts: supabaseCloud.from("aggregator_payouts").select("*").eq("restaurant_id", restaurantId).order("payout_date", { ascending: false }).limit(100),
+      displays: supabaseCloud.from("digital_display_calls").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(50),
+      terminals: supabaseCloud.from("pos_terminals").select("*").eq("restaurant_id", restaurantId).order("terminal_name"),
+      branches: supabaseCloud.from("restaurant_branches").select("id,name,code,active").eq("parent_restaurant_id", restaurantId).order("name"),
+      plugins: supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", restaurantId),
     }
     const entries = await Promise.all(Object.entries(queries).map(async ([key, query]) => [key, (await query).data || []]))
     setData(Object.fromEntries(entries))
@@ -50,9 +50,9 @@ export default function RestaurantCommandCenter() {
 
   useEffect(() => {
     ;(async () => {
-      const { data: auth } = await supabase.auth.getUser()
+      const { data: auth } = await supabaseCloud.auth.getUser()
       if (!auth?.user) { setLoading(false); return }
-      const { data: profile, error } = await supabase.from("profiles").select("restaurant_id").eq("id", auth.user.id).maybeSingle()
+      const { data: profile, error } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", auth.user.id).maybeSingle()
       if (error || !profile?.restaurant_id) { setMessage(error?.message || "Restaurant profile not found"); setLoading(false); return }
       setRid(profile.restaurant_id)
       await load(profile.restaurant_id)
@@ -98,7 +98,7 @@ export default function RestaurantCommandCenter() {
 
   async function api(action, payload) {
     setBusy(true)
-    const { data: session } = await supabase.auth.getSession()
+    const { data: session } = await supabaseCloud.auth.getSession()
     const response = await fetch("/api/restaurant-operations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.session?.access_token || ""}` }, body: JSON.stringify({ action, ...payload }) })
     const json = await response.json().catch(() => ({}))
     setBusy(false)
@@ -109,7 +109,7 @@ export default function RestaurantCommandCenter() {
   async function moveTable(table, dx, dy) {
     const x = Number(table.x || 0) + dx
     const y = Number(table.y || 0) + dy
-    const { error } = await supabase.from("dining_tables").update({ x, y }).eq("id", table.id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from("dining_tables").update({ x, y }).eq("id", table.id).eq("restaurant_id", rid)
     setMessage(error?.message || "Table position updated")
     if (!error) await load(rid)
   }

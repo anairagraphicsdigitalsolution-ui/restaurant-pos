@@ -3,7 +3,7 @@
 import { indiaDateKey, formatIndiaDateTime } from "@/lib/indiaTime"
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString("en-IN", {
@@ -33,10 +33,10 @@ export default function CashClosing() {
   async function load() {
     setError("")
 
-    const { data: userData } = await supabase.auth.getUser()
+    const { data: userData } = await supabaseCloud.auth.getUser()
     if (!userData?.user) return
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await supabaseCloud
       .from("profiles")
       .select("restaurant_id")
       .eq("id", userData.user.id)
@@ -61,21 +61,21 @@ export default function CashClosing() {
       { data: expenseRows },
       { data: closings },
     ] = await Promise.all([
-      supabase
+      supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", restaurantId)
         .eq("plugin_code", "operations-hub")
         .maybeSingle(),
 
-      supabase
+      supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
         .eq("plugin_code", "operations-hub")
         .maybeSingle(),
 
-      supabase
+      supabaseCloud
         .from("order_payments")
         .select("amount,payment_method,status,paid_at,created_at")
         .eq("restaurant_id", restaurantId)
@@ -84,7 +84,7 @@ export default function CashClosing() {
         .gte("paid_at", start)
         .lte("paid_at", end),
 
-      supabase
+      supabaseCloud
         .from("order_refunds")
         .select("amount,status,created_at")
         .eq("restaurant_id", restaurantId)
@@ -92,21 +92,21 @@ export default function CashClosing() {
         .gte("created_at", start)
         .lte("created_at", end),
 
-      supabase
+      supabaseCloud
         .from("cash_movements")
         .select("movement_type,amount,created_at")
         .eq("restaurant_id", restaurantId)
         .gte("created_at", start)
         .lte("created_at", end),
 
-      supabase
+      supabaseCloud
         .from("expenses")
         .select("amount,payment_method,expense_date")
         .eq("restaurant_id", restaurantId)
         .eq("payment_method", "cash")
         .eq("expense_date", day),
 
-      supabase
+      supabaseCloud
         .from("cash_closings")
         .select("*")
         .eq("restaurant_id", restaurantId)
@@ -194,9 +194,9 @@ export default function CashClosing() {
     setError("")
 
     try {
-      const { data: userData } = await supabase.auth.getUser()
+      const { data: userData } = await supabaseCloud.auth.getUser()
 
-      const { error: closeError } = await supabase
+      const { error: closeError } = await supabaseCloud
         .from("cash_closings")
         .upsert(
           {

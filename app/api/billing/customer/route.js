@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -8,7 +8,7 @@ function normalizePhone(value) {
 }
 
 async function getOrder(orderId) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabaseCloudAdmin
     .from("orders")
     .select("id,restaurant_id,customer_id")
     .eq("id", orderId)
@@ -29,7 +29,7 @@ export async function GET(req) {
     const order = await getOrder(orderId)
 
     if (order.customer_id) {
-      const { data: customer } = await supabaseAdmin
+      const { data: customer } = await supabaseCloudAdmin
         .from("customers")
         .select("*")
         .eq("id", order.customer_id)
@@ -41,7 +41,7 @@ export async function GET(req) {
     }
 
     if (!phone || phone.length < 10) return Response.json({ customer: null })
-    const { data: customer, error } = await supabaseAdmin
+    const { data: customer, error } = await supabaseCloudAdmin
       .from("customers")
       .select("*")
       .eq("restaurant_id", order.restaurant_id)
@@ -68,7 +68,7 @@ export async function POST(req) {
     const order = await getOrder(orderId)
 
     let customer = null
-    const { data: existing, error: existingError } = await supabaseAdmin
+    const { data: existing, error: existingError } = await supabaseCloudAdmin
       .from("customers")
       .select("*")
       .eq("restaurant_id", order.restaurant_id)
@@ -77,7 +77,7 @@ export async function POST(req) {
     if (existingError) throw new Error(existingError.message)
 
     if (existing) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabaseCloudAdmin
         .from("customers")
         .update({ name, phone, updated_at: new Date().toISOString() })
         .eq("id", existing.id)
@@ -87,7 +87,7 @@ export async function POST(req) {
       if (error) throw new Error(error.message)
       customer = data
     } else {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabaseCloudAdmin
         .from("customers")
         .insert({ restaurant_id: order.restaurant_id, name, phone })
         .select("*")
@@ -96,7 +96,7 @@ export async function POST(req) {
       customer = data
     }
 
-    const { error: linkError } = await supabaseAdmin
+    const { error: linkError } = await supabaseCloudAdmin
       .from("orders")
       .update({ customer_id: customer.id })
       .eq("id", orderId)

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useAuth } from "@/components/AuthProvider"
 
 const inputStyle = {
@@ -32,7 +32,7 @@ export default function AddItem() {
     if (!restaurantId) return
     let cancelled = false
     async function loadCategories() {
-      const { data, error } = await supabase.from("menu_items").select("category").eq("restaurant_id", restaurantId).not("category", "is", null)
+      const { data, error } = await supabaseCloud.from("menu_items").select("category").eq("restaurant_id", restaurantId).not("category", "is", null)
       if (!error && !cancelled) {
         const unique = [...new Set((data || []).map(row => String(row.category || "").trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b))
         setCategories(unique)
@@ -65,7 +65,7 @@ export default function AddItem() {
     setLoading(true)
     setMessage("")
 
-    const { error } = await supabase
+    const { error } = await supabaseCloud
       .from("menu_items")
       .insert([{ name: name.trim(), price: Number(price), category: category.trim() || "Other", restaurant_id: restaurantId }])
 

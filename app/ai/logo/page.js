@@ -1,6 +1,6 @@
 "use client"
 
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useEffect, useMemo, useState } from "react"
 
 const PLUGIN_CODE = "ai-logo-studio"
@@ -26,9 +26,9 @@ export default function LogoPage(){
     let alive=true
     ;(async()=>{
       try{
-        const {data:{session}}=await supabase.auth.getSession()
+        const {data:{session}}=await supabaseCloud.auth.getSession()
         if(!session?.access_token){if(alive){setPluginActive(false);setPluginMessage("Login required")}return}
-        const {data:profile,error:profileError}=await supabase.from("profiles").select("role,restaurant_id").eq("id",session.user.id).maybeSingle()
+        const {data:profile,error:profileError}=await supabaseCloud.from("profiles").select("role,restaurant_id").eq("id",session.user.id).maybeSingle()
         if(!profileError&&profile?.role==="super_admin"){if(alive){setPluginActive(true);setPluginMessage("")}return}
         const res=await fetch("/api/plugins/list",{headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"})
         const data=await res.json();const row=(data.data||[]).find(x=>x.code===PLUGIN_CODE)

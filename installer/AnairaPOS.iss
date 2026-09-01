@@ -1,1 +1,0 @@
-#include "AnairaPOS-Setup.iss"

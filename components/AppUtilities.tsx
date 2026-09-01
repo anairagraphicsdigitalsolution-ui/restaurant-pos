@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type Result = {
   id: string
@@ -76,7 +76,7 @@ export default function AppUtilities({ restaurantId, role }: Props) {
     if (!restaurantId || role === "super_admin") return
     let mounted = true
     async function loadInitial() {
-      const { count } = await supabase.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
+      const { count } = await supabaseCloud.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
       if (mounted) setUnread(count || 0)
     }
     void loadInitial()
@@ -124,7 +124,7 @@ export default function AppUtilities({ restaurantId, role }: Props) {
     const timer = window.setTimeout(async () => {
       setSearching(true)
       try {
-        const session = await supabase.auth.getSession()
+        const session = await supabaseCloud.auth.getSession()
         const token = session.data.session?.access_token
         if (!token) return
         const response = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {

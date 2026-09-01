@@ -1,6 +1,6 @@
 import OpenAI from "openai"
 import { requireApiUser } from "@/lib/serverAuth"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
@@ -20,7 +20,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"AI plugin is required" }, { status:400 })
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("restaurant_id, role")
       .eq("id", user.id)
@@ -38,7 +38,7 @@ export async function POST(req) {
         return Response.json({ success:false, error:"Restaurant context required" }, { status:403 })
       }
 
-      const { data: pluginRow, error: pluginError } = await supabaseAdmin
+      const { data: pluginRow, error: pluginError } = await supabaseCloudAdmin
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)

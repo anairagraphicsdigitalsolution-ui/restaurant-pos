@@ -1,17 +1,17 @@
 "use client"
 
 import {useEffect,useState} from "react"
-import {supabase} from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import {PLUGIN_CATALOG} from "@/lib/pluginCatalog"
 
 export default function AdminPlugins(){
  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[msg,setMsg]=useState("")
  useEffect(()=>{load()},[])
  async function load(){
-  const {data:{user}}=await supabase.auth.getUser();if(!user){setLoading(false);return}
-  const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
+  const {data:{user}}=await supabaseCloud.auth.getUser();if(!user){setLoading(false);return}
+  const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
   if(p?.role!=="admin"){setMsg("Not authorized");setLoading(false);return}
-  const {data:installed,error}=await supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id)
+  const {data:installed,error}=await supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id)
   if(error)setMsg(error.message)
   const state={};for(const x of installed||[])state[x.plugin_code]=x.enabled===true
   setRows(PLUGIN_CATALOG.map(x=>({...x,enabled:state[x.code]===true||((x.aliases||[]).some(a=>state[a]===true))})))

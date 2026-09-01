@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useTheme } from "@/components/ThemeProvider"
 
 const modes=["dine_in","takeaway","delivery","quick_order"]
@@ -38,12 +38,12 @@ export default function RestaurantCore(){
     init()
   },[refreshTheme])
   async function init(){
-    const {data:{user}}=await supabase.auth.getUser()
+    const {data:{user}}=await supabaseCloud.auth.getUser()
     if(!user){setLoading(false);return}
-    const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",user.id).single()
+    const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id").eq("id",user.id).single()
     if(!p?.restaurant_id){setLoading(false);return}
     setRid(p.restaurant_id);
-    const { data: pluginRow } = await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id", p.restaurant_id).eq("plugin_code", "restaurant-core").maybeSingle()
+    const { data: pluginRow } = await supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id", p.restaurant_id).eq("plugin_code", "restaurant-core").maybeSingle()
     const enabled = pluginRow?.enabled === true
     setPluginEnabled(enabled)
     if (enabled) await load(p.restaurant_id)
@@ -52,8 +52,8 @@ export default function RestaurantCore(){
   async function load(r=rid){
     if(!r)return
     const [{data:o},{data:t}]=await Promise.all([
-      supabase.from("orders").select("id,status,total_amount,payment_status,source_type,source_id,source_label,order_mode,priority,created_at,hold_status").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(100),
-      supabase.from("tables").select("id,table_number,seats,status,floor,section").eq("restaurant_id",r).order("table_number")
+      supabaseCloud.from("orders").select("id,status,total_amount,payment_status,source_type,source_id,source_label,order_mode,priority,created_at,hold_status").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(100),
+      supabaseCloud.from("tables").select("id,table_number,seats,status,floor,section").eq("restaurant_id",r).order("table_number")
     ])
     setOrders(o||[]);setTables(t||[])
   }
@@ -62,7 +62,7 @@ export default function RestaurantCore(){
     if(!selected && !["mode"].includes(action)){setMessage("Select an order first");return}
     setBusy(true);setMessage("")
     try{
-      const {data:{session}}=await supabase.auth.getSession()
+      const {data:{session}}=await supabaseCloud.auth.getSession()
       const res=await fetch("/api/restaurant/operations",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session?.access_token||""}`},body:JSON.stringify({action,order_id:selected,...extra})})
       const out=await res.json()
       if(!res.ok||!out.success)throw new Error(out.error||"Operation failed")

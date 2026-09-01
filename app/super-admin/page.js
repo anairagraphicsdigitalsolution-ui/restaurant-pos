@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import * as XLSX from "xlsx"
 
 export default function SuperAdmin() {
@@ -49,7 +49,7 @@ export default function SuperAdmin() {
   async function loadRestaurants(){
     setLoadingRestaurants(true)
     setLoadError("")
-    const { data, error } = await supabase.from("restaurants").select("*")
+    const { data, error } = await supabaseCloud.from("restaurants").select("*")
 
     if (error) {
       console.error("SUPER ADMIN RESTAURANTS:", error)
@@ -62,7 +62,7 @@ export default function SuperAdmin() {
 
     let subscriptionRows = []
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (token) {
         const response = await fetch("/api/super-admin/subscriptions", { headers:{ Authorization:`Bearer ${token}` }, cache:"no-store" })
@@ -84,7 +84,7 @@ export default function SuperAdmin() {
     }))
 
     setRestaurants(fixed)
-    const { data: wp } = await supabase
+    const { data: wp } = await supabaseCloud
   .from("plugin_settings")
   .select("*")
   .eq("plugin_code","whatsapp")
@@ -143,7 +143,7 @@ setWhatsappNumbers(map)
 
     if(!confirm("Delete selected items?")) return
 
-    await supabase
+    await supabaseCloud
       .from("menu_items")
       .delete()
       .in("id", selectedItems)
@@ -156,7 +156,7 @@ setWhatsappNumbers(map)
     const ext = file.name.split(".").pop()
     const fileName = `menu-${Date.now()}.${ext}`
 
-    const { error } = await supabase.storage
+    const { error } = await supabaseCloud.storage
       .from("menu-images")
       .upload(fileName,file)
 
@@ -165,7 +165,7 @@ setWhatsappNumbers(map)
       return null
     }
 
-    const { data } = supabase.storage
+    const { data } = supabaseCloud.storage
       .from("menu-images")
       .getPublicUrl(fileName)
 
@@ -180,14 +180,14 @@ setWhatsappNumbers(map)
   setSelectedItems([]) // 🔥 reset selection
 
   // ✅ ADD THIS
-  const { data: menuData } = await supabase
+  const { data: menuData } = await supabaseCloud
     .from("menu_items")
     .select("*")
     .eq("restaurant_id", r.id)
 
   setMenu(menuData || [])
 
-  const { data: wp } = await supabase
+  const { data: wp } = await supabaseCloud
   .from("plugin_settings")
   .select("*")
   .eq("restaurant_id", r.id)
@@ -215,7 +215,7 @@ setWhatsappNumbers(map)
       if(uploaded) imageUrl = uploaded
     }
 
-    await supabase.from("menu_items").insert([{
+    await supabaseCloud.from("menu_items").insert([{
       ...item,
       image:imageUrl,
       price:Number(item.price),
@@ -247,7 +247,7 @@ setWhatsappNumbers(map)
       restaurant_id: selected.id
     }))
 
-    await supabase.from("menu_items").insert(formatted)
+    await supabaseCloud.from("menu_items").insert(formatted)
 
     alert("Bulk upload success ✅")
     await handleEdit(selected)
@@ -257,12 +257,12 @@ setWhatsappNumbers(map)
     const url = await uploadImage(file)
     if(!url) return
 
-    await supabase.from("menu_items").update({image:url}).eq("id",id)
+    await supabaseCloud.from("menu_items").update({image:url}).eq("id",id)
     await handleEdit(selected)
   }
 
   async function deleteItem(id){
-    await supabase.from("menu_items").delete().eq("id", id)
+    await supabaseCloud.from("menu_items").delete().eq("id", id)
    await handleEdit(selected)
   }
 
@@ -295,7 +295,7 @@ setWhatsappNumbers(map)
 
     try {
       const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession()
+        await supabaseCloud.auth.getSession()
 
       if (sessionError || !sessionData?.session?.access_token) {
         throw new Error("Login session expired. Please login again.")
@@ -332,7 +332,7 @@ setWhatsappNumbers(map)
   async function toggleStatus(r){
     if (r.status === "active") {
       if (!confirm(`Deactivate ${r.name}? Its users will lose access until you activate it again.`)) return
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       const response = await fetch("/api/super-admin/subscriptions", { method:"POST", headers:{"Authorization":`Bearer ${token}`,"Content-Type":"application/json"}, body:JSON.stringify({restaurant_id:r.id,action:"deactivate"}) })
       const payload = await response.json()
@@ -353,7 +353,7 @@ async function updateRestaurantSubscription(restaurant, action) {
 
     try {
       setSubscriptionBusy(`${restaurant.id}:${action}`)
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Authentication required. Please login again.")
 
@@ -389,7 +389,7 @@ async function updateRestaurantSubscription(restaurant, action) {
     if (!restaurant?.id || !planId) return
     try {
       setSubscriptionBusy(`${restaurant.id}:assign`)
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Authentication required. Please login again.")
 
@@ -429,7 +429,7 @@ async function updateRestaurantSubscription(restaurant, action) {
     setSavingRestaurant(true)
 
     if(editingId){
-      const { error } = await supabase
+      const { error } = await supabaseCloud
         .from("restaurants")
         .update({
           name: form.name.trim(),
@@ -444,7 +444,7 @@ async function updateRestaurantSubscription(restaurant, action) {
       if(error) throw new Error(error.message)
 
       if(form.whatsapp.trim()){
-        const { error: wpError } = await supabase
+        const { error: wpError } = await supabaseCloud
           .from("plugin_settings")
           .upsert({
             restaurant_id: editingId,
@@ -464,7 +464,7 @@ async function updateRestaurantSubscription(restaurant, action) {
       const {
         data: { session },
         error: sessionError
-      } = await supabase.auth.getSession()
+      } = await supabaseCloud.auth.getSession()
 
       if (sessionError) {
         throw new Error(sessionError.message)

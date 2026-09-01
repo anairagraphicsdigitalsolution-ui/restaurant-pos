@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/serverAuth"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 import { PLUGIN_CODES } from "@/lib/pluginCatalog"
 import { sanitizeConfigForClient, mergeConfigPreservingSecrets } from "@/lib/pluginRuntime"
@@ -9,7 +9,7 @@ export const runtime = "nodejs"
 
 async function context(req, requestedRestaurantId) {
   const user = await requireApiUser(req)
-  const { data: profile, error } = await supabaseAdmin
+  const { data: profile, error } = await supabaseCloudAdmin
     .from("profiles")
     .select("id,role,restaurant_id")
     .eq("id", user.id)
@@ -39,14 +39,14 @@ export async function GET(req) {
     const pluginCode = String(url.searchParams.get("plugin_code") || "").trim()
     validatePlugin(pluginCode)
     const { restaurantId } = await context(req, url.searchParams.get("restaurant_id"))
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabaseCloudAdmin
       .from("plugin_settings")
       .select("config,updated_at")
       .eq("restaurant_id", restaurantId)
       .eq("plugin_code", pluginCode)
       .maybeSingle()
     if (error) throw error
-    const { data: pluginRow, error: pluginError } = await supabaseAdmin
+    const { data: pluginRow, error: pluginError } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("enabled,installed")
       .eq("restaurant_id", restaurantId)
@@ -76,7 +76,7 @@ export async function POST(req) {
     const { restaurantId } = await context(req, body?.restaurant_id)
     const incoming = body?.config && typeof body.config === "object" ? body.config : {}
 
-    const { data: existingRow, error: readError } = await supabaseAdmin
+    const { data: existingRow, error: readError } = await supabaseCloudAdmin
       .from("plugin_settings")
       .select("config")
       .eq("restaurant_id", restaurantId)
@@ -85,7 +85,7 @@ export async function POST(req) {
     if (readError) throw readError
 
     const merged = mergeConfigPreservingSecrets(existingRow?.config || {}, incoming)
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabaseCloudAdmin
       .from("plugin_settings")
       .upsert(
         { restaurant_id: restaurantId, plugin_code: pluginCode, config: merged, updated_at: new Date().toISOString() },

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireFeature } from "@/lib/featureGateServer"
 
@@ -17,7 +17,7 @@ export async function POST(req) {
       return Response.json({ success: false, error: "Invalid order status" }, { status: 400 })
     }
 
-    const { data: order } = await supabaseAdmin
+    const { data: order } = await supabaseCloudAdmin
       .from("orders")
       .select("restaurant_id")
       .eq("id", orderId)
@@ -33,7 +33,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:featureError.message }, { status:403 })
     }
 
-    const { data, error } = await supabaseAdmin.rpc("stage3_update_order_status", {
+    const { data, error } = await supabaseCloudAdmin.rpc("stage3_update_order_status", {
       p_actor_id: user.id,
       p_order_id: orderId,
       p_status: status,

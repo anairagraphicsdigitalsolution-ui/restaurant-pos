@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabasePublic as supabase } from "@/lib/supabasePublic"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const modules = [
   ["pos", "🧾", "POS & Billing"], ["floor", "🪑", "Floor & Tables"],
@@ -26,10 +26,10 @@ export default function UltimateRestaurantSuite() {
   useEffect(() => { init() }, [])
 
   async function init() {
-    const { data: auth } = await supabase.auth.getUser()
+    const { data: auth } = await supabaseCloud.auth.getUser()
     const user = auth?.user
     if (!user) { setLoading(false); return }
-    const { data: profile } = await supabase.from("profiles").select("restaurant_id").eq("id", user.id).maybeSingle()
+    const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", user.id).maybeSingle()
     if (!profile?.restaurant_id) { setLoading(false); return }
     setRid(profile.restaurant_id)
     await load(profile.restaurant_id)
@@ -39,15 +39,15 @@ export default function UltimateRestaurantSuite() {
     if (!id) return
     setLoading(true)
     const q = await Promise.all([
-      supabase.from("orders").select("id,total_amount,status,payment_status,order_mode,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(50),
-      supabase.from("dining_tables").select("id,table_no,status,capacity").eq("restaurant_id", id),
-      supabase.from("restaurant_deliveries").select("id,status,collection_status,collection_expected,collection_received,customer_name,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(50),
-      supabase.from("restaurant_service_calls").select("id,call_type,status,table_id,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("restaurant_integration_jobs").select("id,integration_code,job_type,status,attempts,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("restaurant_cash_movements").select("id,movement_type,amount,reference,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("restaurant_report_runs").select("id,report_type,status,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
-      supabase.from("restaurant_customer_segments").select("id,name,code,active").eq("restaurant_id", id).order("name"),
-      supabase.from("restaurant_hardware_devices").select("id,name,device_type,active,last_seen_at").eq("restaurant_id", id).order("name"),
+      supabaseCloud.from("orders").select("id,total_amount,status,payment_status,order_mode,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(50),
+      supabaseCloud.from("dining_tables").select("id,table_no,status,capacity").eq("restaurant_id", id),
+      supabaseCloud.from("restaurant_deliveries").select("id,status,collection_status,collection_expected,collection_received,customer_name,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(50),
+      supabaseCloud.from("restaurant_service_calls").select("id,call_type,status,table_id,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      supabaseCloud.from("restaurant_integration_jobs").select("id,integration_code,job_type,status,attempts,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      supabaseCloud.from("restaurant_cash_movements").select("id,movement_type,amount,reference,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(30),
+      supabaseCloud.from("restaurant_report_runs").select("id,report_type,status,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
+      supabaseCloud.from("restaurant_customer_segments").select("id,name,code,active").eq("restaurant_id", id).order("name"),
+      supabaseCloud.from("restaurant_hardware_devices").select("id,name,device_type,active,last_seen_at").eq("restaurant_id", id).order("name"),
     ])
     const [orders, tables, deliveries, calls, jobs, shifts, reports, segments, devices] = q.map(x => Array.isArray(x.data) ? x.data : [])
     const revenue = orders.reduce((s, o) => s + Number(o.total_amount || 0), 0)
@@ -64,7 +64,7 @@ export default function UltimateRestaurantSuite() {
   }
 
   async function insert(table, payload, text) {
-    const { error } = await supabase.from(table).insert({ restaurant_id: rid, ...payload })
+    const { error } = await supabaseCloud.from(table).insert({ restaurant_id: rid, ...payload })
     setMsg(error?.message || text)
     if (!error) await load()
   }

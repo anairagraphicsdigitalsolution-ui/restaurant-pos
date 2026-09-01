@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const emptyForm = { name: "", price: "", category: "Combo Meals", image: "", mode: "fixed", groupName: "Choose your meal", min: 1, max: 1 }
 
@@ -22,14 +22,14 @@ export default function CombosPage() {
   useEffect(() => { init() }, [])
 
   async function init() {
-    const { data: user } = await supabase.auth.getUser()
-    const { data: profile } = await supabase.from("profiles").select("restaurant_id").eq("id", user?.user?.id).maybeSingle()
+    const { data: user } = await supabaseCloud.auth.getUser()
+    const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", user?.user?.id).maybeSingle()
     const restaurantId = profile?.restaurant_id
     if (!restaurantId) return setMessage("Restaurant profile not found.")
     setRid(restaurantId)
     const [{data:plugin},{data:settings}] = await Promise.all([
-      supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
-      supabase.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
+      supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
+      supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
     ])
     const allowed = plugin?.enabled === true && settings?.config?.combos_enabled !== false
     setComboAccess(allowed)
@@ -40,8 +40,8 @@ export default function CombosPage() {
   async function load(restaurantId = rid) {
     if (!restaurantId) return
     const [{ data: menu }, { data: comboRows }] = await Promise.all([
-      supabase.from("menu_items").select("id,name,price,category,image,item_type").eq("restaurant_id", restaurantId).order("category").order("name"),
-      supabase.from("menu_items").select("id,name,price,category,image,item_type,combo_config").eq("restaurant_id", restaurantId).eq("item_type", "combo").order("name")
+      supabaseCloud.from("menu_items").select("id,name,price,category,image,item_type").eq("restaurant_id", restaurantId).order("category").order("name"),
+      supabaseCloud.from("menu_items").select("id,name,price,category,image,item_type,combo_config").eq("restaurant_id", restaurantId).eq("item_type", "combo").order("name")
     ])
     setItems((menu || []).filter(i => i.item_type !== "combo"))
     setCombos(comboRows || [])
@@ -82,8 +82,8 @@ export default function CombosPage() {
       : { mode: "choice", groups: [{ name: form.groupName.trim() || "Choose an option", min: Number(form.min || 1), max: Number(form.max || 1), options: selectedOptions.map(item_id => ({ item_id, price_delta: Number(optionDeltas[item_id] || 0) })) }] }
     const payload = { restaurant_id: rid, name: form.name.trim(), price: Number(form.price), category: form.category.trim() || "Combo Meals", image: form.image.trim() || null, description: "Premium combo meal", item_type: "combo", combo_config: comboConfig }
     const result = editingId
-      ? await supabase.from("menu_items").update(payload).eq("id", editingId).eq("restaurant_id", rid)
-      : await supabase.from("menu_items").insert(payload)
+      ? await supabaseCloud.from("menu_items").update(payload).eq("id", editingId).eq("restaurant_id", rid)
+      : await supabaseCloud.from("menu_items").insert(payload)
     if (result.error) setMessage(result.error.message)
     else { setMessage(editingId ? "Combo updated successfully." : "Combo created successfully."); reset(); await load() }
     setSaving(false)
@@ -91,7 +91,7 @@ export default function CombosPage() {
 
   async function remove(id) {
     if (!window.confirm("Delete this combo?")) return
-    const { error } = await supabase.from("menu_items").delete().eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from("menu_items").delete().eq("id", id).eq("restaurant_id", rid)
     if (error) setMessage(error.message); else await load()
   }
 

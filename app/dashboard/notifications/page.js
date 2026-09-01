@@ -2,7 +2,7 @@
 import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([])
@@ -14,19 +14,19 @@ export default function Notifications() {
   const [settings,setSettings]=useState({in_app:true,sound:true,browser:false,email:false})
 
   async function load() {
-    const { data: u } = await supabase.auth.getUser()
+    const { data: u } = await supabaseCloud.auth.getUser()
     if (!u?.user) return
-    const { data: p } = await supabase
+    const { data: p } = await supabaseCloud
       .from("profiles")
       .select("restaurant_id")
       .eq("id", u.user.id)
       .single()
     if (!p?.restaurant_id) return
     setRestaurantId(p.restaurant_id)
-    const {data:pluginSettings}=await supabase.from("plugin_settings").select("config")
+    const {data:pluginSettings}=await supabaseCloud.from("plugin_settings").select("config")
       .eq("restaurant_id",p.restaurant_id).eq("plugin_code","smart-notifications").maybeSingle()
     setSettings({...settings,...(pluginSettings?.config||{})})
-    const { data } = await supabase
+    const { data } = await supabaseCloud
       .from("notifications")
       .select("*")
       .eq("restaurant_id", p.restaurant_id)
@@ -45,14 +45,14 @@ export default function Notifications() {
       .filter(Boolean)
 
     if (orderIds.length) {
-      const { data: orders } = await supabase
+      const { data: orders } = await supabaseCloud
         .from("orders")
         .select("id,total_amount,subtotal,tax_amount,discount_amount")
         .eq("restaurant_id", p.restaurant_id)
 
       const ids = (orders || []).map(o => o.id)
       const { data: orderItems } = ids.length
-        ? await supabase
+        ? await supabaseCloud
             .from("order_items")
             .select("id,order_id,quantity,unit_price,line_total")
             .in("order_id", ids)
@@ -148,12 +148,12 @@ export default function Notifications() {
           const match = String(row.message || "").match(/Order #([a-f0-9]{8})/i)
           const shortId = match?.[1]?.toLowerCase()
           if (!shortId) return
-          const { data: orders } = await supabase.from("orders").select("id,total_amount,subtotal,tax_amount,discount_amount").eq("restaurant_id", restaurantId)
+          const { data: orders } = await supabaseCloud.from("orders").select("id,total_amount,subtotal,tax_amount,discount_amount").eq("restaurant_id", restaurantId)
           const found = (orders || []).find(o => String(o.id).slice(0, 8).toLowerCase() === shortId)
           if (!found) return
           let total = Number(found.total_amount || 0)
           if (!total) {
-            const { data: items } = await supabase.from("order_items").select("quantity,unit_price,line_total").eq("order_id", found.id)
+            const { data: items } = await supabaseCloud.from("order_items").select("quantity,unit_price,line_total").eq("order_id", found.id)
             total = (items || []).reduce((sum, item) => sum + (Number(item.line_total || 0) || Number(item.unit_price || 0) * Number(item.quantity || 0)), 0)
           }
           setOrderTotals(prev => ({ ...prev, [shortId]: { ...found, total_amount: total } }))
@@ -165,7 +165,7 @@ export default function Notifications() {
   }, [restaurantId,settings])
 
   async function read(id) {
-    await supabase
+    await supabaseCloud
       .from("notifications")
       .update({ read_at: new Date().toISOString() })
       .eq("id", id)

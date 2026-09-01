@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type Notice = {
   id: string
@@ -26,20 +26,20 @@ export default function RealtimeNotificationProvider() {
       const channel = channelRef.current
       channelRef.current = null
       restaurantRef.current = null
-      if (channel) await supabase.removeChannel(channel)
+      if (channel) await supabaseCloud.removeChannel(channel)
     }
 
     const start = async () => {
       if (cancelled) return
 
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const user = sessionData?.session?.user || null
       if (!user) {
         retryTimer = setTimeout(start, 1000)
         return
       }
 
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseCloud
         .from("profiles")
         .select("restaurant_id,role")
         .eq("id", user.id)
@@ -55,7 +55,7 @@ export default function RealtimeNotificationProvider() {
       await cleanupChannel()
       if (cancelled) return
 
-      const channel = supabase
+      const channel = supabaseCloud
         .channel(`anaira-central-notifications-${restaurantId}`)
         .on(
           "postgres_changes",
@@ -81,7 +81,7 @@ export default function RealtimeNotificationProvider() {
       restaurantRef.current = restaurantId
     }
 
-    const auth = supabase.auth.onAuthStateChange((_event) => {
+    const auth = supabaseCloud.auth.onAuthStateChange((_event) => {
       if (retryTimer) clearTimeout(retryTimer)
       // Supabase recommends deferring follow-up work from the auth callback.
       retryTimer = setTimeout(start, 0)

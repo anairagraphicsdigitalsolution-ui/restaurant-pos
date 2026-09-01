@@ -1,11 +1,11 @@
 import { runPlugin } from "@/lib/pluginManager"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
 
 async function getAuthorizedContext(userId, restaurantId, allowedRoles = ["admin", "super_admin"]) {
-  const { data: profile, error } = await supabaseAdmin
+  const { data: profile, error } = await supabaseCloudAdmin
     .from("profiles")
     .select("id, role, restaurant_id")
     .eq("id", userId)

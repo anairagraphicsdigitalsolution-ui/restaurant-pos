@@ -15,7 +15,7 @@ PieChart,
 Pie,
 Cell
 } from "recharts"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
 import { printHtmlInFrame } from "@/lib/printUtils"
 
@@ -66,7 +66,7 @@ useEffect(() => {
 
 async function loadRestaurant() {
 
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData } = await supabaseCloud.auth.getUser()
 
   if (!userData?.user) {
     alert("Login required")
@@ -76,7 +76,7 @@ async function loadRestaurant() {
   // Use the tenant link stored on the user's profile first.
   // Some legacy restaurants have owner_id = NULL, so owner_id alone
   // is not a reliable tenant resolver.
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await supabaseCloud
     .from("profiles")
     .select("restaurant_id, role")
     .eq("id", userData.user.id)
@@ -97,7 +97,7 @@ async function loadRestaurant() {
   let rest = null
 
   if (resolvedRestaurantId) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("restaurants")
       .select("*")
       .eq("id", resolvedRestaurantId)
@@ -111,7 +111,7 @@ async function loadRestaurant() {
 
   // Legacy fallback.
   if (!rest) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("restaurants")
       .select("*")
       .eq("owner_id", userData.user.id)
@@ -145,7 +145,7 @@ async function handleNameChange(e) {
 
   if (!restaurant || !value) return
 
-  const { data } = await supabase
+  const { data } = await supabaseCloud
     .from("inventory")
     .select("min_stock")
     .eq("restaurant_id", restaurant.id)
@@ -164,7 +164,7 @@ async function handleNameChange(e) {
 
 setLoading(true)
 
-const {data,error}=await supabase
+const {data,error}=await supabaseCloud
 
 .from("inventory")
 .select("*")
@@ -224,7 +224,7 @@ setLoading(false)
 
   if (editingId) {
 
-    await supabase
+    await supabaseCloud
 
       .from("inventory")
 
@@ -262,7 +262,7 @@ notes:notes
 
   else{
 
-    await supabase
+    await supabaseCloud
 
 .from("inventory")
 
@@ -331,7 +331,7 @@ fetchItems()
   if (!restaurant) return
 
   try {
-    const { data: sessionData } = await supabase.auth.getSession()
+    const { data: sessionData } = await supabaseCloud.auth.getSession()
     const token = sessionData?.session?.access_token
     if (!token) throw new Error("Login session expired")
 
@@ -401,7 +401,7 @@ const ok=window.confirm(
 
 if(!ok) return
 
-await supabase
+await supabaseCloud
 
 .from("inventory")
 
@@ -545,7 +545,7 @@ async function useStock() {
   if (!ok) return
 
   try {
-    const { data: sessionData } = await supabase.auth.getSession()
+    const { data: sessionData } = await supabaseCloud.auth.getSession()
     const token = sessionData?.session?.access_token
     if (!token) throw new Error("Login session expired")
 
@@ -567,7 +567,7 @@ async function useStock() {
       throw new Error(result.error || "Unable to use stock")
     }
 
-    const { error: usageError } = await supabase
+    const { error: usageError } = await supabaseCloud
       .from("stock_usage")
       .insert([{
         restaurant_id: restaurant.id,
@@ -596,7 +596,7 @@ async function useStock() {
 
 async function fetchUsageHistory(){
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseCloud
     .from("stock_usage")
     .select("*")
     .eq("restaurant_id", restaurant.id)

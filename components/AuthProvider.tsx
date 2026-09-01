@@ -2,65 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { supabase, supabaseCloud } from "@/lib/supabase"
-import { mobileDbMetaGet, mobileDbMetaPut } from "@/lib/mobileLocalDb"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import Sidebar from "@/components/Sidebar"
 import AppUtilities from "@/components/AppUtilities"
 
 type Role = "staff" | "admin" | "super_admin" | ""
-type AuthContextValue = {
-  user: any
-  role: Role
-  restaurantId: string | null
-  loading: boolean
-}
+type AuthContextValue = { user: any; role: Role; restaurantId: string | null; loading: boolean }
 
 const HOME_BY_ROLE: Record<Exclude<Role, "">, string> = {
-  staff: "/staff",
-  admin: "/dashboard",
-  super_admin: "/super-admin",
+  staff: "/staff", admin: "/dashboard", super_admin: "/super-admin",
 }
 
 function isInternalPath(pathname: string) {
-  return [
-    "/dashboard",
-    "/staff",
-    "/super-admin",
-    "/admin",
-    "/order",
-    "/kitchen",
-    "/billing",
-    "/business-card",
-    "/ai",
-  ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
-}
-
-async function cacheOfflineAuthState(user: any, profile: any, session: any = null) {
-  if (!user) return
-  await mobileDbMetaPut("auth-user", user).catch(() => {})
-  if (session) await mobileDbMetaPut("auth-session", session).catch(() => {})
-  if (profile) await mobileDbMetaPut(`auth-profile:${user.id}`, profile).catch(() => {})
-  if (profile?.restaurantId) await mobileDbMetaPut("auth-restaurant-id", profile.restaurantId).catch(() => {})
-}
-
-function isOfflineRuntime() {
-  return typeof navigator !== "undefined" && navigator.onLine === false
-}
-
-async function getCachedOfflineUser() {
-  const cached = await mobileDbMetaGet("auth-user").catch(() => null)
-  return cached || null
+  return ["/dashboard","/staff","/super-admin","/admin","/order","/kitchen","/billing","/business-card","/ai"]
+    .some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
 
 function requiredFeatureForPath(pathname: string) {
-  // Offers is a legacy/core restaurant feature and must remain accessible.
-  // Combo Meals is embedded inside Offers, so it must not be redirected by
-  // SaaS feature gating either. Other premium modules remain gated.
   if (pathname.startsWith("/dashboard/reservations")) return "reservations-pro"
   if (pathname.startsWith("/dashboard/reports")) return "analytics"
-  // The Restaurant Admin QR area is intentionally controlled by the
-  // independent QR Print Center plugin. Advanced QR Ordering remains
-  // separate for the public/customer ordering runtime.
   if (pathname.startsWith("/dashboard/qr")) return "qr-print-center"
   if (pathname.startsWith("/dashboard/theme") || pathname.startsWith("/dashboard/logo")) return "theme-branding"
   if (pathname.startsWith("/dashboard/business") && pathname.includes("tab=loyalty")) return "loyalty"
@@ -77,19 +37,12 @@ function canAccess(role: Role, pathname: string, staffPermissions: Record<string
       pathname.includes("/dashboard/business") && pathname.includes("tab=customers") ? "customers" :
       pathname.includes("/dashboard/business") && pathname.includes("tab=expenses") ? "expenses" :
       pathname.includes("/dashboard/business") && pathname.includes("tab=attendance") ? "attendance" :
-      pathname.startsWith("/dashboard/reports") ? "reports" :
-      null
+      pathname.startsWith("/dashboard/reports") ? "reports" : null
     if (permissionForPath && staffPermissions[permissionForPath] !== true) return false
   }
-  if (role === "super_admin") {
-    return pathname === "/super-admin" || pathname.startsWith("/super-admin/") || pathname.startsWith("/ai/") || pathname === "/ai" || pathname === "/business-card"
-  }
-  if (role === "admin") {
-    return pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing") || pathname === "/business-card"
-  }
-  if (role === "staff") {
-    return pathname === "/staff" || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing")
-  }
+  if (role === "super_admin") return pathname === "/super-admin" || pathname.startsWith("/super-admin/") || pathname.startsWith("/ai/") || pathname === "/ai" || pathname === "/business-card"
+  if (role === "admin") return pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing") || pathname === "/business-card"
+  if (role === "staff") return pathname === "/staff" || pathname === "/order" || pathname === "/kitchen" || pathname.startsWith("/billing")
   return false
 }
 
@@ -98,386 +51,112 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [loading,setLoading]=useState(true), [user,setUser]=useState<any>(null), [role,setRole]=useState<Role>(""), [restaurantId,setRestaurantId]=useState<string|null>(null)
+  const [staffPermissions,setStaffPermissions]=useState<Record<string,boolean>>({})
+  const bootstrapped=useRef(false), syncInFlight=useRef(false), currentUserRef=useRef<any|null>(null)
+  const profileCacheRef=useRef<{userId:string;profile:any}|null>(null), redirectingRef=useRef(false)
 
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
-  const [role, setRole] = useState<Role>("")
-  const [restaurantId, setRestaurantId] = useState<string | null>(null)
-  const [staffPermissions, setStaffPermissions] = useState<Record<string, boolean>>({})
-  const bootstrapped = useRef(false)
-  const syncInFlight = useRef(false)
-  const currentUserRef = useRef<any | null>(null)
-  const profileCacheRef = useRef<{ userId: string; profile: any } | null>(null)
-  const syncingUserIdRef = useRef<string | null | undefined>(undefined)
-
-  const getProfile = useCallback(async (userId: string, authUser: any = null) => {
-    const offline = typeof navigator !== "undefined" && navigator.onLine === false
-    if (offline) {
-      const cached = await mobileDbMetaGet(`auth-profile:${userId}`).catch(() => null)
-      if (cached) return cached
-      return null
-    }
-
-    const { data } = await supabaseCloud
-      .from("profiles")
-      .select("role, restaurant_id")
-      .eq("id", userId)
-      .maybeSingle()
-
-    const allowedRoles: Role[] = ["staff", "admin", "super_admin"]
-    let resolvedRole: Role = allowedRoles.includes(data?.role as Role) ? (data?.role as Role) : ""
-    let resolvedRestaurantId: string | null = data?.restaurant_id || null
-
-    // Legacy accounts may have the restaurant relation in auth metadata or
-    // through restaurants.owner_id instead of profiles.restaurant_id.
-    if (!resolvedRestaurantId && resolvedRole !== "super_admin") {
-      const metadataRestaurantId = authUser?.user_metadata?.restaurant_id || authUser?.app_metadata?.restaurant_id || null
-      if (metadataRestaurantId) {
-        const { data: restaurant } = await supabase
-          .from("restaurants")
-          .select("id")
-          .eq("id", metadataRestaurantId)
-          .maybeSingle()
-        if (restaurant?.id) {
-          resolvedRestaurantId = restaurant.id
-        }
+  const getProfile=useCallback(async(userId:string,authUser:any=null)=>{
+    const {data}=await supabaseCloud.from("profiles").select("role,restaurant_id").eq("id",userId).maybeSingle()
+    const allowedRoles:Role[]=["staff","admin","super_admin"]
+    let resolvedRole:Role=allowedRoles.includes(data?.role as Role)?data?.role as Role:""
+    let resolvedRestaurantId:string|null=data?.restaurant_id||null
+    if(!resolvedRestaurantId && resolvedRole!=="super_admin"){
+      const metadataRestaurantId=authUser?.user_metadata?.restaurant_id||authUser?.app_metadata?.restaurant_id||null
+      if(metadataRestaurantId){
+        const {data:restaurant}=await supabaseCloud.from("restaurants").select("id").eq("id",metadataRestaurantId).maybeSingle()
+        if(restaurant?.id) resolvedRestaurantId=restaurant.id
       }
     }
-
-    if (!resolvedRestaurantId && resolvedRole !== "super_admin") {
-      const { data: ownedRestaurant } = await supabase
-        .from("restaurants")
-        .select("id")
-        .eq("owner_id", userId)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle()
-      if (ownedRestaurant?.id) {
-        resolvedRestaurantId = ownedRestaurant.id
-        if (!resolvedRole) resolvedRole = "admin"
-      }
+    if(!resolvedRestaurantId && resolvedRole!=="super_admin"){
+      const {data:ownedRestaurant}=await supabaseCloud.from("restaurants").select("id").eq("owner_id",userId).order("created_at",{ascending:true}).limit(1).maybeSingle()
+      if(ownedRestaurant?.id){ resolvedRestaurantId=ownedRestaurant.id; if(!resolvedRole) resolvedRole="admin" }
     }
-
-    if (!resolvedRole) return null
-
-    if (resolvedRole !== "super_admin" && resolvedRestaurantId) {
-      const [{ data: restaurant }, { data: planData }] = await Promise.all([
-        supabase.from("restaurants").select("status").eq("id", resolvedRestaurantId).maybeSingle(),
-        supabase.rpc("get_restaurant_plan", { p_restaurant_id: resolvedRestaurantId }),
+    if(!resolvedRole) return null
+    if(resolvedRole!=="super_admin" && resolvedRestaurantId){
+      const [{data:restaurant},{data:planData}]=await Promise.all([
+        supabaseCloud.from("restaurants").select("status").eq("id",resolvedRestaurantId).maybeSingle(),
+        supabaseCloud.rpc("get_restaurant_plan",{p_restaurant_id:resolvedRestaurantId})
       ])
-
-      if (restaurant?.status !== "active") {
-        return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: true, reason: "Restaurant subscription is pending or inactive. Please contact the platform administrator.", planFeatures: {} } as any
-      }
-
-      const plan = planData?.plan || null
-      const planFeatures = {
-        qr_ordering: plan?.qr_ordering === true,
-        loyalty: plan?.loyalty === true,
-        offers: plan?.offers === true,
-        analytics: plan?.analytics === true,
-        reservations: plan?.reservations === true,
-        whatsapp: plan?.whatsapp === true,
-      }
-      const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
-      const subscriptionLive = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
-      if (!subscriptionLive || !plan) {
-        return { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: true, reason: "Your restaurant does not have an active subscription.", planFeatures } as any
-      }
-      const cachedProfile = { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures } as any
-      await mobileDbMetaPut(`auth-profile:${userId}`, cachedProfile).catch(() => {})
-      if (resolvedRestaurantId) await mobileDbMetaPut("auth-restaurant-id", resolvedRestaurantId).catch(() => {})
-      return cachedProfile
+      if(restaurant?.status!=="active") return {role:resolvedRole,restaurantId:resolvedRestaurantId,blocked:true,reason:"Restaurant subscription is pending or inactive. Please contact the platform administrator.",planFeatures:{}} as any
+      const plan=planData?.plan||null
+      const planFeatures={qr_ordering:plan?.qr_ordering===true,loyalty:plan?.loyalty===true,offers:plan?.offers===true,analytics:plan?.analytics===true,reservations:plan?.reservations===true,whatsapp:plan?.whatsapp===true}
+      const endsAt=planData?.subscription?.ends_at?new Date(planData.subscription.ends_at).getTime():null
+      const subscriptionLive=planData?.subscription?.status==="active"&&(!endsAt||endsAt>=Date.now())
+      if(!subscriptionLive||!plan) return {role:resolvedRole,restaurantId:resolvedRestaurantId,blocked:true,reason:"Your restaurant does not have an active subscription.",planFeatures} as any
+      return {role:resolvedRole,restaurantId:resolvedRestaurantId,blocked:false,planFeatures} as any
     }
+    return {role:resolvedRole,restaurantId:resolvedRestaurantId,blocked:false,planFeatures:{}} as any
+  },[])
 
-    const cachedProfile = { role: resolvedRole, restaurantId: resolvedRestaurantId, blocked: false, planFeatures: {} } as any
-    await mobileDbMetaPut(`auth-profile:${userId}`, cachedProfile).catch(() => {})
-    if (resolvedRestaurantId) await mobileDbMetaPut("auth-restaurant-id", resolvedRestaurantId).catch(() => {})
-    return cachedProfile
-  }, [])
-
-  const syncQueued = useRef(false)
-  const queuedUser = useRef<any | null | undefined>(undefined)
-  const redirectingRef = useRef(false)
-
-  const syncAuth = useCallback(async (knownUser: any = undefined) => {
-    if (syncInFlight.current) {
-      // If the same user is already being synchronized, do not run a second
-      // profile/restaurant/plan lookup. This commonly happened on first login
-      // when the SIGNED_IN event raced with the initial bootstrap sync.
-      const incomingId = knownUser?.id ?? (knownUser === null ? null : undefined)
-      if (incomingId === syncingUserIdRef.current) return
-
-      // A different auth state arrived while a sync is running. Queue only
-      // that genuinely new state.
-      syncQueued.current = true
-      queuedUser.current = knownUser
-      return
-    }
-
-    syncInFlight.current = true
-    syncingUserIdRef.current = knownUser?.id ?? (knownUser === null ? null : undefined)
-    if (!bootstrapped.current) setLoading(true)
-
-    try {
-      let currentUser = knownUser
-      if (knownUser === undefined) {
-        // After the first successful sync, pathname changes should reuse the
-        // current auth user instead of asking Supabase Auth again.
-        currentUser = bootstrapped.current ? currentUserRef.current : undefined
-        if (currentUser === undefined) {
-          if (isOfflineRuntime()) {
-            // Offline startup must never depend on a network auth call.
-            // Restore the last successful authenticated identity from local metadata.
-            const cachedUser = await getCachedOfflineUser()
-            if (cachedUser) {
-              currentUser = cachedUser
-            } else {
-              const { data: sessionData } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }))
-              currentUser = sessionData?.session?.user || null
-            }
-          } else {
-            const { data: { user } } = await supabase.auth.getUser()
-            currentUser = user
-          }
-        }
+  const syncAuth=useCallback(async(knownUser:any=undefined)=>{
+    if(syncInFlight.current)return
+    syncInFlight.current=true
+    if(!bootstrapped.current)setLoading(true)
+    try{
+      let currentUser=knownUser
+      if(currentUser===undefined){
+        const {data:{user:authUser}}=await supabaseCloud.auth.getUser()
+        currentUser=authUser
       }
-
-      currentUserRef.current = currentUser || null
+      currentUserRef.current=currentUser||null
       setUser(currentUser)
-
-      if (!currentUser) {
-        setRole("")
-        setRestaurantId(null)
-        if (isInternalPath(pathname)) {
-          redirectingRef.current = true
-          router.replace("/login")
-        }
+      if(!currentUser){
+        setRole("");setRestaurantId(null)
+        if(isInternalPath(pathname)){redirectingRef.current=true;router.replace("/login")}
         return
       }
-
-      let profile: any = null
-
-      if (profileCacheRef.current && profileCacheRef.current.userId === currentUser.id) {
-        profile = profileCacheRef.current.profile
-      }
-
-      if (!profile) {
-        profile = await getProfile(currentUser.id, currentUser)
-        if (profile) {
-          profileCacheRef.current = { userId: currentUser.id, profile }
-        }
-      }
-
-      if (!profile && isOfflineRuntime()) {
-        profile = await mobileDbMetaGet(`auth-profile:${currentUser.id}`).catch(() => null)
-        if (profile) profileCacheRef.current = { userId: currentUser.id, profile }
-      }
-
-      if (!profile) {
-        // Never sign out a locally cached identity simply because the network
-        // is unavailable. Only redirect when this is a genuine online auth failure.
-        if (!isOfflineRuntime()) {
-          await supabase.auth.signOut()
-        }
-        currentUserRef.current = null
-        profileCacheRef.current = null
-        setUser(null)
-        setRole("")
-        setRestaurantId(null)
-        redirectingRef.current = true
-        router.replace("/login")
+      const cachedProfile = profileCacheRef.current
+      let profile = cachedProfile && cachedProfile.userId === currentUser.id ? cachedProfile.profile : null
+      if(!profile){profile=await getProfile(currentUser.id,currentUser);if(profile)profileCacheRef.current={userId:currentUser.id,profile}}
+      if(!profile){
+        await supabaseCloud.auth.signOut();setUser(null);setRole("");setRestaurantId(null);profileCacheRef.current=null
+        if(isInternalPath(pathname))router.replace("/login")
         return
       }
-
-      if ((profile as any).blocked) {
-        await supabase.auth.signOut()
-        currentUserRef.current = null
-        profileCacheRef.current = null
-        setUser(null)
-        setRole("")
-        setRestaurantId(null)
-        redirectingRef.current = true
-        router.replace(`/login?reason=${encodeURIComponent((profile as any).reason || "Restaurant access is inactive")}`)
-        return
+      if(profile.blocked){
+        await supabaseCloud.auth.signOut();setUser(null);setRole("");setRestaurantId(null);profileCacheRef.current=null
+        router.replace(`/login?reason=${encodeURIComponent(profile.reason||"Restaurant access is inactive")}`);return
       }
-
-      setRole(profile.role)
-      setRestaurantId(profile.restaurantId)
-      await cacheOfflineAuthState(currentUser, profile).catch(() => {})
-
-      if (pathname === "/login") {
-        // Keep the auth gate in its loading state until the role dashboard
-        // navigation completes. This prevents the login screen from flashing
-        // a second time after a successful sign-in.
-        redirectingRef.current = true
-        router.replace(HOME_BY_ROLE[profile.role as Exclude<Role, "">])
-        return
+      setRole(profile.role);setRestaurantId(profile.restaurantId)
+      let permissions:Record<string,boolean>={}
+      if(profile.role==="staff"&&profile.restaurantId){
+        const {data:rows}=await supabaseCloud.from("staff_permissions").select("permission_key,enabled").eq("restaurant_id",profile.restaurantId).eq("staff_id",currentUser.id)
+        for(const row of rows||[])permissions[row.permission_key]=row.enabled===true
       }
-
-      let resolvedStaffPermissions: Record<string, boolean> = {}
-      if (profile.role === "staff" && profile.restaurantId && !isOfflineRuntime()) {
-        const { data: permissionRows } = await supabase
-          .from("staff_permissions")
-          .select("permission_key,enabled")
-          .eq("restaurant_id", profile.restaurantId)
-          .eq("staff_id", user.id)
-        for (const row of permissionRows || []) {
-          resolvedStaffPermissions[row.permission_key] = row.enabled === true
-        }
-        setStaffPermissions(resolvedStaffPermissions)
-      } else {
-        setStaffPermissions({})
+      setStaffPermissions(permissions)
+      const requiredFeature=requiredFeatureForPath(pathname)
+      let pluginFeatureEnabled=false
+      if(profile.role==="admin"&&requiredFeature){
+        const codes=requiredFeature==="reservations-pro"?["reservations-pro","reservations"]:requiredFeature==="qr-print-center"?["qr-print-center"]:requiredFeature==="analytics"?["analytics"]:[requiredFeature]
+        const {data:pluginRow}=await supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",profile.restaurantId).in("plugin_code",codes).eq("enabled",true).limit(1).maybeSingle()
+        pluginFeatureEnabled=!!pluginRow?.enabled
       }
-
-      const requiredFeature = requiredFeatureForPath(pathname)
-
-      // Feature access can be granted either by the restaurant's plan
-      // or by an explicitly enabled restaurant plugin.
-      let pluginFeatureEnabled = false
-
-      if (
-        profile.role === "admin" &&
-        requiredFeature &&
-        !isOfflineRuntime()
-      ) {
-        const featureCodes = requiredFeature === "reservations-pro"
-          ? ["reservations-pro", "reservations"]
-          : requiredFeature === "qr-print-center"
-            ? ["qr-print-center"]
-            : requiredFeature === "analytics"
-              ? ["analytics"]
-              : [requiredFeature]
-
-        const { data: pluginRow, error: pluginError } = await supabase
-          .from("restaurant_plugins")
-          .select("plugin_code, enabled")
-          .eq("restaurant_id", profile.restaurantId)
-          .in("plugin_code", featureCodes)
-          .eq("enabled", true)
-          .limit(1)
-          .maybeSingle()
-
-        if (pluginError) {
-          console.warn("PLUGIN FEATURE CHECK:", pluginError)
-        }
-
-        pluginFeatureEnabled = !!pluginRow?.enabled
-      }
-
-      if (
-        profile.role === "admin" &&
-        requiredFeature &&
-        !isOfflineRuntime() &&
-        (profile as any).planFeatures?.[requiredFeature] !== true &&
-        !pluginFeatureEnabled
-      ) {
-        redirectingRef.current = true
-        router.replace("/dashboard")
-        return
-      }
-
-      if (!canAccess(profile.role, pathname, resolvedStaffPermissions)) {
-        router.replace(HOME_BY_ROLE[profile.role as Exclude<Role, "">])
-        return
-      }
-    } catch (error) {
-      console.error("AUTH SYNC ERROR:", error)
-      if (!isOfflineRuntime()) {
-        currentUserRef.current = null
-        profileCacheRef.current = null
-        setUser(null)
-        setRole("")
-        setRestaurantId(null)
-        if (isInternalPath(pathname)) router.replace("/login")
-      }
-    } finally {
-      bootstrapped.current = true
-      syncInFlight.current = false
-      syncingUserIdRef.current = undefined
-
-      // When a successful login is redirecting away from /login, keep the
-      // auth gate visible until Next.js completes the navigation. This avoids
-      // briefly rendering the login page a second time.
-      if (!(redirectingRef.current && pathname === "/login")) {
-        redirectingRef.current = false
-        setLoading(false)
-      }
-
-      if (syncQueued.current) {
-        const nextUser = queuedUser.current
-        syncQueued.current = false
-        queuedUser.current = undefined
-        // Run only genuinely new auth state after the current work finishes.
-        window.setTimeout(() => syncAuth(nextUser), 0)
-      }
+      if(profile.role==="admin"&&requiredFeature&&(profile.planFeatures?.[requiredFeature]!==true)&&!pluginFeatureEnabled){router.replace("/dashboard");return}
+      if(!canAccess(profile.role,pathname,permissions)){router.replace(HOME_BY_ROLE[profile.role as Exclude<Role,"">]);return}
+      if(pathname==="/login"){redirectingRef.current=true;router.replace(HOME_BY_ROLE[profile.role as Exclude<Role,"">]);return}
+    }catch(error){
+      console.error("AUTH SYNC ERROR:",error);setUser(null);setRole("");setRestaurantId(null)
+      if(isInternalPath(pathname))router.replace("/login")
+    }finally{
+      bootstrapped.current=true;syncInFlight.current=false
+      if(!(redirectingRef.current&&pathname==="/login")){redirectingRef.current=false;setLoading(false)}
     }
-  }, [getProfile, pathname, router])
+  },[getProfile,pathname,router])
 
-  useEffect(() => {
+  useEffect(()=>{
     syncAuth()
-
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      // Supabase recommends not performing additional Supabase requests
-      // directly inside the auth callback. Defer the sync to the next tick
-      // so sign-in can finish cleanly before profile/restaurant queries run.
-      if (event === "SIGNED_OUT") {
-        bootstrapped.current = false
-        currentUserRef.current = null
-        profileCacheRef.current = null
-        window.setTimeout(() => syncAuth(null), 0)
-        return
-      }
-
-      if (event === "SIGNED_IN" && session?.user) {
-        bootstrapped.current = false
-        void mobileDbMetaPut("auth-user", session.user).catch(() => {})
-        void mobileDbMetaPut("auth-session", session).catch(() => {})
-        window.setTimeout(() => syncAuth(session.user), 0)
-      }
+    const {data:listener}=supabaseCloud.auth.onAuthStateChange((event,session)=>{
+      if(event==="SIGNED_OUT"){bootstrapped.current=false;currentUserRef.current=null;profileCacheRef.current=null;window.setTimeout(()=>syncAuth(null),0);return}
+      if(event==="SIGNED_IN"&&session?.user){bootstrapped.current=false;window.setTimeout(()=>syncAuth(session.user),0)}
     })
+    return()=>listener.subscription.unsubscribe()
+  },[syncAuth])
 
-    return () => listener.subscription.unsubscribe()
-  }, [syncAuth])
-
-  const showSidebar = useMemo(
-    () => Boolean(user && role && isInternalPath(pathname)),
-    [pathname, role, user]
-  )
-
-  const value = useMemo(() => ({
-    user,
-    role,
-    restaurantId,
-    loading,
-  }), [user, role, restaurantId, loading])
-
-  if (loading) {
-    return (
-      <div className="app-loading">
-        <div className="app-loading-card">
-          <div className="app-spinner" />
-          <strong>Loading Anaira POS…</strong>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <AuthContext.Provider value={value}>
-      <div className={showSidebar ? "app-shell has-sidebar" : "app-shell"}>
-        {showSidebar && <Sidebar role={role} />}
-        <main className="app-main">
-          {showSidebar && <AppUtilities restaurantId={restaurantId} role={role} />}
-          {children}
-        </main>
-      </div>
-    </AuthContext.Provider>
-  )
+  const showSidebar=useMemo(()=>Boolean(user&&role&&isInternalPath(pathname)),[pathname,role,user])
+  const value=useMemo(()=>({user,role,restaurantId,loading}),[user,role,restaurantId,loading])
+  if(loading)return <div className="app-loading"><div className="app-loading-card"><div className="app-spinner"/><strong>Loading Anaira POS…</strong></div></div>
+  return <AuthContext.Provider value={value}><div className={showSidebar?"app-shell has-sidebar":"app-shell"}>{showSidebar&&<Sidebar role={role}/>}<main className="app-main">{showSidebar&&<AppUtilities restaurantId={restaurantId} role={role}/>} {children}</main></div></AuthContext.Provider>
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) throw new Error("useAuth must be used inside AuthProvider")
-  return context
-}
+export function useAuth(){const context=useContext(AuthContext);if(!context)throw new Error("useAuth must be used inside AuthProvider");return context}

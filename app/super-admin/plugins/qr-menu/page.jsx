@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function QRPage(){
   const params=useSearchParams()
@@ -17,15 +17,15 @@ export default function QRPage(){
   useEffect(()=>{ if(rid) load() },[rid])
 
   async function load(){
-    const {data:plugins,error}=await supabase.from("restaurant_plugins")
+    const {data:plugins,error}=await supabaseCloud.from("restaurant_plugins")
       .select("enabled").eq("restaurant_id",rid)
       .in("plugin_code",["qr-menu","qr-ordering-pro"])
       .eq("enabled",true).limit(1)
     if(error||!plugins?.length){ setQrEnabled(false); return }
     setQrEnabled(true)
     const [{data:t},{data:r}]=await Promise.all([
-      supabase.from("tables").select("*").eq("restaurant_id",rid).order("table_number"),
-      supabase.from("rooms").select("*").eq("restaurant_id",rid).order("room_number")
+      supabaseCloud.from("tables").select("*").eq("restaurant_id",rid).order("table_number"),
+      supabaseCloud.from("rooms").select("*").eq("restaurant_id",rid).order("room_number")
     ])
     setTables(t||[]);setRooms(r||[])
   }

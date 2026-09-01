@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useTheme } from "@/components/ThemeProvider"
 
 const money = (v) =>
@@ -65,7 +65,6 @@ export default function AdvancedRestaurantSuite() {
   const [gateway, setGateway] = useState({ provider: "razorpay", display_name: "Razorpay", active: false })
   const [paymentSetting, setPaymentSetting] = useState({ payment_method: "cash", enabled: true, instructions: "" })
   const [report, setReport] = useState({ name: "", report_type: "sales", filters: "{}" })
-  const [offlineEvent, setOfflineEvent] = useState({ client_event_id: "", event_type: "order", payload: "{}" })
   const [kiosk, setKiosk] = useState({ name: "", kiosk_code: "" })
   const [display, setDisplay] = useState({ name: "", screen_type: "menu" })
   const [callingDevice, setCallingDevice] = useState({ name: "", device_code: "", location: "" })
@@ -87,13 +86,13 @@ export default function AdvancedRestaurantSuite() {
 
   async function init() {
     try {
-      const { data: auth } = await supabase.auth.getUser()
+      const { data: auth } = await supabaseCloud.auth.getUser()
       if (!auth?.user) {
         setLoading(false)
         return
       }
 
-      const { data: profile, error } = await supabase
+      const { data: profile, error } = await supabaseCloud
         .from("profiles")
         .select("restaurant_id")
         .eq("id", auth.user.id)
@@ -118,41 +117,40 @@ export default function AdvancedRestaurantSuite() {
     setLoading(true)
 
     const q = {
-      areas: supabase.from("restaurant_areas").select("*").eq("restaurant_id", r).order("sort_order").order("name"),
-      tables: supabase.from("dining_tables").select("*").eq("restaurant_id", r).order("table_no"),
-      orders: supabase.from("orders").select("id,source_label,order_mode,status,total_amount,subtotal,discount_amount,tax_amount,payment_status,table_id,created_at").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      splits: supabase.from("order_splits").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      payments: supabase.from("order_payments").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      discounts: supabase.from("discount_rules").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
-      variants: supabase.from("menu_variants").select("*").eq("restaurant_id", r).order("name"),
-      menu: supabase.from("menu_items").select("id,name,price").eq("restaurant_id", r).order("name"),
-      stations: supabase.from("kitchen_stations").select("*").eq("restaurant_id", r).order("sort_order").order("name"),
-      kot: supabase.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      routes: supabase.from("kot_routes").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
-      riders: supabase.from("delivery_riders").select("*").eq("restaurant_id", r).order("name"),
-      assignments: supabase.from("delivery_assignments").select("*").eq("restaurant_id", r).order("assigned_at", { ascending: false }).limit(50),
-      channels: supabase.from("online_channels").select("*").eq("restaurant_id", r).order("channel_name"),
-      scanPay: supabase.from("scan_pay_requests").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      feedback: supabase.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      feedbackRequests: supabase.from("feedback_requests").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      customers: supabase.from("customers").select("id,name,phone").eq("restaurant_id", r).order("name").limit(100),
-      loyalty: supabase.from("loyalty_transactions").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      permissions: supabase.from("role_permissions").select("*").eq("restaurant_id", r).order("role").order("permission"),
-      branches: supabase.from("restaurant_branches").select("*").eq("parent_restaurant_id", r).order("name"),
-      branchMenu: supabase.from("branch_menu_overrides").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false }).limit(100),
-      printers: supabase.from("printer_devices").select("*").eq("restaurant_id", r).order("name"),
-      gateways: supabase.from("payment_gateway_configs").select("*").eq("restaurant_id", r).order("display_name"),
-      paymentSettings: supabase.from("restaurant_payment_settings").select("*").eq("restaurant_id", r).order("payment_method"),
-      reports: supabase.from("dynamic_report_definitions").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false }),
-      offline: supabase.from("offline_pos_events").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      kiosks: supabase.from("self_service_kiosks").select("*").eq("restaurant_id", r).order("name"),
-      displays: supabase.from("digital_display_playlists").select("*").eq("restaurant_id", r).order("name"),
-      callingDevices: supabase.from("calling_devices").select("*").eq("restaurant_id", r).order("name"),
-      websiteSettings: supabase.from("website_order_settings").select("*").eq("restaurant_id", r).maybeSingle(),
-      ebills: supabase.from("e_bill_documents").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
-      kitchens: supabase.from("central_kitchens").select("*").eq("restaurant_id", r).order("name"),
-      forecasts: supabase.from("forecast_snapshots").select("*").eq("restaurant_id", r).order("forecast_date", { ascending: false }).limit(50),
-      pluginRows: supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", r),
+      areas: supabaseCloud.from("restaurant_areas").select("*").eq("restaurant_id", r).order("sort_order").order("name"),
+      tables: supabaseCloud.from("dining_tables").select("*").eq("restaurant_id", r).order("table_no"),
+      orders: supabaseCloud.from("orders").select("id,source_label,order_mode,status,total_amount,subtotal,discount_amount,tax_amount,payment_status,table_id,created_at").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      splits: supabaseCloud.from("order_splits").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      payments: supabaseCloud.from("order_payments").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      discounts: supabaseCloud.from("discount_rules").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
+      variants: supabaseCloud.from("menu_variants").select("*").eq("restaurant_id", r).order("name"),
+      menu: supabaseCloud.from("menu_items").select("id,name,price").eq("restaurant_id", r).order("name"),
+      stations: supabaseCloud.from("kitchen_stations").select("*").eq("restaurant_id", r).order("sort_order").order("name"),
+      kot: supabaseCloud.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      routes: supabaseCloud.from("kot_routes").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
+      riders: supabaseCloud.from("delivery_riders").select("*").eq("restaurant_id", r).order("name"),
+      assignments: supabaseCloud.from("restaurant_deliveries").select("*").eq("restaurant_id", r).order("assigned_at", { ascending: false }).limit(50),
+      channels: supabaseCloud.from("online_channels").select("*").eq("restaurant_id", r).order("channel_name"),
+      scanPay: supabaseCloud.from("scan_pay_requests").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      feedback: supabaseCloud.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      feedbackRequests: supabaseCloud.from("feedback_requests").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      customers: supabaseCloud.from("customers").select("id,name,phone").eq("restaurant_id", r).order("name").limit(100),
+      loyalty: supabaseCloud.from("loyalty_transactions").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      permissions: supabaseCloud.from("role_permissions").select("*").eq("restaurant_id", r).order("role").order("permission"),
+      branches: supabaseCloud.from("restaurant_branches").select("*").eq("parent_restaurant_id", r).order("name"),
+      branchMenu: supabaseCloud.from("branch_menu_overrides").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false }).limit(100),
+      printers: supabaseCloud.from("printer_devices").select("*").eq("restaurant_id", r).order("name"),
+      gateways: supabaseCloud.from("payment_gateway_configs").select("*").eq("restaurant_id", r).order("display_name"),
+      paymentSettings: supabaseCloud.from("restaurant_payment_settings").select("*").eq("restaurant_id", r).order("payment_method"),
+      reports: supabaseCloud.from("dynamic_report_definitions").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false }),
+      kiosks: supabaseCloud.from("self_service_kiosks").select("*").eq("restaurant_id", r).order("name"),
+      displays: supabaseCloud.from("digital_display_playlists").select("*").eq("restaurant_id", r).order("name"),
+      callingDevices: supabaseCloud.from("calling_devices").select("*").eq("restaurant_id", r).order("name"),
+      websiteSettings: supabaseCloud.from("website_order_settings").select("*").eq("restaurant_id", r).maybeSingle(),
+      ebills: supabaseCloud.from("e_bill_documents").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50),
+      kitchens: supabaseCloud.from("central_kitchens").select("*").eq("restaurant_id", r).order("name"),
+      forecasts: supabaseCloud.from("forecast_snapshots").select("*").eq("restaurant_id", r).order("forecast_date", { ascending: false }).limit(50),
+      pluginRows: supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", r),
     }
 
     const entries = await Promise.all(Object.entries(q).map(async ([key, query]) => [key, (await query).data || []]))
@@ -167,7 +165,7 @@ export default function AdvancedRestaurantSuite() {
   async function save(tableName, payload, reset) {
     if (!rid) return
     setBusy(true)
-    const { error } = await supabase.from(tableName).insert({ ...payload, restaurant_id: rid })
+    const { error } = await supabaseCloud.from(tableName).insert({ ...payload, restaurant_id: rid })
     setBusy(false)
     setMessage(error?.message || "Saved successfully.")
     if (!error) {
@@ -179,15 +177,43 @@ export default function AdvancedRestaurantSuite() {
   async function upsert(tableName, payload, conflict) {
     if (!rid) return
     setBusy(true)
-    const { error } = await supabase.from(tableName).upsert({ ...payload, restaurant_id: rid }, { onConflict: conflict })
+    const { error } = await supabaseCloud.from(tableName).upsert({ ...payload, restaurant_id: rid }, { onConflict: conflict })
     setBusy(false)
     setMessage(error?.message || "Saved successfully.")
     if (!error) await load()
   }
 
+  async function assignDelivery() {
+    if (!rid || !assignment.order_id || !assignment.rider_id) {
+      setMessage("Select a delivery order and rider.")
+      return
+    }
+    setBusy(true)
+    try {
+      const { data: session } = await supabaseCloud.auth.getSession()
+      const response = await fetch("/api/restaurant-operations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.session?.access_token || ""}`,
+        },
+        body: JSON.stringify({ action: "delivery_assign", ...assignment }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok || !json.success) throw new Error(json.error || "Unable to assign rider")
+      setAssignment({ order_id: "", rider_id: "", address: "", delivery_charge: "" })
+      setMessage("Rider assigned and saved to Cloud.")
+      await load()
+    } catch (error) {
+      setMessage(error?.message || "Unable to assign rider")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function update(tableName, id, patch) {
     setBusy(true)
-    const { error } = await supabase.from(tableName).update(patch).eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from(tableName).update(patch).eq("id", id).eq("restaurant_id", rid)
     setBusy(false)
     setMessage(error?.message || "Updated successfully.")
     if (!error) await load()
@@ -196,7 +222,7 @@ export default function AdvancedRestaurantSuite() {
   async function applyDiscount() {
     if (!rid || !selectedOrder || !discountRuleId) return
     setBusy(true)
-    const { data: result, error } = await supabase.rpc("apply_discount_rule", {
+    const { data: result, error } = await supabaseCloud.rpc("apply_discount_rule", {
       p_restaurant_id: rid,
       p_order_id: selectedOrder,
       p_rule_id: discountRuleId,
@@ -215,7 +241,7 @@ export default function AdvancedRestaurantSuite() {
     if (!order) return
 
     const existing = (data.splits || []).filter((x) => x.order_id === selectedOrder)
-    const { error } = await supabase.from("order_splits").insert({
+    const { error } = await supabaseCloud.from("order_splits").insert({
       restaurant_id: rid,
       order_id: selectedOrder,
       split_no: existing.length + 1,
@@ -234,7 +260,7 @@ export default function AdvancedRestaurantSuite() {
     const amount = Number(payment.amount || 0)
     if (!rid || !payment.order_id || amount <= 0) return
 
-    const { error } = await supabase.from("order_payments").insert({
+    const { error } = await supabaseCloud.from("order_payments").insert({
       restaurant_id: rid,
       order_id: payment.order_id,
       payment_method: payment.method,
@@ -255,7 +281,7 @@ export default function AdvancedRestaurantSuite() {
     const assignment = (data.assignments || []).find((x) => x.order_id === otp.order_id)
     if (!assignment || !otp.code) return
 
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await supabaseCloud
       .from("delivery_otps")
       .select("*")
       .eq("restaurant_id", rid)
@@ -275,7 +301,7 @@ export default function AdvancedRestaurantSuite() {
       return
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseCloud
       .from("delivery_otps")
       .update({ verified_at: new Date().toISOString(), attempts: Number(row.attempts || 0) + 1 })
       .eq("id", row.id)
@@ -291,7 +317,7 @@ export default function AdvancedRestaurantSuite() {
     const cryptoHash = await hashText(code)
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
-    const { error } = await supabase.from("delivery_otps").insert({
+    const { error } = await supabaseCloud.from("delivery_otps").insert({
       restaurant_id: rid,
       order_id: otp.order_id,
       otp_hash: cryptoHash,
@@ -501,7 +527,7 @@ export default function AdvancedRestaurantSuite() {
       {tab === "delivery" && (
         <div className="grid">
           <Panel title="Delivery Assignment">
-            <form className="form" onSubmit={(e) => { e.preventDefault(); save("delivery_assignments", { ...assignment, rider_id: assignment.rider_id || null, delivery_charge: Number(assignment.delivery_charge || 0) }, () => setAssignment({ order_id: "", rider_id: "", address: "", delivery_charge: "" })) }}>
+            <form className="form" onSubmit={(e) => { e.preventDefault(); assignDelivery() }}>
               <select required value={assignment.order_id} onChange={(e) => setAssignment({ ...assignment, order_id: e.target.value })}>
                 <option value="">Delivery order</option>
                 {(data.orders || []).filter((x) => x.order_mode === "delivery").map((x) => <option key={x.id} value={x.id}>{x.source_label || x.id.slice(0, 8)}</option>)}
@@ -729,21 +755,6 @@ export default function AdvancedRestaurantSuite() {
               <button>Save Forecast Snapshot</button>
             </form>
             <List items={data.forecasts} empty="No forecast snapshots." render={(x) => <><b>{x.metric}</b><span>{x.forecast_date} • {x.predicted_value}</span></>} />
-          </Panel>
-
-          <Panel title="Offline POS Queue">
-            <form className="form" onSubmit={(e) => {
-              e.preventDefault()
-              let payload = {}
-              try { payload = JSON.parse(offlineEvent.payload || "{}") } catch { setMessage("Payload must be valid JSON."); return }
-              save("offline_pos_events", { ...offlineEvent, payload, status: "queued" }, () => setOfflineEvent({ client_event_id: "", event_type: "order", payload: "{}" }))
-            }}>
-              <input required value={offlineEvent.client_event_id} onChange={(e) => setOfflineEvent({ ...offlineEvent, client_event_id: e.target.value })} placeholder="Client event ID" />
-              <select value={offlineEvent.event_type} onChange={(e) => setOfflineEvent({ ...offlineEvent, event_type: e.target.value })}><option>order</option><option>payment</option><option>refund</option><option>sync</option></select>
-              <textarea rows={4} value={offlineEvent.payload} onChange={(e) => setOfflineEvent({ ...offlineEvent, payload: e.target.value })} placeholder="JSON payload" />
-              <button>Queue Offline Event</button>
-            </form>
-            <List items={data.offline} empty="Offline queue is empty." render={(x) => <><b>{x.event_type}</b><span>{x.status}</span></>} />
           </Panel>
         </div>
       )}

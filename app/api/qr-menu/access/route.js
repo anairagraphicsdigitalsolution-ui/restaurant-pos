@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -13,7 +13,7 @@ export async function GET(req) {
       return NextResponse.json({ success: false, error: "Restaurant is required" }, { status: 400 })
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("restaurant_id, role")
       .eq("id", user.id)
@@ -26,7 +26,7 @@ export async function GET(req) {
       return NextResponse.json({ success: false, error: "Restaurant access denied" }, { status: 403 })
     }
 
-    const { data: plugins, error: pluginError } = await supabaseAdmin
+    const { data: plugins, error: pluginError } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("plugin_code,enabled")
       .eq("restaurant_id", restaurantId)

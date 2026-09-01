@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireFeature } from "@/lib/featureGateServer"
 
@@ -86,7 +86,7 @@ export async function POST(req) {
     const {
       data: order,
       error: orderError
-    } = await supabaseAdmin
+    } = await supabaseCloudAdmin
 
       .from("orders")
 
@@ -167,7 +167,7 @@ export async function POST(req) {
     // response forever and prevent the second payment from reaching the RPC.
     const idempotencyKey = String(req.headers.get("x-idempotency-key") || body?.idempotency_key || "").trim().slice(0, 180)
     if (idempotencyKey) {
-      const { data: existingKey } = await supabaseAdmin
+      const { data: existingKey } = await supabaseCloudAdmin
         .from("billing_idempotency_keys")
         .select("id,status,response,order_id,restaurant_id")
         .eq("restaurant_id", order.restaurant_id)
@@ -185,7 +185,7 @@ export async function POST(req) {
 
         // A completed partial/unpaid response is not a terminal finalize.
         // Remove only the idempotency marker; payment rows remain untouched.
-        await supabaseAdmin
+        await supabaseCloudAdmin
           .from("billing_idempotency_keys")
           .delete()
           .eq("id", existingKey.id)
@@ -194,7 +194,7 @@ export async function POST(req) {
         return Response.json({ success: false, error: "This billing request is already being processed. Please wait." }, { status: 409 })
       }
 
-      const { data: reservation, error: reservationError } = await supabaseAdmin
+      const { data: reservation, error: reservationError } = await supabaseCloudAdmin
         .from("billing_idempotency_keys")
         .insert({
           restaurant_id: order.restaurant_id,
@@ -208,7 +208,7 @@ export async function POST(req) {
 
       if (reservationError) {
         if (String(reservationError.code) === "23505") {
-          const { data: retryRow } = await supabaseAdmin
+          const { data: retryRow } = await supabaseCloudAdmin
             .from("billing_idempotency_keys")
             .select("status,response")
             .eq("restaurant_id", order.restaurant_id)
@@ -299,7 +299,7 @@ export async function POST(req) {
       const {
         data: existingCustomer,
         error: customerLookupError
-      } = await supabaseAdmin
+      } = await supabaseCloudAdmin
 
         .from("customers")
 
@@ -367,7 +367,7 @@ export async function POST(req) {
 
           const {
             error: customerUpdateError
-          } = await supabaseAdmin
+          } = await supabaseCloudAdmin
 
             .from("customers")
 
@@ -408,7 +408,7 @@ export async function POST(req) {
         const {
           data: createdCustomer,
           error: customerCreateError
-        } = await supabaseAdmin
+        } = await supabaseCloudAdmin
 
           .from("customers")
 
@@ -465,7 +465,7 @@ export async function POST(req) {
 
       const {
         error: customerLinkError
-      } = await supabaseAdmin
+      } = await supabaseCloudAdmin
 
         .from("orders")
 
@@ -514,7 +514,7 @@ export async function POST(req) {
     const {
       data,
       error
-    } = await supabaseAdmin.rpc(
+    } = await supabaseCloudAdmin.rpc(
       "stage3_finalize_order",
       {
         p_actor_id:
@@ -608,7 +608,7 @@ export async function POST(req) {
 
       const {
         data: paymentRow
-      } = await supabaseAdmin
+      } = await supabaseCloudAdmin
 
         .from("order_payments")
 
@@ -653,7 +653,7 @@ export async function POST(req) {
 
       if (paymentRow?.id) {
 
-        await supabaseAdmin
+        await supabaseCloudAdmin
 
           .from("order_payments")
 
@@ -780,20 +780,20 @@ export async function POST(req) {
     // Repair only missing legacy KOT rows. Never update an existing ticket here:
     // Billing must not reset a kitchen ticket from ready/done back to new when
     // a bill is finalized or a finalize request is retried.
-    await supabaseAdmin.from("kitchen_order_tickets").upsert({
+    await supabaseCloudAdmin.from("kitchen_order_tickets").upsert({
       restaurant_id: order.restaurant_id,
       order_id: order.id,
       status: "new",
       priority: "normal"
     }, { onConflict: "order_id", ignoreDuplicates: true })
-    await supabaseAdmin.from("kot_tickets").upsert({
+    await supabaseCloudAdmin.from("kot_tickets").upsert({
       restaurant_id: order.restaurant_id,
       order_id: order.id,
       status: "new"
     }, { onConflict: "order_id", ignoreDuplicates: true })
 
     if (idempotencyReservation) {
-      await supabaseAdmin
+      await supabaseCloudAdmin
         .from("billing_idempotency_keys")
         .update({ status: "completed", response: finalResponse, updated_at: new Date().toISOString() })
         .eq("id", idempotencyReservation)
@@ -806,7 +806,7 @@ export async function POST(req) {
 
     if (idempotencyReservation) {
       try {
-        await supabaseAdmin.from("billing_idempotency_keys").update({ status: "failed", response: null, updated_at: new Date().toISOString() }).eq("id", idempotencyReservation)
+        await supabaseCloudAdmin.from("billing_idempotency_keys").update({ status: "failed", response: null, updated_at: new Date().toISOString() }).eq("id", idempotencyReservation)
       } catch {}
     }
 

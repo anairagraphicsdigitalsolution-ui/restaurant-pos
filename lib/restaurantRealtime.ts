@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type NotificationRow = Record<string, any>
 type Subscriber = (row: NotificationRow) => void
@@ -18,7 +18,7 @@ function ensureChannel(restaurantId: string) {
   if (existing) return existing
 
   const subscribers = new Set<Subscriber>()
-  const channel = supabase
+  const channel = supabaseCloud
     .channel(`restaurant-events-${restaurantId}`)
     .on(
       "postgres_changes",
@@ -62,7 +62,7 @@ export function subscribeRestaurantNotifications(
     current.subscribers.delete(subscriber)
     if (current.subscribers.size === 0) {
       notificationChannels.delete(restaurantId)
-      void supabase.removeChannel(current.channel)
+      void supabaseCloud.removeChannel(current.channel)
     }
   }
 }

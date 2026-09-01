@@ -1,4 +1,4 @@
-import { supabaseCloudAdmin as supabaseAdmin } from "@/lib/supabaseCloudServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -12,7 +12,7 @@ export async function POST(req) {
   try {
     const user = await requireApiUser(req)
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("id, role")
       .eq("id", user.id)
@@ -59,7 +59,7 @@ export async function POST(req) {
     }
 
     if (saasPlanId) {
-      const { data: plan, error: planError } = await supabaseAdmin
+      const { data: plan, error: planError } = await supabaseCloudAdmin
         .from("saas_plans")
         .select("id,active")
         .eq("id", saasPlanId)
@@ -80,7 +80,7 @@ export async function POST(req) {
       }
     }
 
-    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+    const { data: restaurant, error: restaurantError } = await supabaseCloudAdmin
       .from("restaurants")
       .insert({
         name,
@@ -102,7 +102,7 @@ export async function POST(req) {
       )
     }
 
-    const { data: pendingSubscription, error: subscriptionError } = await supabaseAdmin
+    const { data: pendingSubscription, error: subscriptionError } = await supabaseCloudAdmin
       .from("restaurant_subscriptions")
       .insert({
         restaurant_id: restaurant.id,
@@ -118,7 +118,7 @@ export async function POST(req) {
       .single()
 
     if (subscriptionError) {
-      await supabaseAdmin.from("restaurants").delete().eq("id", restaurant.id)
+      await supabaseCloudAdmin.from("restaurants").delete().eq("id", restaurant.id)
       return Response.json(
         { success: false, error: subscriptionError.message || "Subscription setup failed" },
         { status: 400 }
@@ -126,7 +126,7 @@ export async function POST(req) {
     }
 
     if (whatsapp) {
-      const { error: pluginError } = await supabaseAdmin
+      const { error: pluginError } = await supabaseCloudAdmin
         .from("plugin_settings")
         .upsert({
           restaurant_id: restaurant.id,
@@ -142,7 +142,7 @@ export async function POST(req) {
         // Keep the operation atomic from the user's perspective:
         // if the optional initial WhatsApp setup fails, remove the
         // newly-created restaurant rather than leaving partial setup.
-        await supabaseAdmin
+        await supabaseCloudAdmin
           .from("restaurants")
           .delete()
           .eq("id", restaurant.id)

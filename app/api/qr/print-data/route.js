@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -12,7 +12,7 @@ export async function GET(req) {
       return Response.json({ success: false, error: "Restaurant is required" }, { status: 400 })
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("id,role,restaurant_id")
       .eq("id", user.id)
@@ -33,7 +33,7 @@ export async function GET(req) {
       return Response.json({ success: false, error: "Restaurant access denied" }, { status: 403 })
     }
 
-    const { data: pluginRows, error: pluginError } = await supabaseAdmin
+    const { data: pluginRows, error: pluginError } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("plugin_code,enabled")
       .eq("restaurant_id", restaurantId)
@@ -58,17 +58,17 @@ export async function GET(req) {
     }
 
     const [{ data: restaurant, error: restaurantError }, { data: tables }, { data: rooms }] = await Promise.all([
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("restaurants")
         .select("id,name,slug,logo,address,phone,description,cuisine,status")
         .eq("id", restaurantId)
         .maybeSingle(),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("tables")
         .select("id,table_number,seats")
         .eq("restaurant_id", restaurantId)
         .order("table_number", { ascending: true }),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("rooms")
         .select("id,room_number")
         .eq("restaurant_id", restaurantId)

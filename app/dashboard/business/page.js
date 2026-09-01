@@ -3,7 +3,7 @@ import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
 import { printHtmlInFrame } from "@/lib/printUtils"
 
@@ -74,19 +74,35 @@ export default function BusinessOperations() {
   }
 
   useEffect(() => {
-    const next = searchParams.get("tab") || "overview"
+    const requested = searchParams.get("tab")
+    const saved = !requested && typeof window !== "undefined" ? window.sessionStorage.getItem("anaira.operations.tab") : null
+    const next = requested || saved || "overview"
     const allowed = TABS.some(([id]) => id === next) ? next : "overview"
     setTab(allowed)
   }, [searchParams])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    window.sessionStorage.setItem("anaira.operations.tab", tab)
+  }, [tab])
+
+  useEffect(() => {
     init()
-    return () => window.clearTimeout(window.__anairaOpsToast)
+    const handlePageShow = (event) => {
+      // Browser print-preview/back and bfcache restores can resume this page
+      // without a normal React remount. Re-sync Cloud data when that happens.
+      if (event.persisted) init()
+    }
+    window.addEventListener("pageshow", handlePageShow)
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow)
+      window.clearTimeout(window.__anairaOpsToast)
+    }
   }, [])
 
   async function init() {
     try {
-      const { data: u } = await supabase.auth.getSession()
+      const { data: u } = await supabaseCloud.auth.getSession()
       const token = u?.session?.access_token
       if (!token) return setLoading(false)
 
@@ -107,23 +123,27 @@ export default function BusinessOperations() {
       if (payload.enabled !== true) return setLoading(false)
 
       const d = payload.data || {}
-      setCustomers(d.customers || [])
-      setGroups(d.groups || [])
-      setMods(d.mods || [])
-      setMenuItems(d.menu || [])
-      setExpenses(d.expenses || [])
-      setAttendance(d.attendance || [])
-      setFeedback(d.feedback || [])
-      setStaff(d.staff || [])
-      setKots(d.kots || [])
-      setOrders(d.orders || [])
-      setLoyaltyTransactions(d.loyaltyTx || [])
-      if (d.loyaltySettings) setLoyaltySettings(prev => ({ ...prev, ...d.loyaltySettings, max_points_per_order: d.loyaltySettings.max_points_per_order ?? "", expiry_days: d.loyaltySettings.expiry_days ?? "" }))
-      setLoyaltyTiers(d.loyaltyTiers || [])
-      setLoyaltyRewards(d.loyaltyRewards || [])
-      setLoyaltyCampaigns(d.loyaltyCampaigns || [])
-      setLoyaltyReferrals(d.loyaltyReferrals || [])
-      setLoyaltyRedemptions(d.loyaltyRedemptions || [])
+      // A single failed Cloud query must never wipe an already loaded module.
+      // The API reports failed query keys in payload.errors; retain the current
+      // state for those keys and only replace datasets that actually loaded.
+      const failed = new Set((payload.errors || []).map(e => e.key))
+      if (!failed.has("customers")) setCustomers(d.customers || [])
+      if (!failed.has("groups")) setGroups(d.groups || [])
+      if (!failed.has("mods")) setMods(d.mods || [])
+      if (!failed.has("menu")) setMenuItems(d.menu || [])
+      if (!failed.has("expenses")) setExpenses(d.expenses || [])
+      if (!failed.has("attendance")) setAttendance(d.attendance || [])
+      if (!failed.has("feedback")) setFeedback(d.feedback || [])
+      if (!failed.has("staff")) setStaff(d.staff || [])
+      if (!failed.has("kots")) setKots(d.kots || [])
+      if (!failed.has("orders")) setOrders(d.orders || [])
+      if (!failed.has("loyaltyTx")) setLoyaltyTransactions(d.loyaltyTx || [])
+      if (!failed.has("loyaltySettings") && d.loyaltySettings) setLoyaltySettings(prev => ({ ...prev, ...d.loyaltySettings, max_points_per_order: d.loyaltySettings.max_points_per_order ?? "", expiry_days: d.loyaltySettings.expiry_days ?? "" }))
+      if (!failed.has("loyaltyTiers")) setLoyaltyTiers(d.loyaltyTiers || [])
+      if (!failed.has("loyaltyRewards")) setLoyaltyRewards(d.loyaltyRewards || [])
+      if (!failed.has("loyaltyCampaigns")) setLoyaltyCampaigns(d.loyaltyCampaigns || [])
+      if (!failed.has("loyaltyReferrals")) setLoyaltyReferrals(d.loyaltyReferrals || [])
+      if (!failed.has("loyaltyRedemptions")) setLoyaltyRedemptions(d.loyaltyRedemptions || [])
       const pluginMap = payload.plugins || {}
       const loyaltyOn = pluginMap.loyalty === true
       setLoyaltyEnabled(loyaltyOn)
@@ -137,34 +157,34 @@ export default function BusinessOperations() {
   }
 
   const loadCustomers = async (r) => {
-    const { data } = await supabase.from("customers").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false })
+    const { data } = await supabaseCloud.from("customers").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false })
     setCustomers(data || [])
   }
   const loadMods = async (r) => {
     const [{ data: g }, { data: m }] = await Promise.all([
-      supabase.from("modifier_groups").select("*").eq("restaurant_id", r).order("created_at"),
-      supabase.from("modifiers").select("*").eq("restaurant_id", r).order("created_at"),
+      supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", r).order("created_at"),
+      supabaseCloud.from("modifiers").select("*").eq("restaurant_id", r).order("created_at"),
     ])
     setGroups(g || [])
     setMods(m || [])
-    const { data: menu } = await supabase.from("menu_items").select("id,name,category,price").eq("restaurant_id", r).order("name")
+    const { data: menu } = await supabaseCloud.from("menu_items").select("id,name,category,price").eq("restaurant_id", r).order("name")
     setMenuItems(menu || [])
   }
   const loadExpenses = async (r) => {
-    const { data } = await supabase.from("expenses").select("*").eq("restaurant_id", r).order("expense_date", { ascending: false }).limit(100)
+    const { data } = await supabaseCloud.from("expenses").select("*").eq("restaurant_id", r).order("expense_date", { ascending: false }).limit(100)
     setExpenses(data || [])
   }
   const loadAttendance = async (r) => {
-    const { data } = await supabase.from("staff_attendance").select("*").eq("restaurant_id", r).order("clock_in", { ascending: false }).limit(100)
+    const { data } = await supabaseCloud.from("staff_attendance").select("*").eq("restaurant_id", r).order("clock_in", { ascending: false }).limit(100)
     setAttendance(data || [])
   }
   const loadFeedback = async (r) => {
-    const { data } = await supabase.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    const { data } = await supabaseCloud.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
     setFeedback(data || [])
   }
   const loadLoyaltyTransactions = async (r) => {
     setLoyaltyError("")
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("loyalty_transactions")
       .select("id,customer_id,points,transaction_type,note,created_at")
       .eq("restaurant_id", r)
@@ -181,17 +201,17 @@ export default function BusinessOperations() {
   }
   const loadAdvancedLoyalty = async (r) => {
     try {
-      await supabase.rpc("seed_default_loyalty_config", { p_restaurant_id: r })
+      await supabaseCloud.rpc("seed_default_loyalty_config", { p_restaurant_id: r })
     } catch (e) {
       console.warn("Loyalty defaults:", e)
     }
     const [settingsRes, tiersRes, rewardsRes, campaignsRes, referralsRes, redemptionsRes] = await Promise.all([
-      supabase.from("loyalty_settings").select("*").eq("restaurant_id", r).maybeSingle(),
-      supabase.from("loyalty_tiers").select("*").eq("restaurant_id", r).order("min_points", { ascending: true }),
-      supabase.from("loyalty_rewards").select("*").eq("restaurant_id", r).order("points_cost", { ascending: true }),
-      supabase.from("loyalty_campaigns").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
-      supabase.from("loyalty_referrals").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100),
-      supabase.from("loyalty_redemptions").select("id,customer_id,reward_id,points,status,created_at").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100),
+      supabaseCloud.from("loyalty_settings").select("*").eq("restaurant_id", r).maybeSingle(),
+      supabaseCloud.from("loyalty_tiers").select("*").eq("restaurant_id", r).order("min_points", { ascending: true }),
+      supabaseCloud.from("loyalty_rewards").select("*").eq("restaurant_id", r).order("points_cost", { ascending: true }),
+      supabaseCloud.from("loyalty_campaigns").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }),
+      supabaseCloud.from("loyalty_referrals").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100),
+      supabaseCloud.from("loyalty_redemptions").select("id,customer_id,reward_id,points,status,created_at").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100),
     ])
     if (settingsRes.data) setLoyaltySettings({ ...loyaltySettings, ...settingsRes.data, max_points_per_order: settingsRes.data.max_points_per_order ?? "", expiry_days: settingsRes.data.expiry_days ?? "" })
     setLoyaltyTiers(tiersRes.data || [])
@@ -202,22 +222,22 @@ export default function BusinessOperations() {
   }
 
   const loadStaff = async (r) => {
-    const { data } = await supabase.from("profiles").select("id,email,role").eq("restaurant_id", r).order("email")
+    const { data } = await supabaseCloud.from("profiles").select("id,email,role").eq("restaurant_id", r).order("email")
     setStaff(data || [])
   }
   const loadKots = async (r) => {
-    const { data } = await supabase.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50)
+    const { data } = await supabaseCloud.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50)
     setKots(data || [])
   }
   const loadOrders = async (r) => {
-    const { data } = await supabase.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    const { data } = await supabaseCloud.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
     setOrders(data || [])
   }
 
   async function addCustomer(e) {
     e.preventDefault()
     if (!cf.name.trim()) return notify("Customer name is required")
-    const { error } = await supabase.from("customers").insert({ restaurant_id: rid, ...cf })
+    const { error } = await supabaseCloud.from("customers").insert({ restaurant_id: rid, ...cf })
     if (error) return notify(error.message)
     setCf({ name: "", phone: "", email: "" })
     await loadCustomers(rid)
@@ -230,7 +250,7 @@ export default function BusinessOperations() {
     const minSelect = Math.max(0, Number(gf.min_select || 0))
     const maxSelect = gf.max_select === "" ? null : Math.max(0, Number(gf.max_select))
     if (maxSelect !== null && maxSelect < minSelect) return notify("Maximum selections cannot be less than minimum")
-    const { error } = await supabase.from("modifier_groups").insert({
+    const { error } = await supabaseCloud.from("modifier_groups").insert({
       restaurant_id: rid,
       name: gf.name.trim(),
       selection_type: gf.selection_type,
@@ -247,7 +267,7 @@ export default function BusinessOperations() {
   async function addMod(e) {
     e.preventDefault()
     if (!mf.name.trim() || !mf.group_id) return notify("Choose a group and modifier name")
-    const { error } = await supabase.from("modifiers").insert({
+    const { error } = await supabaseCloud.from("modifiers").insert({
       restaurant_id: rid,
       group_id: mf.group_id,
       name: mf.name,
@@ -261,7 +281,7 @@ export default function BusinessOperations() {
 
   async function toggleMenuModifierGroup(menuItemId, groupId) {
     if (!menuItemId || !groupId) return
-    const { data: existing } = await supabase
+    const { data: existing } = await supabaseCloud
       .from("menu_item_modifier_groups")
       .select("id")
       .eq("restaurant_id", rid)
@@ -270,11 +290,11 @@ export default function BusinessOperations() {
       .maybeSingle()
 
     if (existing) {
-      const { error } = await supabase.from("menu_item_modifier_groups").delete().eq("id", existing.id)
+      const { error } = await supabaseCloud.from("menu_item_modifier_groups").delete().eq("id", existing.id)
       if (error) return notify(error.message)
       notify("Modifier group unassigned")
     } else {
-      const { error } = await supabase.from("menu_item_modifier_groups").insert({
+      const { error } = await supabaseCloud.from("menu_item_modifier_groups").insert({
         restaurant_id: rid,
         menu_item_id: menuItemId,
         modifier_group_id: groupId
@@ -285,15 +305,15 @@ export default function BusinessOperations() {
   }
 
   async function isMenuGroupAssigned(menuItemId, groupId) {
-    const { data } = await supabase.from("menu_item_modifier_groups").select("id").eq("restaurant_id", rid).eq("menu_item_id", menuItemId).eq("modifier_group_id", groupId).maybeSingle()
+    const { data } = await supabaseCloud.from("menu_item_modifier_groups").select("id").eq("restaurant_id", rid).eq("menu_item_id", menuItemId).eq("modifier_group_id", groupId).maybeSingle()
     return !!data
   }
 
   async function addExpense(e) {
     e.preventDefault()
     if (!Number(ef.amount)) return notify("Enter an expense amount")
-    const { data: u } = await supabase.auth.getUser()
-    const { error } = await supabase.from("expenses").insert({
+    const { data: u } = await supabaseCloud.auth.getUser()
+    const { error } = await supabaseCloud.from("expenses").insert({
       restaurant_id: rid,
       ...ef,
       amount: Number(ef.amount),
@@ -306,18 +326,18 @@ export default function BusinessOperations() {
   }
 
   async function clockIn() {
-    const { data: u } = await supabase.auth.getUser()
+    const { data: u } = await supabaseCloud.auth.getUser()
     if (!u?.user) return
-    const { data: open } = await supabase.from("staff_attendance").select("id").eq("restaurant_id", rid).eq("staff_id", u.user.id).is("clock_out", null).limit(1).maybeSingle()
+    const { data: open } = await supabaseCloud.from("staff_attendance").select("id").eq("restaurant_id", rid).eq("staff_id", u.user.id).is("clock_out", null).limit(1).maybeSingle()
     if (open) return notify("You are already clocked in")
-    const { error } = await supabase.from("staff_attendance").insert({ restaurant_id: rid, staff_id: u.user.id })
+    const { error } = await supabaseCloud.from("staff_attendance").insert({ restaurant_id: rid, staff_id: u.user.id })
     if (error) return notify(error.message)
     await loadAttendance(rid)
     notify("Clocked in")
   }
 
   async function clockOut(id) {
-    const { error } = await supabase.from("staff_attendance").update({ clock_out: new Date().toISOString() }).eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from("staff_attendance").update({ clock_out: new Date().toISOString() }).eq("id", id).eq("restaurant_id", rid)
     if (error) return notify(error.message)
     await loadAttendance(rid)
     notify("Clocked out")
@@ -327,7 +347,7 @@ export default function BusinessOperations() {
     if (!order?.id || !rid) return notify("Select a valid active order")
     setKotBusy(order.id)
     try {
-      const { data: existing } = await supabase
+      const { data: existing } = await supabaseCloud
         .from("kot_tickets")
         .select("id,status")
         .eq("restaurant_id", rid)
@@ -341,7 +361,7 @@ export default function BusinessOperations() {
         return
       }
 
-      const { error } = await supabase.from("kot_tickets").insert({
+      const { error } = await supabaseCloud.from("kot_tickets").insert({
         restaurant_id: rid,
         order_id: order.id,
         status: "new"
@@ -358,7 +378,7 @@ export default function BusinessOperations() {
   }
 
   async function updateKotStatus(kot, status) {
-    const { error } = await supabase
+    const { error } = await supabaseCloud
       .from("kot_tickets")
       .update({ status, printed_at: status === "new" ? null : kot.printed_at })
       .eq("id", kot.id)
@@ -370,7 +390,7 @@ export default function BusinessOperations() {
 
   async function printKotThermal(kot) {
     try {
-      const { data: orderItems } = await supabase.from("order_items").select("item_name,quantity,cooking_request").eq("order_id", kot.order_id)
+      const { data: orderItems } = await supabaseCloud.from("order_items").select("item_name,quantity,cooking_request").eq("order_id", kot.order_id)
       const content = [
         name || "Restaurant",
         "KITCHEN ORDER TICKET",
@@ -389,48 +409,71 @@ export default function BusinessOperations() {
   }
 
   async function printKot(kot, reprint = false) {
-    const order = orders.find(o => o.id === kot.order_id)
-    const { data: orderItems } = await supabase
-      .from("order_items")
-      .select("item_id,item_name,quantity,cooking_request")
-      .eq("order_id", kot.order_id)
-    const itemIds = (orderItems || []).map(i => i.item_id).filter(Boolean)
-    const { data: menuRows } = itemIds.length
-      ? await supabase.from("menu_items").select("id,name").in("id", itemIds)
-      : { data: [] }
-    const menuMap = new Map((menuRows || []).map(m => [String(m.id), m.name]))
-    const itemsHtml = (orderItems || []).map(i => `
-      <div style="padding:7px 0;border-bottom:1px dashed #bbb">
-        <b>${Number(i.quantity || 0)} × ${i.item_name || menuMap.get(String(i.item_id)) || "Item"}</b>
-        ${i.cooking_request ? `<div style="font-size:11px;margin-top:2px">Note: ${i.cooking_request}</div>` : ""}
-      </div>`).join("")
-    const html = `
-      <div style="width:320px;font-family:Arial,sans-serif;padding:20px;color:#111">
-        <div style="text-align:center;border-bottom:2px solid #111;padding-bottom:10px">
-          <h2 style="margin:0">KITCHEN ORDER TICKET</h2>
-          <div style="font-size:14px;font-weight:800">${name || "Restaurant"}</div>
-        </div>
-        <div style="margin:14px 0;font-size:14px">
-          <b>KOT #${kot.kot_no || kot.id.slice(0,6).toUpperCase()}</b><br/>
-          ${order?.source_label || "Order"}<br/>
-          ${formatIndiaDateTime(kot.created_at)}
-        </div>
-        <div style="border-top:1px dashed #111;padding-top:10px">${itemsHtml || "<div>No items found</div>"}</div>
-        <div style="margin-top:12px"><b>Status:</b> ${String(kot.status || "new").toUpperCase()}</div>
-        <p style="margin-top:28px;text-align:center;font-size:11px">Kitchen Copy</p>
-      </div>`
+    if (!kot?.id) return notify("KOT not found")
     try {
-      await printHtmlInFrame(`<div style="width:100%;font-family:Arial,sans-serif;color:#111">${html}</div>`, { title: `KOT ${kot.kot_no || ""}`, width: "80mm", height: "auto" })
-    } catch (e) { return notify(e.message || "Unable to print KOT") }
-    const { error } = await supabase.from("kot_tickets").update({
-      printed_at: new Date().toISOString(),
-      reprint_count: Number(kot.reprint_count || 0) + (reprint ? 1 : 0)
-    }).eq("id", kot.id).eq("restaurant_id", rid)
-    if (!error) await loadKots(rid)
+      const order = orders.find(o => o.id === kot.order_id)
+      const { data: orderItems, error: itemError } = await supabaseCloud
+        .from("order_items")
+        .select("item_id,item_name,quantity,cooking_request")
+        .eq("order_id", kot.order_id)
+      if (itemError) throw itemError
+
+      const itemIds = (orderItems || []).map(i => i.item_id).filter(Boolean)
+      const { data: menuRows, error: menuError } = itemIds.length
+        ? await supabaseCloud.from("menu_items").select("id,name").in("id", itemIds)
+        : { data: [], error: null }
+      if (menuError) throw menuError
+
+      const menuMap = new Map((menuRows || []).map(m => [String(m.id), m.name]))
+      const escape = value => String(value ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#039;")
+      const itemsHtml = (orderItems || []).map(i => `
+        <div class="item">
+          <div class="itemRow"><span>${escape(i.item_name || menuMap.get(String(i.item_id)) || "Item")}</span><b>×${Number(i.quantity || 0)}</b></div>
+          ${i.cooking_request ? `<div class="note">Note: ${escape(i.cooking_request)}</div>` : ""}
+        </div>`).join("")
+
+      const html = `
+        <main class="kot">
+          <header>
+            <div class="title">KITCHEN ORDER TICKET</div>
+            <div class="restaurant">${escape(name || "Restaurant")}</div>
+            <div class="meta">KOT #${escape(kot.kot_no || kot.id.slice(0,6).toUpperCase())}</div>
+            <div class="meta">${escape(order?.source_label || "Order")}</div>
+            <div class="meta">${escape(formatIndiaDateTime(kot.created_at))}</div>
+          </header>
+          <div class="line"></div>
+          <section>${itemsHtml || "<div>No items found</div>"}</section>
+          <div class="line"></div>
+          <div class="status"><span>Status</span><b>${escape(String(kot.status || "new").toUpperCase())}</b></div>
+          <div class="foot">Kitchen Copy • KOT ${escape(String(kot.id || "").slice(0,8))}</div>
+        </main>
+        <style>
+          @page{size:A5 portrait;margin:0}
+          html,body{margin:0;padding:0;width:148mm;min-width:148mm;max-width:148mm;min-height:210mm;background:#fff;color:#111}
+          *{box-sizing:border-box}
+          .kot{width:148mm;min-height:210mm;padding:12mm 12mm 10mm;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.35}
+          header{text-align:center}.title{font-size:22px;font-weight:900;letter-spacing:.7px}.restaurant{font-size:18px;font-weight:900;margin-top:5px}.meta{font-size:11px;color:#555;margin-top:2px}.line{border-top:1px dashed #555;margin:10px 0}.item{padding:8px 0;border-bottom:1px dotted #aaa;break-inside:avoid}.itemRow{display:flex;justify-content:space-between;gap:12px;font-size:15px;font-weight:800}.note{font-size:11px;color:#555;margin-top:3px}.status{display:flex;justify-content:space-between;font-size:12px}.foot{text-align:center;font-size:10px;color:#666;margin-top:18px}
+          @media print{html,body{width:148mm!important;min-width:148mm!important;max-width:148mm!important;min-height:210mm!important}.kot{width:148mm!important;min-height:210mm!important}}
+        </style>`
+
+      await printHtmlInFrame(html, { title: `KOT ${kot.kot_no || ""}`, width: "148mm", height: "210mm" })
+
+      const { error } = await supabaseCloud.from("kot_tickets").update({
+        printed_at: new Date().toISOString(),
+        reprint_count: Number(kot.reprint_count || 0) + (reprint ? 1 : 0)
+      }).eq("id", kot.id).eq("restaurant_id", rid)
+      if (error) return notify(error.message)
+      // Refresh only this KOT list; the rest of the Operations Hub state stays intact.
+      await loadKots(rid)
+    } catch (e) {
+      notify(e.message || "Unable to print KOT")
+    }
   }
 
   async function deleteExpense(id) {
-    const { error } = await supabase.from("expenses").delete().eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from("expenses").delete().eq("id", id).eq("restaurant_id", rid)
     if (error) return notify(error.message)
     await loadExpenses(rid)
     notify("Expense deleted")
@@ -438,7 +481,7 @@ export default function BusinessOperations() {
 
   async function deleteCustomer(id) {
     if (!window.confirm("Delete this customer profile?")) return
-    const { error } = await supabase.from("customers").delete().eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from("customers").delete().eq("id", id).eq("restaurant_id", rid)
     if (error) return notify(error.message)
     await loadCustomers(rid)
     notify("Customer deleted")
@@ -450,7 +493,7 @@ export default function BusinessOperations() {
     const next = Math.max(0, current + Number(delta || 0))
     if (delta < 0 && next === current) return notify("Not enough points")
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseCloud
       .from("customers")
       .update({ loyalty_points: next, updated_at: new Date().toISOString() })
       .eq("id", customer.id)
@@ -458,7 +501,7 @@ export default function BusinessOperations() {
 
     if (updateError) return notify(`Points update failed: ${updateError.message}`)
 
-    const { error: txError } = await supabase
+    const { error: txError } = await supabaseCloud
       .from("loyalty_transactions")
       .insert({
         restaurant_id: rid,
@@ -469,7 +512,7 @@ export default function BusinessOperations() {
       })
 
     if (txError) {
-      await supabase
+      await supabaseCloud
         .from("customers")
         .update({ loyalty_points: current, updated_at: new Date().toISOString() })
         .eq("id", customer.id)
@@ -501,7 +544,7 @@ export default function BusinessOperations() {
       review_reward_points: Math.max(0, Number(loyaltySettings.review_reward_points || 0)),
       updated_at: new Date().toISOString(),
     }
-    const { error } = await supabase.from("loyalty_settings").upsert(payload, { onConflict: "restaurant_id" })
+    const { error } = await supabaseCloud.from("loyalty_settings").upsert(payload, { onConflict: "restaurant_id" })
     setLoyaltySaving(false)
     if (error) return notify(`Loyalty settings failed: ${error.message}`)
     setLoyaltySettings({ ...loyaltySettings, ...payload })
@@ -511,7 +554,7 @@ export default function BusinessOperations() {
   async function addLoyaltyTier(e) {
     e.preventDefault()
     if (!rid || !tierForm.name.trim()) return notify("Enter tier name")
-    const { error } = await supabase.from("loyalty_tiers").insert({
+    const { error } = await supabaseCloud.from("loyalty_tiers").insert({
       restaurant_id: rid, name: tierForm.name.trim(), min_points: Number(tierForm.min_points || 0), multiplier: Number(tierForm.multiplier || 1), benefits: tierForm.benefits.trim() || null, sort_order: loyaltyTiers.length + 1, active: true
     })
     if (error) return notify(error.message)
@@ -523,7 +566,7 @@ export default function BusinessOperations() {
   async function addLoyaltyReward(e) {
     e.preventDefault()
     if (!rid || !rewardForm.name.trim()) return notify("Enter reward name")
-    const { error } = await supabase.from("loyalty_rewards").insert({
+    const { error } = await supabaseCloud.from("loyalty_rewards").insert({
       restaurant_id: rid, name: rewardForm.name.trim(), description: rewardForm.description.trim() || null, points_cost: Number(rewardForm.points_cost || 0), reward_type: rewardForm.reward_type, reward_value: Number(rewardForm.reward_value || 0), min_order_amount: Number(rewardForm.min_order_amount || 0), usage_limit: rewardForm.usage_limit === "" ? null : Number(rewardForm.usage_limit), expires_days: rewardForm.expires_days === "" ? null : Number(rewardForm.expires_days), active: true
     })
     if (error) return notify(error.message)
@@ -535,7 +578,7 @@ export default function BusinessOperations() {
   async function addLoyaltyCampaign(e) {
     e.preventDefault()
     if (!rid || !campaignForm.name.trim()) return notify("Enter campaign name")
-    const { error } = await supabase.from("loyalty_campaigns").insert({
+    const { error } = await supabaseCloud.from("loyalty_campaigns").insert({
       restaurant_id: rid, name: campaignForm.name.trim(), description: campaignForm.description.trim() || null, bonus_points: Number(campaignForm.bonus_points || 0), starts_at: campaignForm.starts_at || null, ends_at: campaignForm.ends_at || null, active: true
     })
     if (error) return notify(error.message)
@@ -553,17 +596,17 @@ export default function BusinessOperations() {
     if (reward.usage_limit != null && Number(reward.used_count || 0) >= Number(reward.usage_limit)) return notify("Reward usage limit reached")
 
     const next = current - cost
-    const { error: customerError } = await supabase.from("customers").update({ loyalty_points: next, updated_at: new Date().toISOString() }).eq("id", customer.id).eq("restaurant_id", rid)
+    const { error: customerError } = await supabaseCloud.from("customers").update({ loyalty_points: next, updated_at: new Date().toISOString() }).eq("id", customer.id).eq("restaurant_id", rid)
     if (customerError) return notify(`Redeem failed: ${customerError.message}`)
 
-    const { data: userData } = await supabase.auth.getUser()
-    const { error: txError } = await supabase.from("loyalty_transactions").insert({ restaurant_id: rid, customer_id: customer.id, points: -cost, transaction_type: "redeem", note: `Reward redeemed: ${reward.name}`, created_by: userData?.user?.id || null })
-    const { error: redemptionError } = await supabase.from("loyalty_redemptions").insert({ restaurant_id: rid, customer_id: customer.id, reward_id: reward.id, points: cost, status: "redeemed", created_by: userData?.user?.id || null })
+    const { data: userData } = await supabaseCloud.auth.getUser()
+    const { error: txError } = await supabaseCloud.from("loyalty_transactions").insert({ restaurant_id: rid, customer_id: customer.id, points: -cost, transaction_type: "redeem", note: `Reward redeemed: ${reward.name}`, created_by: userData?.user?.id || null })
+    const { error: redemptionError } = await supabaseCloud.from("loyalty_redemptions").insert({ restaurant_id: rid, customer_id: customer.id, reward_id: reward.id, points: cost, status: "redeemed", created_by: userData?.user?.id || null })
     if (txError || redemptionError) {
-      await supabase.from("customers").update({ loyalty_points: current, updated_at: new Date().toISOString() }).eq("id", customer.id).eq("restaurant_id", rid)
+      await supabaseCloud.from("customers").update({ loyalty_points: current, updated_at: new Date().toISOString() }).eq("id", customer.id).eq("restaurant_id", rid)
       return notify(txError?.message || redemptionError?.message || "Reward redemption failed")
     }
-    await supabase.from("loyalty_rewards").update({ used_count: Number(reward.used_count || 0) + 1 }).eq("id", reward.id).eq("restaurant_id", rid)
+    await supabaseCloud.from("loyalty_rewards").update({ used_count: Number(reward.used_count || 0) + 1 }).eq("id", reward.id).eq("restaurant_id", rid)
     await Promise.all([loadCustomers(rid), loadLoyaltyTransactions(rid), loadAdvancedLoyalty(rid)])
     const refreshed = { ...customer, loyalty_points: next }
     setSelectedLoyaltyCustomer(refreshed)
@@ -573,21 +616,21 @@ export default function BusinessOperations() {
   async function createReferralCode(customer) {
     if (!rid || !customer) return
     const code = `${String(customer.name || "GUEST").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "GUEST"}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-    const { error } = await supabase.from("loyalty_referrals").insert({ restaurant_id: rid, referrer_customer_id: customer.id, code, status: "pending" })
+    const { error } = await supabaseCloud.from("loyalty_referrals").insert({ restaurant_id: rid, referrer_customer_id: customer.id, code, status: "pending" })
     if (error) return notify(error.message)
     await loadAdvancedLoyalty(rid)
     notify(`Referral code ${code} created`)
   }
 
   async function toggleLoyaltyEntity(table, id, active) {
-    const { error } = await supabase.from(table).update({ active: !active }).eq("id", id).eq("restaurant_id", rid)
+    const { error } = await supabaseCloud.from(table).update({ active: !active }).eq("id", id).eq("restaurant_id", rid)
     if (error) return notify(error.message)
     await loadAdvancedLoyalty(rid)
   }
 
   async function addFeedback(e) {
     e.preventDefault()
-    const { error } = await supabase.from("customer_feedback").insert({ restaurant_id: rid, rating: Number(ff.rating), feedback: ff.feedback })
+    const { error } = await supabaseCloud.from("customer_feedback").insert({ restaurant_id: rid, rating: Number(ff.rating), feedback: ff.feedback })
     if (error) return notify(error.message)
     setFf({ rating: 5, feedback: "" })
     await loadFeedback(rid)
@@ -595,7 +638,7 @@ export default function BusinessOperations() {
   }
 
   async function permission(staffId, key, enabled) {
-    const { error } = await supabase.from("staff_permissions").upsert(
+    const { error } = await supabaseCloud.from("staff_permissions").upsert(
       { restaurant_id: rid, staff_id: staffId, permission_key: key, enabled },
       { onConflict: "restaurant_id,staff_id,permission_key" }
     )
@@ -1093,7 +1136,7 @@ function ModifierAssignment({ rid, menuItemId, group, onToggle }) {
   const [assigned, setAssigned] = useState(false)
   useEffect(() => {
     let alive = true
-    supabase.from("menu_item_modifier_groups").select("id").eq("restaurant_id", rid).eq("menu_item_id", menuItemId).eq("modifier_group_id", group.id).maybeSingle().then(({ data }) => alive && setAssigned(!!data))
+    supabaseCloud.from("menu_item_modifier_groups").select("id").eq("restaurant_id", rid).eq("menu_item_id", menuItemId).eq("modifier_group_id", group.id).maybeSingle().then(({ data }) => alive && setAssigned(!!data))
     return () => { alive = false }
   }, [rid, menuItemId, group.id])
   return <button type="button" onClick={async () => { await onToggle(menuItemId, group.id); setAssigned(v => !v) }} style={{...assignmentBtn, ...(assigned ? assignmentActive : {})}}><span>{assigned ? "✓" : "○"} {group.name}</span><small>{group.required ? "Required" : "Optional"} • {group.selection_type}</small></button>
@@ -1103,7 +1146,7 @@ function Permission({ rid, staff, perm, save }) {
   const [on, setOn] = useState(false)
   useEffect(() => {
     let active = true
-    supabase.from("staff_permissions").select("enabled").eq("restaurant_id", rid).eq("staff_id", staff).eq("permission_key", perm).maybeSingle().then(({ data }) => active && setOn(!!data?.enabled))
+    supabaseCloud.from("staff_permissions").select("enabled").eq("restaurant_id", rid).eq("staff_id", staff).eq("permission_key", perm).maybeSingle().then(({ data }) => active && setOn(!!data?.enabled))
     return () => { active = false }
   }, [rid, staff, perm])
   return <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); save(staff, perm, e.target.checked) }} />

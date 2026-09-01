@@ -2,7 +2,7 @@
 import { formatIndiaTime, indiaDateKey } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function ReservationPage() {
 
@@ -45,7 +45,7 @@ const [restaurantId, setRestaurantId] = useState(null)
           // Use the already-persisted client session instead of getUser().
       // In Next.js development, StrictMode can invoke effects twice; concurrent
       // getUser()/refresh requests can fight over Supabase's auth-token lock.
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
       if (sessionError) throw sessionError
 
       const user = sessionData?.session?.user || null
@@ -54,7 +54,7 @@ const [restaurantId, setRestaurantId] = useState(null)
         return
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseCloud
         .from("profiles")
         .select("restaurant_id, role")
         .eq("id", user.id)
@@ -70,7 +70,7 @@ const [restaurantId, setRestaurantId] = useState(null)
       const rid = data.restaurant_id
       setRestaurantId(rid)
 
-      const { data: plugin, error: pluginError } = await supabase
+      const { data: plugin, error: pluginError } = await supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", rid)
@@ -82,7 +82,7 @@ const [restaurantId, setRestaurantId] = useState(null)
       if (pluginError) console.warn("Reservation plugin lookup:", pluginError)
       setPluginActive(plugin?.enabled === true)
 
-      const { data: settings, error: settingsError } = await supabase
+      const { data: settings, error: settingsError } = await supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", rid)
@@ -123,7 +123,7 @@ useEffect(() => {
 
   // 🔥 FETCH TABLES
   async function fetchTables() {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
   .from("tables")
   .select("*")
   .eq("restaurant_id", restaurantId)
@@ -139,7 +139,7 @@ useEffect(() => {
 
   // 🔥 FETCH RESERVATIONS (FIXED RELATION)
   async function fetchReservations() {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("reservations")
       .select("*")
       .eq("restaurant_id", restaurantId)
@@ -182,7 +182,7 @@ useEffect(() => {
 
   async function checkAvailableTables(date, time, duration = form.duration) {
     if (!date || !time) { setAvailableTables(tables); return }
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("reservations")
       .select("id, table_id, date, time, duration, status")
       .eq("restaurant_id", restaurantId)
@@ -224,7 +224,7 @@ useEffect(() => {
     if (!editId && form.date < todayISO) { alert("Reservation date cannot be in the past."); return }
     try {
       setSubmitting(true)
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Login session expired")
       const response = await fetch("/api/reservations/manage", {
@@ -270,7 +270,7 @@ useEffect(() => {
     if (!window.confirm("Delete this reservation?")) return
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Login session expired")
 
@@ -298,7 +298,7 @@ useEffect(() => {
 
   async function updateStatus(id, status) {
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Login session expired")
 

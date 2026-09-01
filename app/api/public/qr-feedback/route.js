@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
@@ -24,7 +24,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"Please select a rating from 1 to 5" }, { status:400 })
     }
 
-    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+    const { data: restaurant, error: restaurantError } = await supabaseCloudAdmin
       .from("restaurants")
       .select("id,name,slug")
       .eq("slug", slug)
@@ -34,7 +34,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"Restaurant not found" }, { status:404 })
     }
 
-    const { data: operationsHub } = await supabaseAdmin
+    const { data: operationsHub } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", restaurant.id)
@@ -52,7 +52,7 @@ export async function POST(req) {
     const sourceColumn = type === "table" ? "table_number" : "room_number"
 
     let source = null
-    const { data: sourceById } = await supabaseAdmin
+    const { data: sourceById } = await supabaseCloudAdmin
       .from(sourceTable)
       .select("id")
       .eq("restaurant_id", restaurant.id)
@@ -64,7 +64,7 @@ export async function POST(req) {
     if (!source) {
       const numericId = Number(id)
       if (Number.isInteger(numericId) && numericId >= 0) {
-        const { data: sourceByNumber } = await supabaseAdmin
+        const { data: sourceByNumber } = await supabaseCloudAdmin
           .from(sourceTable)
           .select("id")
           .eq("restaurant_id", restaurant.id)
@@ -78,7 +78,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"QR source not found" }, { status:404 })
     }
 
-    const { error: insertError } = await supabaseAdmin
+    const { error: insertError } = await supabaseCloudAdmin
       .from("customer_feedback")
       .insert({
         restaurant_id: restaurant.id,

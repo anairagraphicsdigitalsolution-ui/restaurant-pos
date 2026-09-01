@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function Home() {
   const router = useRouter()
@@ -13,7 +13,7 @@ export default function Home() {
       try {
         const {
           data: { user },
-        } = await supabase.auth.getUser()
+        } = await supabaseCloud.auth.getUser()
 
         // Not logged in
         if (!user) {
@@ -22,14 +22,14 @@ export default function Home() {
         }
 
         // Get user role
-        const { data: profile, error } = await supabase
+        const { data: profile, error } = await supabaseCloud
           .from("profiles")
           .select("role")
           .eq("id", user.id)
           .single()
 
         if (error || !profile) {
-          await supabase.auth.signOut()
+          await supabaseCloud.auth.signOut()
           router.replace("/login")
           return
         }
@@ -48,7 +48,7 @@ export default function Home() {
             break
 
           default:
-            await supabase.auth.signOut()
+            await supabaseCloud.auth.signOut()
             router.replace("/login")
         }
       } catch (err) {

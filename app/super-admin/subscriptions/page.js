@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import Link from "next/link"
 
 const money = n => `₹${Number(n || 0).toLocaleString("en-IN")}`
@@ -27,7 +27,7 @@ export default function Subscriptions() {
   useEffect(() => { load() }, [])
 
   async function authHeaders() {
-    const { data } = await supabase.auth.getSession()
+    const { data } = await supabaseCloud.auth.getSession()
     if (!data?.session?.access_token) throw new Error("Login session expired")
     return { Authorization: `Bearer ${data.session.access_token}`, "Content-Type": "application/json" }
   }

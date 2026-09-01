@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -21,7 +21,7 @@ export async function POST(req) {
         return Response.json({ success: false, error: "Reservation is required" }, { status: 400 })
       }
 
-      const { data, error } = await supabaseAdmin.rpc("stage3_delete_reservation", {
+      const { data, error } = await supabaseCloudAdmin.rpc("stage3_delete_reservation", {
         p_actor_id: user.id,
         p_reservation_id: reservationId
       })
@@ -38,7 +38,7 @@ export async function POST(req) {
         return Response.json({ success: false, error: "Invalid reservation status" }, { status: 400 })
       }
 
-      const { data, error } = await supabaseAdmin.rpc("stage3_update_reservation_status", {
+      const { data, error } = await supabaseCloudAdmin.rpc("stage3_update_reservation_status", {
         p_actor_id: user.id,
         p_reservation_id: reservationId,
         p_status: status
@@ -48,7 +48,7 @@ export async function POST(req) {
       return Response.json({ success: true, reservation: data })
     }
 
-    const profile = await supabaseAdmin
+    const profile = await supabaseCloudAdmin
       .from("profiles")
       .select("restaurant_id,role")
       .eq("id", user.id)
@@ -58,7 +58,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"Restaurant profile not found" }, {status:400})
     }
 
-    const { data: pluginRow } = await supabaseAdmin
+    const { data: pluginRow } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", restaurantId)
@@ -70,7 +70,7 @@ export async function POST(req) {
       return Response.json({ success:false, error:"Advanced Reservations is not active" }, {status:403})
     }
 
-    const { data: settingsRow } = await supabaseAdmin
+    const { data: settingsRow } = await supabaseCloudAdmin
       .from("plugin_settings")
       .select("config")
       .eq("restaurant_id", restaurantId)
@@ -119,13 +119,13 @@ export async function POST(req) {
       }
     }
 
-    const { data, error } = await supabaseAdmin.rpc(rpcName, payload)
+    const { data, error } = await supabaseCloudAdmin.rpc(rpcName, payload)
 
     if (error) return Response.json({ success: false, error: error.message }, { status: 400 })
 
     let finalReservation = data
     if (cfg.auto_confirm === true && data?.reservation_id) {
-      const { data: statusData, error: statusError } = await supabaseAdmin.rpc("stage3_update_reservation_status", {
+      const { data: statusData, error: statusError } = await supabaseCloudAdmin.rpc("stage3_update_reservation_status", {
         p_actor_id: user.id,
         p_reservation_id: data.reservation_id,
         p_status: "confirmed"

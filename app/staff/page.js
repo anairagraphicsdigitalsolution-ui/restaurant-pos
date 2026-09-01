@@ -2,7 +2,7 @@
 import { formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import OrderPage from "../order/page"
 
 export default function StaffPage() {
@@ -26,7 +26,7 @@ export default function StaffPage() {
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer)
-      if (channel) void supabase.removeChannel(channel)
+      if (channel) void supabaseCloud.removeChannel(channel)
     }
   }, [])
 
@@ -35,7 +35,7 @@ export default function StaffPage() {
       setLoading(true)
 
       const { data: userData, error: userError } =
-        await supabase.auth.getUser()
+        await supabaseCloud.auth.getUser()
 
       if (userError || !userData?.user) {
         alert("Login required")
@@ -43,7 +43,7 @@ export default function StaffPage() {
       }
 
       const { data: profile, error: profileError } =
-        await supabase
+        await supabaseCloud
           .from("profiles")
           .select("restaurant_id, role")
           .eq("id", userData.user.id)
@@ -65,7 +65,7 @@ export default function StaffPage() {
       /*
        * Realtime order updates
        */
-      return supabase
+      return supabaseCloud
         .channel(`staff-orders-${rid}`)
         .on(
           "postgres_changes",
@@ -90,7 +90,7 @@ export default function StaffPage() {
   async function checkPOS(rid) {
     try {
       const { data: plugin, error } =
-        await supabase
+        await supabaseCloud
           .from("restaurant_plugins")
           .select("enabled")
           .eq("restaurant_id", rid)
@@ -113,7 +113,7 @@ export default function StaffPage() {
 
 
   async function checkCaptain(rid) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", rid)
@@ -135,7 +135,7 @@ export default function StaffPage() {
 
     try {
       const { data: ordersData, error: ordersError } =
-        await supabase
+        await supabaseCloud
           .from("orders")
           .select("*")
           .eq("restaurant_id", id)
@@ -152,12 +152,12 @@ export default function StaffPage() {
         { data: tables, error: tablesError },
         { data: rooms, error: roomsError }
       ] = await Promise.all([
-        supabase
+        supabaseCloud
           .from("tables")
           .select("id, table_number")
           .eq("restaurant_id", id),
 
-        supabase
+        supabaseCloud
           .from("rooms")
           .select("id, room_number")
           .eq("restaurant_id", id)
@@ -207,7 +207,7 @@ export default function StaffPage() {
   async function updateStatus(order, newStatus) {
     if (!order?.id) return
 
-    const { error } = await supabase
+    const { error } = await supabaseCloud
       .from("orders")
       .update({
         status: newStatus
@@ -533,19 +533,19 @@ function POS({
         { data: tableData, error: tableError },
         { data: roomData, error: roomError }
       ] = await Promise.all([
-        supabase
+        supabaseCloud
           .from("menu_items")
           .select("*")
           .eq("restaurant_id", restaurantId)
           .order("name"),
 
-        supabase
+        supabaseCloud
           .from("tables")
           .select("*")
           .eq("restaurant_id", restaurantId)
           .order("table_number"),
 
-        supabase
+        supabaseCloud
           .from("rooms")
           .select("*")
           .eq("restaurant_id", restaurantId)
@@ -652,7 +652,7 @@ function POS({
       const {
         data: sessionData,
         error: sessionError
-      } = await supabase.auth.getSession()
+      } = await supabaseCloud.auth.getSession()
 
       if (
         sessionError ||

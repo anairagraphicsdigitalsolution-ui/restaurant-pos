@@ -2,7 +2,7 @@
 import { formatIndiaDate, formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString("en-IN", {
@@ -44,7 +44,7 @@ export default function Reports() {
 
       try {
         const { data: authData, error: authError } =
-          await supabase.auth.getUser()
+          await supabaseCloud.auth.getUser()
 
         if (authError) throw authError
 
@@ -60,7 +60,7 @@ export default function Reports() {
           return
         }
 
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await supabaseCloud
           .from("profiles")
           .select("restaurant_id")
           .eq("id", user.id)
@@ -86,7 +86,7 @@ export default function Reports() {
         const sinceDay = since.slice(0, 10)
 
         const [ordersResult, expensesResult, cashClosingResult] = await Promise.all([
-          supabase
+          supabaseCloud
             .from("orders")
             .select(
               "id,created_at,status,total_amount,payment_status"
@@ -95,14 +95,14 @@ export default function Reports() {
             .gte("created_at", since)
             .order("created_at", { ascending: true }),
 
-          supabase
+          supabaseCloud
             .from("expenses")
             .select("amount,expense_date")
             .eq("restaurant_id", profile.restaurant_id)
             .gte("expense_date", sinceDay)
             .order("expense_date", { ascending: true }),
 
-          supabase
+          supabaseCloud
             .from("cash_closings")
             .select("id,business_date,opening_cash,cash_sales,cash_in,cash_out,expense_cash,refunds,expected_cash,actual_cash,difference,closed_at")
             .eq("restaurant_id", profile.restaurant_id)

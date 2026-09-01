@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function QRMenuPluginPage() {
   const router = useRouter()
@@ -13,7 +13,7 @@ export default function QRMenuPluginPage() {
     let mounted = true
 
     async function redirectToQRCenter() {
-      const { data } = await supabase.auth.getUser()
+      const { data } = await supabaseCloud.auth.getUser()
       if (!mounted) return
 
       if (!data?.user) {
@@ -21,7 +21,7 @@ export default function QRMenuPluginPage() {
         return
       }
 
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseCloud
         .from("profiles")
         .select("role,restaurant_id")
         .eq("id", data.user.id)

@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function WhatsAppConfig() {
   const params = useSearchParams()
@@ -20,9 +20,9 @@ export default function WhatsAppConfig() {
     let restaurantId = rid
 
     if (!restaurantId) {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await supabaseCloud.auth.getUser()
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile } = await supabaseCloud
           .from("profiles")
           .select("restaurant_id")
           .eq("id", user.id)
@@ -36,7 +36,7 @@ export default function WhatsAppConfig() {
       return
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseCloud
       .from("plugin_settings")
       .select("config")
       .eq("restaurant_id", restaurantId)
@@ -58,7 +58,7 @@ export default function WhatsAppConfig() {
     try {
       setSaving(true)
 
-      const { data: plugin } = await supabase
+      const { data: plugin } = await supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", rid)
@@ -72,7 +72,7 @@ export default function WhatsAppConfig() {
         return
       }
 
-      const { error } = await supabase
+      const { error } = await supabaseCloud
         .from("plugin_settings")
         .upsert(
           {

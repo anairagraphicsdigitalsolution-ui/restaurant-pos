@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { printOrderSlip } from "@/lib/orderSlipPrinter"
 import { getWhatsAppConfig, normalizeWhatsAppNumber, sendWhatsAppMessage } from "@/lib/whatsappServer"
 import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
@@ -66,7 +66,7 @@ export async function POST(req) {
       : "create_public_qr_order"
 
     const { data: orderResult, error: orderError } =
-      await supabaseAdmin.rpc(rpcName, {
+      await supabaseCloudAdmin.rpc(rpcName, {
         p_slug: slug,
         p_type: type,
         p_source_id: sourceId,
@@ -114,7 +114,7 @@ export async function POST(req) {
      * registered Business number.
      */
     if (orderId && orderResult?.restaurant_id) {
-      const { data: pluginRow, error: pluginError } = await supabaseAdmin
+      const { data: pluginRow, error: pluginError } = await supabaseCloudAdmin
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", orderResult.restaurant_id)
@@ -129,7 +129,7 @@ export async function POST(req) {
         try {
           // Persist customer details without changing the core order RPC.
           if (customerName || customerPhone) {
-            const { error: customerUpdateError } = await supabaseAdmin
+            const { error: customerUpdateError } = await supabaseCloudAdmin
               .from("orders")
               .update({
                 ...(customerName ? { customer_name: customerName } : {}),
@@ -141,7 +141,7 @@ export async function POST(req) {
 
           const config = await getWhatsAppConfig(orderResult.restaurant_id)
 
-          const { data: orderItems, error: orderItemsError } = await supabaseAdmin
+          const { data: orderItems, error: orderItemsError } = await supabaseCloudAdmin
             .from("order_items")
             .select("item_name, quantity, line_total")
             .eq("order_id", orderId)
@@ -149,7 +149,7 @@ export async function POST(req) {
 
           if (orderItemsError) throw new Error(orderItemsError.message)
 
-          const { data: restaurant, error: restaurantError } = await supabaseAdmin
+          const { data: restaurant, error: restaurantError } = await supabaseCloudAdmin
             .from("restaurants")
             .select("name")
             .eq("id", orderResult.restaurant_id)

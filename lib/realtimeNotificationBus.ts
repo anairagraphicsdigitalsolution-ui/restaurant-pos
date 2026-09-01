@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type Listener = (row: any) => void
 
@@ -23,7 +23,7 @@ export function subscribeRestaurantNotifications(restaurantId: string, listener:
 
   if (!bucket.started) {
     bucket.started = true
-    bucket.channel = supabase
+    bucket.channel = supabaseCloud
       .channel(`restaurant-notifications-${restaurantId}`)
       .on(
         "postgres_changes",
@@ -49,7 +49,7 @@ export function subscribeRestaurantNotifications(restaurantId: string, listener:
     if (!current) return
     current.listeners.delete(listener)
     if (current.listeners.size === 0) {
-      if (current.channel) void supabase.removeChannel(current.channel)
+      if (current.channel) void supabaseCloud.removeChannel(current.channel)
       buckets.delete(restaurantId)
     }
   }

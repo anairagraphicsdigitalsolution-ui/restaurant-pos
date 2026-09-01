@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { BRAND_THEMES, DEFAULT_THEME, useTheme } from "@/components/ThemeProvider"
 
 function clamp(value, min = 0, max = 255) {
@@ -203,30 +203,30 @@ export default function ThemeBrandingPage() {
       { data: restaurantSettingsPlugin },
       { data: restaurantSettings },
     ] = await Promise.all([
-      supabase
+      supabaseCloud
         .from("restaurants")
         .select("id,name,logo,theme_config")
         .eq("id", id)
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", id)
         .eq("plugin_code", "theme-branding")
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", id)
         .eq("plugin_code", "theme-branding")
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", id)
         .eq("plugin_code", "restaurant-settings")
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", id)
@@ -406,7 +406,7 @@ export default function ThemeBrandingPage() {
         const ext = file.name.split(".").pop()?.toLowerCase() || "png"
         const fileName = `${restaurantId}/logo-${Date.now()}.${ext}`
 
-        const { error: uploadError } = await supabase
+        const { error: uploadError } = await supabaseCloud
           .storage
           .from("logos")
           .upload(fileName, file, {
@@ -417,7 +417,7 @@ export default function ThemeBrandingPage() {
 
         if (uploadError) throw uploadError
 
-        logoUrl = supabase
+        logoUrl = supabaseCloud
           .storage
           .from("logos")
           .getPublicUrl(fileName)
@@ -426,7 +426,7 @@ export default function ThemeBrandingPage() {
       }
 
       if (adminPolicy.allowBranding) {
-        const { error } = await supabase
+        const { error } = await supabaseCloud
           .from("restaurants")
           .update({
             logo: logoUrl || null,

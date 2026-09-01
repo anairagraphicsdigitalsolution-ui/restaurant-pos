@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -13,7 +13,7 @@ export async function GET(req) {
     const q = cleanQuery(new URL(req.url).searchParams.get("q"))
     if (q.length < 2) return Response.json({ results: [] })
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("id,role,restaurant_id")
       .eq("id", user.id)
@@ -27,7 +27,7 @@ export async function GET(req) {
     const results = []
 
     if (isSuperAdmin) {
-      const { data } = await supabaseAdmin
+      const { data } = await supabaseCloudAdmin
         .from("restaurants")
         .select("id,name,address,phone,status")
         .or(`name.ilike.${like},address.ilike.${like},phone.ilike.${like},status.ilike.${like}`)
@@ -39,14 +39,14 @@ export async function GET(req) {
     if (!rid) return Response.json({ results: [] })
 
     const [menu, orders, customers, reservations, offers, tables, rooms, staff] = await Promise.all([
-      supabaseAdmin.from("menu_items").select("id,name,category,description,item_type").eq("restaurant_id", rid).or(`name.ilike.${like},category.ilike.${like},description.ilike.${like}`).limit(20),
-      supabaseAdmin.from("orders").select("id,source_label,invoice_no,status,total_amount,created_at").eq("restaurant_id", rid).or(`source_label.ilike.${like},invoice_no.ilike.${like},status.ilike.${like}`).order("created_at", { ascending: false }).limit(20),
-      supabaseAdmin.from("customers").select("id,name,phone,email,total_orders").eq("restaurant_id", rid).or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`).limit(20),
-      supabaseAdmin.from("reservations").select("id,name,phone,status,date,time").eq("restaurant_id", rid).or(`name.ilike.${like},phone.ilike.${like},status.ilike.${like}`).order("created_at", { ascending: false }).limit(20),
-      supabaseAdmin.from("offers").select("id,title,description,discount,active").eq("restaurant_id", rid).or(`title.ilike.${like},description.ilike.${like}`).limit(20),
-      supabaseAdmin.from("tables").select("id,table_number,seats").eq("restaurant_id", rid).limit(100),
-      supabaseAdmin.from("rooms").select("id,room_number").eq("restaurant_id", rid).limit(100),
-      supabaseAdmin.from("profiles").select("id,email,role").eq("restaurant_id", rid).or(`email.ilike.${like},role.ilike.${like}`).limit(20),
+      supabaseCloudAdmin.from("menu_items").select("id,name,category,description,item_type").eq("restaurant_id", rid).or(`name.ilike.${like},category.ilike.${like},description.ilike.${like}`).limit(20),
+      supabaseCloudAdmin.from("orders").select("id,source_label,invoice_no,status,total_amount,created_at").eq("restaurant_id", rid).or(`source_label.ilike.${like},invoice_no.ilike.${like},status.ilike.${like}`).order("created_at", { ascending: false }).limit(20),
+      supabaseCloudAdmin.from("customers").select("id,name,phone,email,total_orders").eq("restaurant_id", rid).or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`).limit(20),
+      supabaseCloudAdmin.from("reservations").select("id,name,phone,status,date,time").eq("restaurant_id", rid).or(`name.ilike.${like},phone.ilike.${like},status.ilike.${like}`).order("created_at", { ascending: false }).limit(20),
+      supabaseCloudAdmin.from("offers").select("id,title,description,discount,active").eq("restaurant_id", rid).or(`title.ilike.${like},description.ilike.${like}`).limit(20),
+      supabaseCloudAdmin.from("tables").select("id,table_number,seats").eq("restaurant_id", rid).limit(100),
+      supabaseCloudAdmin.from("rooms").select("id,room_number").eq("restaurant_id", rid).limit(100),
+      supabaseCloudAdmin.from("profiles").select("id,email,role").eq("restaurant_id", rid).or(`email.ilike.${like},role.ilike.${like}`).limit(20),
     ])
 
     ;(menu.data || []).forEach(x => results.push({ id: x.id, type: x.item_type === "combo" ? "combo" : "menu", title: x.name || "Menu item", subtitle: x.category || x.description || "", url: x.item_type === "combo" ? "/dashboard/combos" : "/order" }))

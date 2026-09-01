@@ -3,7 +3,7 @@
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
 import { BRAND_THEMES, DEFAULT_THEME } from "@/components/ThemeProvider"
@@ -43,7 +43,7 @@ export default function PluginsPage(){
   useEffect(()=>{ load() },[])
 
   async function authHeaders(){
-    const {data:{session}}=await supabase.auth.getSession()
+    const {data:{session}}=await supabaseCloud.auth.getSession()
     return {
       Authorization:`Bearer ${session?.access_token||""}`,
       "Content-Type":"application/json"
@@ -675,9 +675,33 @@ const PLUGIN_SETTINGS = {
       ["api_key","Bridge API key","password",""],
       ["retry_count","Retry count","number",3],
       ["retry_delay_ms","Retry delay (ms)","number",1000],
-      ["offline_queue","Queue jobs when bridge is offline","toggle",true],
     ]}]
   },
+  "cashfree-payment-gateway": {
+    title:"Cashfree Payment Gateway",
+    sections:[
+      {title:"Gateway Connection",fields:[
+        ["environment","Environment","select",["sandbox","production"]],
+        ["client_id","Cashfree App ID / Client ID","text",""],
+        ["client_secret","Cashfree Secret Key","password",""],
+        ["api_version","Cashfree API Version","text","2025-01-01"],
+      ]},
+      {title:"Checkout & Order",fields:[
+        ["enabled_for_restaurant","Allow restaurant to use Cashfree","toggle",true],
+        ["customer_phone_required","Require customer phone","toggle",true],
+        ["order_expiry_minutes","Cashfree order expiry (minutes)","number",30],
+        ["return_url","Payment return URL (optional)","text",""],
+        ["notify_url","Webhook URL (optional)","text",""],
+      ]},
+      {title:"Payment Modes",fields:[
+        ["allow_upi","UPI","toggle",true],
+        ["allow_cards","Cards","toggle",true],
+        ["allow_netbanking","Net Banking","toggle",true],
+        ["allow_wallets","Wallets","toggle",true],
+      ]},
+    ]
+  },
+
   "whatsapp-invoice": {
     title:"WhatsApp Business API",
     sections:[

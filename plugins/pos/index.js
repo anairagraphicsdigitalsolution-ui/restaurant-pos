@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../../lib/supabaseServer"
+import { supabaseCloudAdmin } from "../../lib/supabaseCloudServer"
 
 function cleanText(value, max = 500) {
   const text = String(value ?? "").trim()
@@ -25,7 +25,7 @@ export async function createOrder(data = {}, config = {}) {
 
   const items = normalizeItems(data.items)
   const ids = [...new Set(items.map(item => item.itemId))]
-  const { data: menuItems, error: menuError } = await supabaseAdmin
+  const { data: menuItems, error: menuError } = await supabaseCloudAdmin
     .from("menu_items")
     .select("id,name,price")
     .eq("restaurant_id", restaurantId)
@@ -34,7 +34,7 @@ export async function createOrder(data = {}, config = {}) {
   const menuMap = new Map((menuItems || []).map(item => [String(item.id), item]))
   for (const item of items) if (!menuMap.has(item.itemId)) throw new Error(`Menu item not found: ${item.itemId}`)
 
-  const { data: order, error: orderError } = await supabaseAdmin
+  const { data: order, error: orderError } = await supabaseCloudAdmin
     .from("orders")
     .insert({
       restaurant_id: restaurantId,
@@ -54,9 +54,9 @@ export async function createOrder(data = {}, config = {}) {
     quantity: item.quantity,
     cooking_request: item.cookingRequest
   }))
-  const { error: itemError } = await supabaseAdmin.from("order_items").insert(rows)
+  const { error: itemError } = await supabaseCloudAdmin.from("order_items").insert(rows)
   if (itemError) {
-    await supabaseAdmin.from("orders").delete().eq("id", order.id).eq("restaurant_id", restaurantId)
+    await supabaseCloudAdmin.from("orders").delete().eq("id", order.id).eq("restaurant_id", restaurantId)
     throw new Error(itemError.message)
   }
 
@@ -69,7 +69,7 @@ export async function calculateBill(data = {}, config = {}) {
   if (!restaurantId) throw new Error("Restaurant context is required")
   const items = normalizeItems(data.items)
   const ids = [...new Set(items.map(item => item.itemId))]
-  const { data: menuItems, error } = await supabaseAdmin
+  const { data: menuItems, error } = await supabaseCloudAdmin
     .from("menu_items")
     .select("id,price")
     .eq("restaurant_id", restaurantId)
@@ -88,7 +88,7 @@ export async function pay(data = {}, config = {}) {
   const actorId = cleanText(data.actor_id, 80)
   const orderId = cleanText(data.order_id, 80)
   if (!restaurantId || !actorId || !orderId) throw new Error("restaurant_id, actor_id and order_id are required")
-  const { data: result, error } = await supabaseAdmin.rpc("stage3_finalize_order", {
+  const { data: result, error } = await supabaseCloudAdmin.rpc("stage3_finalize_order", {
     p_actor_id: actorId,
     p_order_id: orderId,
     p_payment_method: cleanText(data.payment_method || "cash", 30) || "cash",
@@ -106,7 +106,7 @@ export async function sendToKitchen(data = {}) {
   const restaurantId = data._restaurantId
   const orderId = cleanText(data.order_id, 80)
   if (!restaurantId || !orderId) throw new Error("Restaurant and order are required")
-  const { data: order, error } = await supabaseAdmin
+  const { data: order, error } = await supabaseCloudAdmin
     .from("orders")
     .update({ status: "preparing" })
     .eq("id", orderId)
@@ -121,7 +121,7 @@ export async function completeOrder(data = {}) {
   const restaurantId = data._restaurantId
   const orderId = cleanText(data.order_id, 80)
   if (!restaurantId || !orderId) throw new Error("Restaurant and order are required")
-  const { data: order, error } = await supabaseAdmin
+  const { data: order, error } = await supabaseCloudAdmin
     .from("orders")
     .update({ status: "done" })
     .eq("id", orderId)

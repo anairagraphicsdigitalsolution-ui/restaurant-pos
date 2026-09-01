@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 type Notice = {
@@ -83,7 +83,7 @@ export default function CallingRuntimeProvider() {
       if (fallbackHandler) window.removeEventListener("anaira:notification", fallbackHandler)
       fallbackHandler = null
       if (channel) {
-        await supabase.removeChannel(channel)
+        await supabaseCloud.removeChannel(channel)
         channel = null
       }
       restaurantRef.current = null
@@ -91,14 +91,14 @@ export default function CallingRuntimeProvider() {
 
     const start = async () => {
       if (cancelled) return
-      const { data: session } = await supabase.auth.getSession()
+      const { data: session } = await supabaseCloud.auth.getSession()
       const user = session?.session?.user
       if (!user) {
         retry = setTimeout(start, 1200)
         return
       }
 
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseCloud
         .from("profiles")
         .select("restaurant_id,role")
         .eq("id", user.id)
@@ -110,7 +110,7 @@ export default function CallingRuntimeProvider() {
         return
       }
 
-      const { data: plugin } = await supabase
+      const { data: plugin } = await supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
@@ -122,7 +122,7 @@ export default function CallingRuntimeProvider() {
         return
       }
 
-      const { data: settings } = await supabase
+      const { data: settings } = await supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", restaurantId)
@@ -146,7 +146,7 @@ export default function CallingRuntimeProvider() {
       fallbackHandler = event => consume((event as CustomEvent<Notice>).detail)
       window.addEventListener("anaira:notification", fallbackHandler)
 
-      channel = supabase
+      channel = supabaseCloud
         .channel(`anaira-calling-runtime-${restaurantId}`)
         .on(
           "postgres_changes",

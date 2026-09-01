@@ -1,6 +1,6 @@
 import crypto from "crypto"
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
@@ -34,7 +34,7 @@ export async function POST(req,{params}){
   try{
     const body=JSON.parse(raw)
     const outlet=String(body?.restaurant_id||body?.restaurant?.id||body?.outlet_id||body?.outlet?.id||body?.store_id||body?.store?.id||"")
-    let query=supabaseAdmin.from("aggregator_integrations").select("id,restaurant_id,credentials,outlet_code").eq("provider",provider).eq("active",true)
+    let query=supabaseCloudAdmin.from("aggregator_integrations").select("id,restaurant_id,credentials,outlet_code").eq("provider",provider).eq("active",true)
     if(outlet) query=query.eq("outlet_code",outlet)
     const {data:rows,error}=await query.limit(10)
     if(error) throw error
@@ -53,7 +53,7 @@ export async function POST(req,{params}){
     if (!integration) return NextResponse.json({success:false,error:"Invalid webhook signature"},{status:401})
 
     const externalOrderId=String(body?.order?.order_id||body?.order_id||body?.id||`${provider}-${Date.now()}`)
-    const {error:orderError}=await supabaseAdmin.from("aggregator_orders").upsert({
+    const {error:orderError}=await supabaseCloudAdmin.from("aggregator_orders").upsert({
       restaurant_id:integration.restaurant_id,
       integration_id:integration.id,
       provider,
@@ -64,7 +64,7 @@ export async function POST(req,{params}){
     },{onConflict:"restaurant_id,provider,external_order_id"})
     if(orderError) throw orderError
 
-    await supabaseAdmin.from("aggregator_sync_jobs").insert({restaurant_id:integration.restaurant_id,provider,job_type:"webhook",status:"success",payload:body,finished_at:new Date().toISOString()})
+    await supabaseCloudAdmin.from("aggregator_sync_jobs").insert({restaurant_id:integration.restaurant_id,provider,job_type:"webhook",status:"success",payload:body,finished_at:new Date().toISOString()})
     return NextResponse.json({success:true,received:true})
   }catch(e){
     console.error(`${provider} webhook`,e)

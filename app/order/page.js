@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams, useParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
-import { mobileDbGet, mobileDbPut } from "@/lib/mobileLocalDb"
-import { saveMobileOfflineOrder } from "@/lib/mobileOffline"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function OrderPage() {
   const params = useSearchParams()
@@ -80,74 +78,43 @@ export default function OrderPage() {
 
   async function init() {
     try {
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false
       if (slug) {
-        const cached = await mobileDbGet("__slug__", "restaurant_slug", slug).catch(() => null)
-        if (offline && cached?.id) {
-          setRestaurantId(cached.id)
-          setRestaurantName(cached.name || "")
-          await fetchAll(cached.id)
-          return
-        }
-
-        const { data: rest, error } = await supabase
+        const { data: rest, error } = await supabaseCloud
           .from("restaurants")
           .select("*")
           .eq("slug", slug)
           .maybeSingle()
-
         if (error || !rest) {
-          if (cached?.id) {
-            setRestaurantId(cached.id)
-            setRestaurantName(cached.name || "")
-            await fetchAll(cached.id)
-            return
-          }
           console.error("RESTAURANT ERROR:", error)
-          alert("This device has not been prepared for offline use yet. Connect once and open this restaurant to download its local data.")
+          alert("Restaurant not found.")
           return
         }
-
         setRestaurantId(rest.id)
-        if (typeof window !== "undefined") window.localStorage.setItem("anaira.restaurant_id", rest.id)
         setRestaurantName(rest.name || "")
-        await mobileDbPut("__slug__", "restaurant_slug", slug, rest).catch(() => {})
         await fetchAll(rest.id)
         return
       }
 
       const rid = params.get("rid")
-
       if (rid) {
         setRestaurantId(rid)
-        if (typeof window !== "undefined") window.localStorage.setItem("anaira.restaurant_id", rid)
         await fetchAll(rid)
         return
       }
 
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser()
-
+      const { data: userData, error: userError } = await supabaseCloud.auth.getUser()
       if (userError || !userData?.user) {
         alert("Please sign in first.")
         return
       }
-
-      const { data: profile, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("restaurant_id")
-          .eq("id", userData.user.id)
-          .single()
-
+      const { data: profile, error: profileError } = await supabaseCloud
+        .from("profiles").select("restaurant_id").eq("id", userData.user.id).single()
       if (profileError || !profile?.restaurant_id) {
         console.error("PROFILE ERROR:", profileError)
         alert("Restaurant profile not found.")
         return
       }
-
       setRestaurantId(profile.restaurant_id)
-
       await fetchAll(profile.restaurant_id)
     } catch (error) {
       console.error("INIT ERROR:", error)
@@ -162,143 +129,36 @@ export default function OrderPage() {
   async function fetchAll(rid) {
     if (!rid) return
 
-    const cached = async (entity) => mobileDbGet(rid, entity, "snapshot").catch(() => null)
-    const offline = typeof navigator !== "undefined" && navigator.onLine === false
-
-    if (offline) {
-      const [menu, tables, rooms, groups, mods, links, zones] = await Promise.all([
-        cached("menu"), cached("tables"), cached("rooms"), cached("modifier_groups"),
-        cached("modifiers"), cached("modifier_links"), cached("delivery_zones")
-      ])
-      if (Array.isArray(menu)) setMenu(menu)
-      if (Array.isArray(tables)) setTables(tables)
-      if (Array.isArray(rooms)) setRooms(rooms)
-      if (Array.isArray(groups)) setModifierGroups(groups)
-      if (Array.isArray(mods)) setModifiers(mods)
-      if (Array.isArray(links)) setModifierLinks(links)
-      if (Array.isArray(zones)) setDeliveryZones(zones)
-      const hubCached = await cached("operations_hub")
-      if (hubCached && typeof hubCached === "object") setOperationsHubEnabled(hubCached.enabled !== false)
-      return
-    }
-
-    const { data: hubRow } = await supabase
-      .from("restaurant_plugins")
-      .select("enabled")
-      .eq("restaurant_id", rid)
-      .eq("plugin_code", "operations-hub")
-      .maybeSingle()
-
+    const { data: hubRow } = await supabaseCloud
+      .from("restaurant_plugins").select("enabled").eq("restaurant_id", rid)
+      .eq("plugin_code", "operations-hub").maybeSingle()
     const hubOn = hubRow?.enabled === true
     setOperationsHubEnabled(hubOn)
 
     const emptyModifierResult = { data: [], error: null }
-
-    const [
-      menuResult,
-      tablesResult,
-      roomsResult,
-      groupsResult,
-      modifiersResult,
-      linksResult,
-      zonesResult,
-    ] = await Promise.all([
-      supabase
-        .from("menu_items")
-        .select("*")
-        .eq("restaurant_id", rid),
-
-      supabase
-        .from("tables")
-        .select("*")
-        .eq("restaurant_id", rid),
-
-      supabase
-        .from("rooms")
-        .select("*")
-        .eq("restaurant_id", rid),
-
-      hubOn ? supabase
-        .from("modifier_groups")
-        .select("*")
-        .eq("restaurant_id", rid)
-        .eq("active", true)
-        .order("created_at") : Promise.resolve(emptyModifierResult),
-
-      hubOn ? supabase
-        .from("modifiers")
-        .select("*")
-        .eq("restaurant_id", rid)
-        .eq("active", true)
-        .order("created_at") : Promise.resolve(emptyModifierResult),
-
-      hubOn ? supabase
-        .from("menu_item_modifier_groups")
-        .select("menu_item_id,modifier_group_id")
-        .eq("restaurant_id", rid) : Promise.resolve(emptyModifierResult),
-
-      supabase
-        .from("delivery_zones")
-        .select("*")
-        .eq("restaurant_id", rid)
-        .eq("active", true)
-        .order("name"),
+    const [menuResult,tablesResult,roomsResult,groupsResult,modifiersResult,linksResult,zonesResult] = await Promise.all([
+      supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid),
+      supabaseCloud.from("tables").select("*").eq("restaurant_id", rid),
+      supabaseCloud.from("rooms").select("*").eq("restaurant_id", rid),
+      hubOn ? supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(emptyModifierResult),
+      hubOn ? supabaseCloud.from("modifiers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(emptyModifierResult),
+      hubOn ? supabaseCloud.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid) : Promise.resolve(emptyModifierResult),
+      supabaseCloud.from("delivery_zones").select("*").eq("restaurant_id", rid).eq("active", true).order("name"),
     ])
-
-    if (menuResult.error) {
-      console.error("MENU ERROR:", menuResult.error)
-    }
-
-    if (tablesResult.error) {
-      console.error("TABLE ERROR:", tablesResult.error)
-    }
-
-    if (roomsResult.error) {
-      console.error("ROOM ERROR:", roomsResult.error)
-    }
-
-    if (groupsResult.error) {
-      console.error("MODIFIER GROUP ERROR:", groupsResult.error)
-    }
-
-    if (modifiersResult.error) {
-      console.error("MODIFIER ERROR:", modifiersResult.error)
-    }
-
-    if (linksResult.error) {
-      console.error("MODIFIER LINK ERROR:", linksResult.error)
-    }
-
-    if (zonesResult.error) {
-      console.error("DELIVERY ZONE ERROR:", zonesResult.error)
-    }
-
-    const menu = menuResult.data?.length ? menuResult.data : (await cached("menu")) || []
-    const tables = tablesResult.data?.length ? tablesResult.data : (await cached("tables")) || []
-    const rooms = roomsResult.data?.length ? roomsResult.data : (await cached("rooms")) || []
-    const groups = groupsResult.data?.length ? groupsResult.data : (await cached("modifier_groups")) || []
-    const mods = modifiersResult.data?.length ? modifiersResult.data : (await cached("modifiers")) || []
-    const links = linksResult.data?.length ? linksResult.data : (await cached("modifier_links")) || []
-    const zones = zonesResult.data?.length ? zonesResult.data : (await cached("delivery_zones")) || []
-
-    setMenu(menu)
-    setTables(tables)
-    setRooms(rooms)
-    setModifierGroups(groups)
-    setModifiers(mods)
-    setModifierLinks(links)
-    setDeliveryZones(zones)
-
-    await Promise.all([
-      mobileDbPut(rid, "operations_hub", "snapshot", { enabled: hubOn }).catch(() => {}),
-      mobileDbPut(rid, "menu", "snapshot", menu),
-      mobileDbPut(rid, "tables", "snapshot", tables),
-      mobileDbPut(rid, "rooms", "snapshot", rooms),
-      mobileDbPut(rid, "modifier_groups", "snapshot", groups),
-      mobileDbPut(rid, "modifiers", "snapshot", mods),
-      mobileDbPut(rid, "modifier_links", "snapshot", links),
-      mobileDbPut(rid, "delivery_zones", "snapshot", zones),
-    ].map(p => p.catch(() => {})))
+    if (menuResult.error) console.error("MENU ERROR:", menuResult.error)
+    if (tablesResult.error) console.error("TABLE ERROR:", tablesResult.error)
+    if (roomsResult.error) console.error("ROOM ERROR:", roomsResult.error)
+    if (groupsResult.error) console.error("MODIFIER GROUP ERROR:", groupsResult.error)
+    if (modifiersResult.error) console.error("MODIFIER ERROR:", modifiersResult.error)
+    if (linksResult.error) console.error("MODIFIER LINK ERROR:", linksResult.error)
+    if (zonesResult.error) console.error("DELIVERY ZONE ERROR:", zonesResult.error)
+    setMenu(menuResult.data || [])
+    setTables(tablesResult.data || [])
+    setRooms(roomsResult.data || [])
+    setModifierGroups(groupsResult.data || [])
+    setModifiers(modifiersResult.data || [])
+    setModifierLinks(linksResult.data || [])
+    setDeliveryZones(zonesResult.data || [])
   }
 
   /* =========================================================
@@ -762,16 +622,14 @@ export default function OrderPage() {
           ? "Takeaway"
           : `Delivery - ${customerName.trim()}`
 
-      const { data: authData, error: authError } = await supabase.auth.getSession()
+      const { data: authData, error: authError } = await supabaseCloud.auth.getSession()
       const token = authData?.session?.access_token
       if (authError || !token) {
         alert("Login session expired. Please login again.")
         return
       }
 
-      let response
-      try {
-        response = await fetch("/api/pos/create", {
+      const response = await fetch("/api/pos/create", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
@@ -798,41 +656,6 @@ export default function OrderPage() {
           }))
         })
       })
-      } catch (networkError) {
-        const offlineOrder = {
-          id: crypto.randomUUID(),
-          restaurant_id: restaurantId,
-          source_type: type,
-          source_id: selected?.id || null,
-          source_label: sourceLabel,
-          overall_note: customerNotes || null,
-          status: "pending",
-          created_at: new Date().toISOString(),
-          offline_created_at: new Date().toISOString(),
-          subtotal: foodTotal,
-          discount_amount: 0,
-          tax_amount: 0,
-          delivery_charge: type === "delivery" ? Number(deliveryCharge || 0) : 0,
-          total_amount: orderTotal,
-          payment_status: "unpaid",
-          paid_amount: 0,
-          payment_method: type === "delivery" ? paymentMethod : null,
-          invoice_no: "PENDING",
-          sync_status: "pending",
-          items: cart.map(cartItem => ({
-            id: crypto.randomUUID(), item_id: cartItem.id, quantity: Number(cartItem.qty || 0),
-            item_name: comboDisplayName(cartItem), name: comboDisplayName(cartItem),
-            unit_price: Number(cartItem.price || 0),
-            line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
-            cooking_request: cartItem.cooking_request || null,
-          }))
-        }
-        await saveMobileOfflineOrder(offlineOrder)
-        alert(`Order saved offline. Bill: PENDING\nOrder ID: ${offlineOrder.id.slice(0, 8).toUpperCase()}`)
-        setCart([])
-        setSelected(null)
-        return
-      }
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result.success || !result.order) {
         console.error("ORDER ERROR:", result)
@@ -840,21 +663,7 @@ export default function OrderPage() {
         return
       }
       const order = result.order
-      await mobileDbPut(restaurantId, "order_snapshot", order.id, {
-        ...order,
-        restaurant_id: restaurantId,
-        invoice_no: order.invoice_no || null,
-        sync_status: order.invoice_no ? "synced" : "online",
-        items: cart.map(cartItem => ({
-          id: crypto.randomUUID(),
-          item_id: cartItem.id,
-          quantity: Number(cartItem.qty || 0),
-          item_name: comboDisplayName(cartItem),
-          unit_price: Number(cartItem.price || 0),
-          line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
-          cooking_request: cartItem.cooking_request || null,
-        }))
-      }).catch(() => {})
+
 
       // Every POS source (table, room, takeaway and delivery) gets the same
       // KOT/order-slip runtime. Delivery still continues into the Kitchen flow.

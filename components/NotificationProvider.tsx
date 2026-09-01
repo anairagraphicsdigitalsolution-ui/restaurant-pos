@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 type NotificationRow = {
   id: string
@@ -54,8 +54,8 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
 
     async function bootstrap() {
       const [{ data: latest }, { count }] = await Promise.all([
-        supabase.from("notifications").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(30),
-        supabase.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
+        supabaseCloud.from("notifications").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(30),
+        supabaseCloud.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
       ])
       if (cancelled || !mounted.current) return
       const rows = latest || []
@@ -63,7 +63,7 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
       setNotifications(rows)
       setUnread(count || 0)
 
-      channel = supabase
+      channel = supabaseCloud
         .channel(`restaurant-live-${restaurantId}`)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` }, payload => {
           const row = payload.new as NotificationRow
@@ -81,14 +81,14 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
     return () => {
       cancelled = true
       mounted.current = false
-      if (channel) void supabase.removeChannel(channel)
+      if (channel) void supabaseCloud.removeChannel(channel)
       seen.current.clear()
     }
   }, [restaurantId, role])
 
   const markRead = useCallback(async (id: string) => {
     if (!restaurantId || !id) return
-    const { error } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id).eq("restaurant_id", restaurantId).is("read_at", null)
+    const { error } = await supabaseCloud.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id).eq("restaurant_id", restaurantId).is("read_at", null)
     if (!error) {
       setNotifications(current => current.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
       setUnread(current => Math.max(0, current - 1))
@@ -97,7 +97,7 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
 
   const markAllRead = useCallback(async () => {
     if (!restaurantId || unread === 0) return
-    const { error } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("restaurant_id", restaurantId).is("read_at", null)
+    const { error } = await supabaseCloud.from("notifications").update({ read_at: new Date().toISOString() }).eq("restaurant_id", restaurantId).is("read_at", null)
     if (!error) {
       setNotifications(current => current.map(n => ({ ...n, read_at: n.read_at || new Date().toISOString() })))
       setUnread(0)

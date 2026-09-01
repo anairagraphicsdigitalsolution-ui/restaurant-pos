@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function SuperAdminUsersPage() {
   const [restaurants, setRestaurants] = useState([])
@@ -44,7 +44,7 @@ export default function SuperAdminUsersPage() {
 
       const {
         data: { session }
-      } = await supabase.auth.getSession()
+      } = await supabaseCloud.auth.getSession()
 
       if (!session?.access_token) {
         alert("Login session expired. Please login again.")
@@ -82,7 +82,7 @@ export default function SuperAdminUsersPage() {
   async function loadPaymentAccount(restaurantId) {
     try {
       setPaymentLoading(true)
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: { session } } = await supabaseCloud.auth.getSession()
       if (!session?.access_token) return
 
       const response = await fetch(
@@ -128,7 +128,7 @@ export default function SuperAdminUsersPage() {
 
     try {
       setPaymentSaving(true)
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: { session } } = await supabaseCloud.auth.getSession()
       if (!session?.access_token) throw new Error("Login session expired. Please login again.")
 
       const response = await fetch("/api/super-admin/payment-account", {
@@ -221,7 +221,7 @@ export default function SuperAdminUsersPage() {
 
       const {
         data: { session }
-      } = await supabase.auth.getSession()
+      } = await supabaseCloud.auth.getSession()
 
       if (!session?.access_token) {
         throw new Error("Login session expired. Please login again.")

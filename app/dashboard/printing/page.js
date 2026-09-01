@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function PrintingPage(){
  const router=useRouter()
@@ -11,18 +11,18 @@ export default function PrintingPage(){
   const [msg,setMsg]=useState("")
   useEffect(()=>{load()},[])
   async function load(){
-    const {data:{user}}=await supabase.auth.getUser();if(!user)return
-    const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
+    const {data:{user}}=await supabaseCloud.auth.getUser();if(!user)return
+    const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
     if(!p?.restaurant_id)return
   if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
     setRid(p.restaurant_id)
-    const {data}=await supabase.from("plugin_settings").select("plugin_code,config").eq("restaurant_id",p.restaurant_id)
+    const {data}=await supabaseCloud.from("plugin_settings").select("plugin_code,config").eq("restaurant_id",p.restaurant_id)
     const c={};for(const x of data||[])c[x.plugin_code]=x.config||{}
     setConfigs(c)
   }
   function update(code,key,value){setConfigs(x=>({...x,[code]:{...(x[code]||{}),[key]:value}}))}
   async function save(code){
-    const {error}=await supabase.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:code,config:configs[code]||{}},{onConflict:"restaurant_id,plugin_code"})
+    const {error}=await supabaseCloud.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:code,config:configs[code]||{}},{onConflict:"restaurant_id,plugin_code"})
     setMsg(error?`❌ ${error.message}`:`✅ ${code} saved`)
   }
   return <main style={shell}><div style={wrap}><header style={header}><div><div style={eyebrow}>RESTAURANT PRO · HARDWARE</div><h1 style={title}>Printing Center</h1><p style={muted}>Configure receipt, KOT and A4 printer profiles. Browser printing is immediate; hardware/ESC-POS requires the printer bridge or local agent supplied for the device.</p></div></header>{msg&&<div style={msgBox}>{msg}</div>}

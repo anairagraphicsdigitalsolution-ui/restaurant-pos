@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { supabaseCloudAdmin, supabaseCloudAuth } from "@/lib/supabaseCloudServer"
 import { PLUGIN_CODES } from "@/lib/pluginCatalog"
 export const runtime="nodejs"
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -8,8 +8,8 @@ const serviceRoleKey=process.env.SUPABASE_SERVICE_ROLE_KEY
 const ALIASES={whatsapp:"whatsapp-invoice"}
 const SECRET_FIELDS=new Set(["access_token","app_secret","verify_token","api_key","api_secret","webhook_secret","password","secret_key","client_secret","key_secret"])
 const canonical=code=>ALIASES[code]||code
-const db=()=>createClient(url,serviceRoleKey,{auth:{autoRefreshToken:false,persistSession:false}})
-async function authSuperAdmin(request){const h=request.headers.get("authorization")||"";if(!h.startsWith("Bearer "))return{error:"Authentication required",status:401};const token=h.slice(7).trim();const authClient=createClient(url,anonKey,{auth:{autoRefreshToken:false,persistSession:false}});const {data:{user},error}=await authClient.auth.getUser(token);if(error||!user)return{error:"Invalid or expired session",status:401};const admin=db();const {data:profile,error:pe}=await admin.from("profiles").select("id,role").eq("id",user.id).maybeSingle();if(pe)return{error:"Unable to verify role",status:500};if(profile?.role!=="super_admin")return{error:"Super Admin access required",status:403};return{admin}}
+const db=()=>supabaseCloudAdmin
+async function authSuperAdmin(request){const h=request.headers.get("authorization")||"";if(!h.startsWith("Bearer "))return{error:"Authentication required",status:401};const token=h.slice(7).trim();const {data:{user},error}=await supabaseCloudAuth.auth.getUser(token);if(error||!user)return{error:"Invalid or expired session",status:401};const admin=db();const {data:profile,error:pe}=await admin.from("profiles").select("id,role").eq("id",user.id).maybeSingle();if(pe)return{error:"Unable to verify role",status:500};if(profile?.role!=="super_admin")return{error:"Super Admin access required",status:403};return{admin}}
 function sanitize(config={}){const out={...config};for(const key of SECRET_FIELDS){if(out[key]){out[key]="";out[`${key}_configured`]=true}}return out}
 function merge(existing={},incoming={}){const out={...existing};for(const [k,v] of Object.entries(incoming||{})){if(SECRET_FIELDS.has(k)&&String(v||"").trim()==="")continue;out[k]=v}return out}
 async function aggregatorMirror(admin,rid,code,config){if(code!=="swiggy-integration"&&code!=="zomato-integration")return;const provider=code==="zomato-integration"?"zomato":"swiggy";const credentials={base_url:String(config.base_url||"").trim(),api_key:String(config.api_key||"").trim(),access_token:String(config.access_token||"").trim(),webhook_secret:String(config.webhook_secret||"").trim(),signature_header:String(config.signature_header||"x-signature").trim(),signature_algorithm:String(config.signature_algorithm||"sha256").trim(),signature_prefix:config.signature_prefix===""?"":String(config.signature_prefix||"sha256=")};const {error}=await admin.from("aggregator_integrations").upsert({restaurant_id:rid,provider,outlet_code:String(config.outlet_code||"").trim()||null,active:Boolean(String(config.outlet_code||"").trim()),credentials},{onConflict:"restaurant_id,provider"});if(error)throw error}

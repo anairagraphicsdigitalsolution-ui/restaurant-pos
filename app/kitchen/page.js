@@ -3,10 +3,9 @@ import { formatIndiaDateTime, formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
-import { mobileDbMetaGet } from "@/lib/mobileLocalDb"
 
 export default function KitchenPage() {
 
@@ -24,7 +23,7 @@ const [oldOrders,setOldOrders] =
 useState([])
 const [restaurantId,setRestaurantId] = useState(null)
 const [restaurant,setRestaurant] = useState(null)
-const [kotSize, setKotSize] = useState("80mm")
+const [kotSize, setKotSize] = useState("A5")
 
   // Prevent an older background refresh from overwriting a newer KDS action.
   const fetchSequenceRef = useRef(0)
@@ -35,24 +34,12 @@ const [kotSize, setKotSize] = useState("80mm")
     let refreshTimer
 
     async function init() {
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false
-      let user = null
-      if (offline) {
-        const { data: sessionData } = await supabase.auth.getSession()
-        user = sessionData?.session?.user || null
-      } else {
-        const { data: userData } = await supabase.auth.getUser()
-        user = userData?.user || null
-      }
+        let user = null
+      { const { data: userData } = await supabaseCloud.auth.getUser(); user = userData?.user || null }
       if (!user) return
 
       let profile = null
-      if (offline) {
-        profile = await mobileDbMetaGet(`auth-profile:${user.id}`).catch(() => null)
-      } else {
-        const result = await supabase.from("profiles").select("restaurant_id,role").eq("id", user.id).maybeSingle()
-        profile = result.data
-      }
+      { const result = await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id", user.id).maybeSingle(); profile = result.data }
 
       // Older accounts can have restaurant_id only in auth metadata.
       // Prefer the profile row, but fall back to the trusted server-created metadata
@@ -63,7 +50,7 @@ const [kotSize, setKotSize] = useState("80mm")
       if (!resolvedRestaurantId) return
 
       setRestaurantId(resolvedRestaurantId)
-      const { data: restaurantRow } = await supabase
+      const { data: restaurantRow } = await supabaseCloud
         .from("restaurants")
         .select("id,name,address,phone,gst_enabled,gst_number")
         .eq("id", resolvedRestaurantId)
@@ -71,7 +58,7 @@ const [kotSize, setKotSize] = useState("80mm")
       setRestaurant(restaurantRow || null)
       await fetchOrders(resolvedRestaurantId)
 
-      channel = supabase
+      channel = supabaseCloud
         .channel(`kitchen-${resolvedRestaurantId}`)
         .on(
           "postgres_changes",
@@ -94,7 +81,7 @@ const [kotSize, setKotSize] = useState("80mm")
     return () => {
       if (fallbackTimer) clearInterval(fallbackTimer)
       clearTimeout(refreshTimer)
-      if (channel) supabase.removeChannel(channel)
+      if (channel) supabaseCloud.removeChannel(channel)
     }
   }, [])
 
@@ -102,7 +89,7 @@ const [kotSize, setKotSize] = useState("80mm")
     const requestSequence = ++fetchSequenceRef.current
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) return
 
@@ -184,7 +171,7 @@ const [kotSize, setKotSize] = useState("80mm")
   }
 
   function buildKotHtml(order, size = kotSize) {
-    const width = size === "A4" ? "210mm" : size === "A5" ? "148mm" : size === "58mm" ? "58mm" : "80mm"
+    const width = size === "A5" ? "148mm" : size === "58mm" ? "58mm" : "80mm"
     const items = (order?.items || []).map(item => `
       <div class="item">
         <div class="row"><span>${escapeHtml(item.name)}</span><b>x${escapeHtml(item.quantity)}</b></div>
@@ -193,8 +180,8 @@ const [kotSize, setKotSize] = useState("80mm")
     `).join("")
     return `<!doctype html><html><head><meta charset="utf-8"><title>KOT ${escapeHtml(order?.display || order?.id)}</title>
       <style>
-        @page{size:${width} auto;margin:${size === "A4" ? "10mm" : "6mm"}}
-        *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;width:${width};font-size:${size === "A4" ? "15px" : size === "A5" ? "13px" : "11px"}}
+        @page{size:${size === "A5" ? "A5 portrait" : width};margin:0}
+        *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;width:${width};min-width:${width};max-width:${width};min-height:${size === "A5" ? "210mm" : "auto"};font-size:${size === "A5" ? "13px" : "11px"}}
         .kot{padding:8px}.center{text-align:center}.title{font-size:20px;font-weight:900;letter-spacing:1px}.restaurant{font-size:16px;font-weight:900;margin-top:4px}.sub{font-size:11px;color:#555;margin-top:4px}.powered{font-size:8px;color:#777;text-align:center;margin-top:8px;letter-spacing:.2px}.line{border-top:1px dashed #111;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;font-weight:800}.item{padding:6px 0;border-bottom:1px dotted #999}.note{font-size:10px;margin-top:3px}.foot{font-size:10px;margin-top:10px}
       </style></head><body><div class="kot">
       <div class="center"><div class="title">KITCHEN ORDER TICKET</div><div class="restaurant">${escapeHtml(restaurant?.name || "Restaurant")}</div><div class="sub">${escapeHtml(restaurant?.address || "")}${restaurant?.phone ? ` • ${escapeHtml(restaurant.phone)}` : ""}</div><div class="sub">${escapeHtml(order?.display || "Order")}</div></div>
@@ -226,7 +213,7 @@ const [kotSize, setKotSize] = useState("80mm")
   async function printKot(order) {
     if (!order) return
     try {
-      await printHtmlInFrame(buildKotHtml(order, kotSize).replace(/<script>window.onload=\(\)=>window.print\(\)<\/script>/, ""), { title: `KOT ${order?.display || order?.id || ""}`, width: kotSize === "A4" ? "210mm" : kotSize === "A5" ? "148mm" : kotSize === "58mm" ? "58mm" : "80mm", height: "auto" })
+      await printHtmlInFrame(buildKotHtml(order, kotSize).replace(/<script>window.onload=\(\)=>window.print\(\)<\/script>/, ""), { title: `KOT ${order?.display || order?.id || ""}`, width: kotSize === "A5" ? "148mm" : kotSize === "58mm" ? "58mm" : "80mm", height: kotSize === "A5" ? "210mm" : "auto" })
     } catch (e) { alert(e.message || "Unable to print KOT") }
   }
 
@@ -258,7 +245,7 @@ const [kotSize, setKotSize] = useState("80mm")
     setUpdatingStatus(status)
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Login session expired")
 
@@ -702,7 +689,7 @@ const [kotSize, setKotSize] = useState("80mm")
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:12,padding:10,borderRadius:12,background:"var(--surface-2)",border:"1px solid var(--border)"}}>
               <strong style={{fontSize:12}}>KOT</strong>
               <select value={kotSize} onChange={e=>setKotSize(e.target.value)} style={{padding:"7px 9px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}>
-                <option>A4</option><option>A5</option><option>58mm</option><option>80mm</option>
+                <option>A5</option><option>58mm</option><option>80mm</option>
               </select>
               <button type="button" onClick={()=>printKot(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",cursor:"pointer"}}>🖨 Print KOT</button>
               <button type="button" onClick={()=>printKotThermal(order)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--primary)",background:"var(--primary)",color:"#111",cursor:"pointer",fontWeight:800}}>🖨 Thermal 80mm</button>

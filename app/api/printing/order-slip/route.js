@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 import { printOrderSlip } from "@/lib/orderSlipPrinter"
@@ -14,7 +14,7 @@ export async function POST(req) {
     const body = await req.json()
     const orderId = String(body?.order_id || "").trim()
     if (!orderId) throw new Error("order_id is required")
-    const { data: order, error } = await supabaseAdmin.from("orders").select("id").eq("id", orderId).eq("restaurant_id", restaurantId).maybeSingle()
+    const { data: order, error } = await supabaseCloudAdmin.from("orders").select("id").eq("id", orderId).eq("restaurant_id", restaurantId).maybeSingle()
     if (error || !order) throw new Error("Order not found")
     const result = await printOrderSlip(orderId, restaurantId)
     return NextResponse.json({ success: true, ...result })

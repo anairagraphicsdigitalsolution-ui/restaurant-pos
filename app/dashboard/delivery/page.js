@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { useRouter, useSearchParams } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = (v) =>
   `₹${Number(v || 0).toLocaleString("en-IN", {
@@ -66,7 +66,7 @@ export default function DeliveryManagement() {
   const [riderForm, setRiderForm] = useState({ id: "", name: "", phone: "", vehicle: "", active: true })
 
   async function getAuthHeaders() {
-    const { data, error } = await supabase.auth.getSession()
+    const { data, error } = await supabaseCloud.auth.getSession()
 
     if (error || !data?.session?.access_token) {
       throw new Error("Authentication required. Please login again.")
@@ -133,6 +133,23 @@ export default function DeliveryManagement() {
       setUpi("")
       setCard("")
       setCollectionNote("")
+
+      // Once a COD delivery is marked delivered/picked up, pre-fill the
+      // expected collection amount into the payment method that was selected
+      // for the order. All three fields remain editable so the restaurant can
+      // correct the amount or split the collection across cash, UPI and card.
+      const expected = Number(delivery.expected_amount || 0)
+      const method = String(delivery.payment_method || "cash").toLowerCase()
+      const needsSettlement =
+        ["delivered", "picked_up"].includes(String(delivery.status || "").toLowerCase()) &&
+        delivery.settlement_status !== "settled" &&
+        ["cash", "cod", "upi", "card"].includes(method)
+
+      if (needsSettlement && expected > 0) {
+        if (["cash", "cod"].includes(method)) setCash(String(expected))
+        else if (method === "upi") setUpi(String(expected))
+        else if (method === "card") setCard(String(expected))
+      }
     }
   }
 
@@ -158,11 +175,11 @@ export default function DeliveryManagement() {
         throw new Error(data.error || "Operation failed")
       }
 
+      // IMPORTANT: never replace the enriched Cloud delivery in UI with the
+      // raw POST response. load() re-fetches and enriches the selected delivery
+      // from restaurant_deliveries + orders + order_items + offers, so item
+      // details and billing fields cannot disappear after an action.
       await load()
-
-      if (data.delivery) {
-        selectDelivery(data.delivery)
-      }
 
       if (data.settlement_result) {
         setNotice(
@@ -245,14 +262,66 @@ export default function DeliveryManagement() {
     [deliveries]
   )
 
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;")
+
+  function slipFinancials(delivery) {
+    const order = delivery?.slip_order || {}
+    const items = Array.isArray(delivery?.slip_items) ? delivery.slip_items : []
+    const itemSubtotal = items.reduce(
+      (sum, item) =>
+        sum +
+        (Number.isFinite(Number(item?.line_total))
+          ? Number(item.line_total)
+          : Number(item?.quantity || 0) * Number(item?.unit_price || 0)),
+      0
+    )
+    const subtotal = Number.isFinite(Number(delivery?.slip_subtotal))
+      ? Number(delivery.slip_subtotal)
+      : Number(order.subtotal || itemSubtotal || 0)
+    const discount = Number(delivery?.slip_discount ?? order.discount_amount ?? 0) || 0
+    const tax = Number(delivery?.slip_tax ?? order.tax_amount ?? 0) || 0
+    const deliveryCharge =
+      Number(delivery?.slip_delivery_charge ?? delivery?.delivery_charge ?? order.delivery_charge ?? 0) || 0
+    const storedTotal = Number(delivery?.slip_total ?? order.total_amount ?? delivery.expected_amount ?? 0) || 0
+    const calculatedTotal = subtotal || items.length
+      ? Math.max(0, subtotal - discount + tax + deliveryCharge)
+      : storedTotal
+    const total = Number.isFinite(calculatedTotal) ? calculatedTotal : storedTotal
+    const offer = delivery?.slip_offer || null
+    return { items, subtotal, discount, tax, deliveryCharge, total, offer }
+  }
+
   async function printSlipThermal(delivery) {
     if (!delivery) return
     const title = delivery.order_mode === "takeaway" ? "TAKEAWAY SLIP" : "DELIVERY SLIP"
     const collection = delivery.settlement_status === "settled" ? "SETTLED" : ["cash", "cod"].includes(String(delivery.payment_method || "cash").toLowerCase()) ? "PAYMENT TO BE COLLECTED" : "PREPAID"
+    const { items, subtotal, discount, tax, deliveryCharge, total, offer } = slipFinancials(delivery)
+    const itemLines = items.length
+      ? items.flatMap(item => [
+          `${item.item_name || "Item"} x${item.quantity || 0}  ${money(item.line_total ?? Number(item.quantity || 0) * Number(item.unit_price || 0))}`,
+          ...(item.cooking_request ? [`  Note: ${item.cooking_request}`] : []),
+        ])
+      : ["No item details available"]
+    const financialLines = [
+      `Subtotal: ${money(subtotal)}`,
+      ...(offer && discount > 0 ? [`Offer: ${offer.title || "Offer Applied"}`] : []),
+      ...(discount > 0 ? [`Offer Discount: -${money(discount)}`] : []),
+      ...(tax > 0 ? [`Tax / GST: ${money(tax)}`] : []),
+      ...(deliveryCharge > 0 ? [`Delivery Charge: ${money(deliveryCharge)}`] : []),
+      `TOTAL: ${money(total)}`,
+    ]
     const content = [
       "ANAIRA", title, delivery.slip_no || "", "------------------------------",
       delivery.customer_name || "Customer", delivery.phone || "", delivery.address || "Counter pickup", delivery.zone || "",
-      "------------------------------", `Order: #${String(delivery.order_id || "").slice(0,8)}`, `Amount: ${money(delivery.expected_amount)}`,
+      "------------------------------", `Order: #${String(delivery.order_id || "").slice(0,8)}`,
+      "ITEMS", ...itemLines,
+      "------------------------------", ...financialLines,
       `Payment: ${String(delivery.payment_method || "cash").toUpperCase()}`, `Delivered by: ${delivery.delivery_person_name || delivery.rider_name || "Not assigned"}`,
       collection, delivery.customer_notes ? `Note: ${delivery.customer_notes}` : "", "------------------------------", formatIndiaDateTime(new Date())
     ].filter(Boolean).join("\n")
@@ -260,95 +329,133 @@ export default function DeliveryManagement() {
     catch (e) { setError(e.message || "Thermal delivery print failed") }
   }
 
-  function printSlip(delivery) {
+  async function printSlip(delivery) {
     if (!delivery) return
 
-    const title =
-      delivery.order_mode === "takeaway"
-        ? "TAKEAWAY SLIP"
-        : "DELIVERY SLIP"
+    // Always print from the latest enriched Cloud delivery object. This prevents
+    // an old/raw selected row from producing an incomplete customer bill.
+    let printable = delivery
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch("/api/delivery", { cache: "no-store", headers })
+      const data = await res.json()
+      if (res.ok && data?.success) {
+        const fresh = (data.deliveries || []).find((row) => row.id === delivery.id)
+        if (fresh) printable = fresh
+      }
+    } catch (e) {
+      console.warn("Delivery slip refresh failed; using selected Cloud row:", e)
+    }
 
-    const person =
-      delivery.delivery_person_name ||
-      delivery.rider_name ||
-      "Not assigned"
+    const title = printable.order_mode === "takeaway" ? "TAKEAWAY DELIVERY SLIP" : "DELIVERY SLIP"
+    const person = printable.delivery_person_name || printable.rider_name || "Not assigned"
+    const collection = printable.settlement_status === "settled"
+      ? "PAYMENT SETTLED"
+      : ["cash", "cod"].includes(String(printable.payment_method || "cash").toLowerCase())
+        ? "PAYMENT TO BE COLLECTED"
+        : "PREPAID"
 
-    const collection =
-      delivery.settlement_status === "settled"
-        ? "SETTLED"
-        : ["cash", "cod"].includes(
-            String(delivery.payment_method || "cash").toLowerCase()
-          )
-          ? "PAYMENT TO BE COLLECTED"
-          : "PREPAID"
+    const { items, subtotal, discount, tax, deliveryCharge, total, offer } = slipFinancials(printable)
+    const safeRestaurant = escapeHtml(restaurant?.name || "Restaurant")
+    const safeSlip = escapeHtml(printable.slip_no || "")
+    const safeCustomer = escapeHtml(printable.customer_name || "Customer")
+    const safePhone = escapeHtml(printable.phone || "")
+    const safeAddress = escapeHtml(printable.address || "Counter pickup")
+    const safeZone = escapeHtml(printable.zone || "")
+    const safePerson = escapeHtml(person)
+    const safePayment = escapeHtml(String(printable.payment_method || "cash").toUpperCase())
+    const safeOrderId = escapeHtml(String(printable.order_id || "").slice(0, 8))
+    const safeNotes = escapeHtml(printable.customer_notes || printable.slip_order?.overall_note || "")
+
+    const itemRows = items.length
+      ? items.map((item, index) => {
+          const qty = Number(item.quantity || 0)
+          const unitPrice = Number(item.unit_price || 0)
+          const lineTotal = Number.isFinite(Number(item.line_total)) ? Number(item.line_total) : qty * unitPrice
+          const modifiers = Array.isArray(item.modifiers) ? item.modifiers : []
+          return `
+            <div class="item">
+              <div class="itemMain"><span>${index + 1}. ${escapeHtml(item.item_name || "Item")}</span><b>${money(lineTotal)}</b></div>
+              <div class="itemMeta">${qty} × ${money(unitPrice)}</div>
+              ${modifiers.map(mod => `<div class="modifier">+ ${escapeHtml(mod.modifier_name || "Add-on")} × ${Number(mod.quantity || 1)} · ${money(Number(mod.price || 0) * Number(mod.quantity || 1))}</div>`).join("")}
+              ${item.cooking_request ? `<div class="itemMeta">Note: ${escapeHtml(item.cooking_request)}</div>` : ""}
+            </div>`
+        }).join("")
+      : `<div class="muted">No item details available</div>`
 
     const html = `
       <!doctype html>
       <html>
         <head>
-          <title>${delivery.slip_no || "Delivery Slip"}</title>
+          <meta charset="utf-8">
+          <title>${safeSlip || "Delivery Slip"}</title>
           <style>
-            body{font-family:Arial,sans-serif;padding:18px;color:#111}
-            h2{margin:0 0 4px}
-            .muted{color:#666;font-size:12px}
+            *{box-sizing:border-box}
+            html,body{margin:0;padding:0;background:#fff;color:#111}
+            body{font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35}
+            .bill{width:100%;max-width:760px;margin:0 auto;padding:8mm}
+            .header{text-align:center}
+            h1{font-size:23px;margin:0 0 3px}
+            h2{font-size:15px;margin:0 0 3px}
+            .muted{color:#666;font-size:11px}
             .line{border-top:1px dashed #777;margin:12px 0}
-            .row{display:flex;justify-content:space-between;gap:10px;margin:6px 0}
-            .big{font-size:20px;font-weight:800}
-            .hold{padding:10px;border:2px solid #111;border-radius:7px;margin:12px 0;font-weight:800;text-align:center}
-            .note{background:#f5f5f5;padding:8px;border-radius:6px;font-size:12px}
-            @media print{button{display:none}}
+            .row{display:flex;justify-content:space-between;gap:18px;margin:5px 0}
+            .row span:first-child{color:#444}
+            .item{padding:7px 0;border-bottom:1px solid #e5e5e5}
+            .itemMain{display:flex;justify-content:space-between;gap:12px;font-weight:700;font-size:13px}
+            .itemMeta,.modifier{color:#666;font-size:10px;margin-top:2px}
+            .modifier{padding-left:12px}
+            .discount{font-weight:700}
+            .total{font-size:18px;font-weight:800;border-top:2px solid #111;padding-top:8px;margin-top:8px}
+            .box{border:1px solid #bbb;padding:9px;margin-top:10px}
+            .hold{border:2px solid #111;padding:8px;margin-top:12px;font-weight:800;text-align:center}
+            .note{background:#f5f5f5;padding:8px;margin-top:10px;font-size:11px}
+            @page{size:148mm 210mm;margin:0}
+            @media print{.bill{max-width:none;padding:8mm}.item{break-inside:avoid}.box,.hold,.note{break-inside:avoid}}
           </style>
         </head>
         <body>
-          <h2>${restaurant?.name || "Restaurant"}</h2>
-          <div><b>${title}</b></div>
-          <div class="muted">${delivery.slip_no || ""}</div>
-          <div class="line"></div>
+          <main class="bill">
+            <div class="header">
+              <h1>${safeRestaurant}</h1>
+              <h2>${escapeHtml(title)}</h2>
+              <div class="muted">Slip No: ${safeSlip}</div>
+              <div class="muted">${escapeHtml(formatIndiaDateTime(printable.created_at || new Date()))}</div>
+            </div>
 
-          <div><b>${delivery.customer_name || "Customer"}</b></div>
-          <div>${delivery.phone || ""}</div>
-          <div>${delivery.address || "Counter pickup"}</div>
-          <div>${delivery.zone || ""}</div>
+            <div class="line"></div>
+            <div class="row"><span>Customer</span><b>${safeCustomer}</b></div>
+            <div class="row"><span>Phone</span><b>${safePhone || "—"}</b></div>
+            <div class="row"><span>Address</span><b>${safeAddress}</b></div>
+            ${safeZone ? `<div class="row"><span>Zone</span><b>${safeZone}</b></div>` : ""}
+            <div class="row"><span>Order</span><b>#${safeOrderId}</b></div>
 
-          <div class="line"></div>
+            <div class="line"></div>
+            <div><b>ORDER ITEMS</b></div>
+            ${itemRows}
 
-          <div class="row">
-            <span>Order</span>
-            <b>#${String(delivery.order_id || "").slice(0, 8)}</b>
-          </div>
+            <div class="line"></div>
+            <div class="row"><span>Subtotal</span><b>${money(subtotal)}</b></div>
+            <div class="row"><span>Offer Discount</span><b class="discount">-${money(discount)}</b></div>
+            ${offer ? `<div class="row"><span>Offer</span><b>${escapeHtml(offer.title || "Offer Applied")}</b></div>` : ""}
+            <div class="row"><span>Tax / GST</span><b>${money(tax)}</b></div>
+            <div class="row"><span>Delivery Charge</span><b>${money(deliveryCharge)}</b></div>
+            <div class="row total"><span>GRAND TOTAL</span><b>${money(total)}</b></div>
 
-          <div class="row">
-            <span>Amount</span>
-            <b class="big">${money(delivery.expected_amount)}</b>
-          </div>
+            <div class="box">
+              <div class="row"><span>Payment Method</span><b>${safePayment}</b></div>
+              <div class="row"><span>Delivery Person</span><b>${safePerson}</b></div>
+              <div class="row"><span>Status</span><b>${escapeHtml(collection)}</b></div>
+            </div>
 
-          <div class="row">
-            <span>Payment</span>
-            <b>${String(delivery.payment_method || "cash").toUpperCase()}</b>
-          </div>
-
-          <div class="row">
-            <span>Delivered by</span>
-            <b>${person}</b>
-          </div>
-
-          <div class="hold">${collection}</div>
-
-          ${
-            delivery.customer_notes
-              ? `<div class="note">Customer note: ${delivery.customer_notes}</div>`
-              : ""
-          }
-
-          <div class="line"></div>
-          <div class="muted">
-            Generated ${formatIndiaDateTime(new Date())}
-          </div>
-
+            ${safeNotes ? `<div class="note"><b>Customer Note:</b> ${safeNotes}</div>` : ""}
+            <div class="line"></div>
+            <div class="muted" style="text-align:center">Thank you for ordering from ${safeRestaurant}</div>
+          </main>
         </body>
       </html>
     `
-    printHtmlInFrame(html, { title: delivery.slip_no || title, width: "80mm", height: "auto" }).catch(e => setError(e.message || "Unable to print the slip"))
+    printHtmlInFrame(html, { title: printable.slip_no || title, width: "148mm", height: "210mm" }).catch(e => setError(e.message || "Unable to print the slip"))
   }
 
   async function assignDeliveryPerson() {
@@ -458,7 +565,12 @@ export default function DeliveryManagement() {
         throw new Error(result.error || "Unable to mark order done")
       }
 
-      setSelected(result.delivery || selected)
+      // The POST response contains the raw restaurant_deliveries row. Do not
+      // put that raw row into React state because it would discard the
+      // enriched slip/order/item/discount/charge fields. Refresh through the
+      // canonical Cloud GET instead, which rebuilds the enriched delivery.
+      await load()
+
       // Billing screen restores the selected order from this key.
       window.localStorage.setItem(
         "anaira_pos_selected_order",
@@ -1259,23 +1371,27 @@ export default function DeliveryManagement() {
 
                 <div className="settleGrid">
                   <MoneyInput
-                    label="Cash"
+                    label="Cash (Edit amount)"
                     value={cash}
                     setValue={setCash}
                   />
 
                   <MoneyInput
-                    label="UPI"
+                    label="UPI (Edit amount)"
                     value={upi}
                     setValue={setUpi}
                   />
 
                   <MoneyInput
-                    label="Card"
+                    label="Card (Edit amount)"
                     value={card}
                     setValue={setCard}
                   />
                 </div>
+
+                <small className="settlementHint">
+                  Final bill amount (after offer discount + delivery charge) is auto-filled. Edit any amount or split the payment between Cash, UPI and Card.
+                </small>
 
                 <textarea
                   value={collectionNote}

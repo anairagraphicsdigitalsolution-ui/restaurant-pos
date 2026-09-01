@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function WebsiteOrdering(){
  const router=useRouter()
@@ -14,14 +14,14 @@ export default function WebsiteOrdering(){
 
   useEffect(()=>{load()},[])
   async function load(){
-    const {data:{user}}=await supabase.auth.getUser();if(!user)return
-    const {data:p}=await supabase.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
+    const {data:{user}}=await supabaseCloud.auth.getUser();if(!user)return
+    const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id",user.id).maybeSingle()
     if(!p?.restaurant_id)return
   if(p.role!=="super_admin"){router.replace("/dashboard/restaurant-pro");return}
     const [{data:r},{data:rows},{data:settings}]=await Promise.all([
-      supabase.from("restaurants").select("id,name,slug").eq("id",p.restaurant_id).maybeSingle(),
-      supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id),
-      supabase.from("plugin_settings").select("config").eq("restaurant_id",p.restaurant_id).eq("plugin_code","website-ordering").maybeSingle()
+      supabaseCloud.from("restaurants").select("id,name,slug").eq("id",p.restaurant_id).maybeSingle(),
+      supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",p.restaurant_id),
+      supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",p.restaurant_id).eq("plugin_code","website-ordering").maybeSingle()
     ])
     setRestaurant(r);setEnabled((rows||[]).some(x=>["website-ordering","online-ordering"].includes(x.plugin_code)&&x.enabled))
     setCfg(settings?.config||{})
@@ -30,7 +30,7 @@ export default function WebsiteOrdering(){
   async function save(){
     const next={...cfg,domain}
     setCfg(next)
-    const {error}=await supabase.from("plugin_settings").upsert({restaurant_id:restaurant.id,plugin_code:"website-ordering",config:next},{onConflict:"restaurant_id,plugin_code"})
+    const {error}=await supabaseCloud.from("plugin_settings").upsert({restaurant_id:restaurant.id,plugin_code:"website-ordering",config:next},{onConflict:"restaurant_id,plugin_code"})
     setMsg(error?`❌ ${error.message}`:"✅ Website ordering settings saved")
   }
   const publicUrl=restaurant?.slug?`${window.location.origin}/${restaurant.slug}/order`:null

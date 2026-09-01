@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
@@ -12,7 +12,7 @@ async function context(req, requireSuperAdmin=false){
   const resolved = await resolveRestaurantForUser(user)
   if(!resolved.restaurantId) throw new Error("Restaurant profile not found")
   if(requireSuperAdmin){
-    const {data:profile,error}=await supabaseAdmin.from("profiles").select("role").eq("id",user.id).maybeSingle()
+    const {data:profile,error}=await supabaseCloudAdmin.from("profiles").select("role").eq("id",user.id).maybeSingle()
     if(error) throw error
     if(profile?.role!=="super_admin") throw new Error("Super Admin access required")
   }
@@ -28,7 +28,7 @@ function safeProvider(v){
 export async function GET(req){
   try{
     const {restaurantId}=await context(req)
-    const {data,error}=await supabaseAdmin
+    const {data,error}=await supabaseCloudAdmin
       .from("aggregator_integrations")
       .select("id,provider,outlet_code,active,last_sync_at,created_at")
       .eq("restaurant_id",restaurantId)
@@ -60,7 +60,7 @@ export async function POST(req){
     }
     const active=Boolean(credentials.base_url && credentials.api_key && credentials.webhook_secret)
 
-    const {data,error}=await supabaseAdmin
+    const {data,error}=await supabaseCloudAdmin
       .from("aggregator_integrations")
       .upsert({
         restaurant_id:restaurantId,
@@ -89,7 +89,7 @@ export async function PUT(req){
     const provider=safeProvider(body.provider)
     const action=String(body.action||"").trim()
 
-    const {data:integration,error}=await supabaseAdmin
+    const {data:integration,error}=await supabaseCloudAdmin
       .from("aggregator_integrations")
       .select("*")
       .eq("restaurant_id",restaurantId)
@@ -138,7 +138,7 @@ export async function PUT(req){
       throw new Error(`${provider} API ${response.status}: ${typeof result==="string"?result:JSON.stringify(result)}`)
     }
 
-    await supabaseAdmin.from("aggregator_integrations")
+    await supabaseCloudAdmin.from("aggregator_integrations")
       .update({last_sync_at:new Date().toISOString()})
       .eq("id",integration.id)
 

@@ -2,7 +2,7 @@
 import { formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useAuth } from "@/components/AuthProvider"
 
 export default function TablesPage() {
@@ -27,7 +27,7 @@ export default function TablesPage() {
       setRestaurantId(authRestaurantId)
       await load(authRestaurantId)
 
-      channel = supabase
+      channel = supabaseCloud
         .channel(`tables-${authRestaurantId}`)
         .on(
           "postgres_changes",
@@ -54,7 +54,7 @@ export default function TablesPage() {
     return () => {
       if (timer) clearInterval(timer)
       clearTimeout(refreshTimer)
-      if (channel) supabase.removeChannel(channel)
+      if (channel) supabaseCloud.removeChannel(channel)
     }
   }, [authLoading, authRestaurantId])
 
@@ -63,8 +63,8 @@ export default function TablesPage() {
     setLoading(true)
 
     const [{ data: tableData }, { data: orderData }] = await Promise.all([
-      supabase.from("tables").select("*").eq("restaurant_id", rid).order("table_number"),
-      supabase.from("orders").select("id,source_type,source_id,status,total_amount,payment_status,created_at,source_label")
+      supabaseCloud.from("tables").select("*").eq("restaurant_id", rid).order("table_number"),
+      supabaseCloud.from("orders").select("id,source_type,source_id,status,total_amount,payment_status,created_at,source_label")
         .eq("restaurant_id", rid)
         .in("status", ["pending", "accepted", "preparing", "ready", "served"])
         .order("created_at", { ascending: false })

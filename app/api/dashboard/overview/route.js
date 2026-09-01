@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
@@ -44,28 +44,29 @@ export async function GET(req) {
       reservationsRes,
       tablesRes
     ] = await Promise.all([
-      supabaseAdmin.from("restaurants").select("id,name,logo").eq("id",rid).single(),
-      supabaseAdmin.from("orders")
+      supabaseCloudAdmin.from("restaurants").select("id,name,logo").eq("id",rid).single(),
+      supabaseCloudAdmin.from("orders")
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false})
         .limit(1000),
-      supabaseAdmin.from("menu_items")
+      supabaseCloudAdmin.from("menu_items")
         .select("id,name,price,image,category")
         .eq("restaurant_id",rid),
-      supabaseAdmin.from("offers")
+      supabaseCloudAdmin.from("offers")
         .select("id,title,discount,valid_till,created_at")
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false}),
-      supabaseAdmin.from("customers")
-        .select("id", { count: "exact", head: true })
-        .eq("restaurant_id",rid),
-      supabaseAdmin.from("reservations")
+      supabaseCloudAdmin.from("customers")
+        .select("id,name,phone,email,total_orders,total_spend,loyalty_points,last_visit_at")
+        .eq("restaurant_id",rid)
+        .order("updated_at", { ascending: false }),
+      supabaseCloudAdmin.from("reservations")
         .select("id,name,phone,guests,date,time,status,table_id,created_at")
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false})
         .limit(100),
-      supabaseAdmin.from("tables")
+      supabaseCloudAdmin.from("tables")
         .select("id,table_number,seats")
         .eq("restaurant_id",rid)
         .order("table_number")
@@ -86,7 +87,7 @@ export async function GET(req) {
 
     if (orders.length) {
       const orderIds = orders.map(o => o.id)
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabaseCloudAdmin
         .from("order_items")
         .select("id,order_id,item_id,quantity,item_name,unit_price,line_total")
         .in("order_id", orderIds)
@@ -94,7 +95,7 @@ export async function GET(req) {
       if (error) errors.order_items = error.message
       orderItems = data || []
 
-      const { data: modifierRows, error: modifierError } = await supabaseAdmin
+      const { data: modifierRows, error: modifierError } = await supabaseCloudAdmin
         .from("order_item_modifiers")
         .select("order_item_id,price,quantity")
         .in("order_item_id", orderItems.map(item => item.id))
@@ -151,9 +152,10 @@ export async function GET(req) {
     const customerIds = new Set(
       orders.map(order => order.customer_id).filter(Boolean).map(String)
     )
+    const customerRows = customersRes.data || []
     const customerCount = customersRes.error
       ? customerIds.size
-      : Math.max(Number(customersRes.count || 0), customerIds.size)
+      : Math.max(customerRows.length, customerIds.size)
 
     const todayReservations = (reservationsRes.data || []).filter(
       reservation => String(reservation.date || "").slice(0, 10) === todayKey
@@ -167,7 +169,7 @@ export async function GET(req) {
       orders,
       items:itemsRes.data || [],
       offers:offersRes.data || [],
-      customers:customersRes.data || [],
+      customers:customerRows,
       reservations:reservationsRes.data || [],
       tables:tablesRes.data || [],
       orderItems,

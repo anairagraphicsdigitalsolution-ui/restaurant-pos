@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const EMPTY={
   number:"", credential_owner:"restaurant", phone_number_id:"", access_token:"", webhook_verify_token:"", webhook_app_secret:"",
@@ -15,11 +15,11 @@ export default function WhatsAppConfig(){
   const [config,setConfig]=useState(EMPTY); const [enabled,setEnabled]=useState(null); const [saving,setSaving]=useState(false); const [saved,setSaved]=useState(false)
   useEffect(()=>{if(rid)load()},[rid])
   async function load(){
-    const {data:pluginRows,error:pluginError}=await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).in("plugin_code",["whatsapp-invoice","whatsapp"]).eq("enabled",true).limit(1)
+    const {data:pluginRows,error:pluginError}=await supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).in("plugin_code",["whatsapp-invoice","whatsapp"]).eq("enabled",true).limit(1)
     if(pluginError){console.error(pluginError);setEnabled(false);return}
     if(!pluginRows?.[0]?.enabled){setEnabled(false);return}
     setEnabled(true)
-    const {data,error}=await supabase.from("plugin_settings").select("config").eq("restaurant_id",rid).in("plugin_code",["whatsapp-invoice","whatsapp"]).limit(1)
+    const {data,error}=await supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",rid).in("plugin_code",["whatsapp-invoice","whatsapp"]).limit(1)
     if(error){console.error(error);return}
     setConfig({...EMPTY,...(data?.[0]?.config||{})})
   }
@@ -29,7 +29,7 @@ export default function WhatsAppConfig(){
     if(config.credential_owner==="restaurant" && (!config.phone_number_id.trim() || !config.access_token.trim())) return alert("For restaurant-owned Cloud API, Phone Number ID and Access Token are required.")
     if(!config.order_notification_recipient && config.send_qr_order_notification) return alert("Add the restaurant/staff WhatsApp recipient for new-order notifications.")
     setSaving(true);setSaved(false)
-    const {error}=await supabase.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:"whatsapp-invoice",config},{onConflict:"restaurant_id,plugin_code"})
+    const {error}=await supabaseCloud.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:"whatsapp-invoice",config},{onConflict:"restaurant_id,plugin_code"})
     setSaving(false); if(error){alert(error.message);return} setSaved(true);setTimeout(()=>setSaved(false),1800)
   }
   if(enabled===null)return <main style={shell}><div style={stateCard}>Loading WhatsApp plugin…</div></main>

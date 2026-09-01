@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
@@ -16,7 +16,7 @@ export async function POST(req) {
       return Response.json({ success: false, error: "Invalid inventory adjustment" }, { status: 400 })
     }
 
-    const { data, error } = await supabaseAdmin.rpc("stage3_adjust_inventory", {
+    const { data, error } = await supabaseCloudAdmin.rpc("stage3_adjust_inventory", {
       p_actor_id: user.id,
       p_inventory_id: inventoryId,
       p_delta: delta,

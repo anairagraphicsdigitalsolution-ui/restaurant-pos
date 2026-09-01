@@ -1,7 +1,7 @@
  "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { FEATURE_CATALOG, CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, INVENTORY_FEATURE_CODES } from "@/lib/featureCatalog"
 
 const OPEN_RUNTIME = {
@@ -24,10 +24,10 @@ export default function RestaurantProPage(){
   async function load(){
     setLoading(true); setMessage("")
     try{
-      const {data:{user}}=await supabase.auth.getUser()
+      const {data:{user}}=await supabaseCloud.auth.getUser()
       if(!user){ setLoading(false); return }
 
-      const {data:profile,error:profileError}=await supabase
+      const {data:profile,error:profileError}=await supabaseCloud
         .from("profiles")
         .select("restaurant_id,role")
         .eq("id",user.id)
@@ -38,8 +38,8 @@ export default function RestaurantProPage(){
 
       const rid=profile.restaurant_id
       const [{data:r,error:restaurantError},{data:rows,error:pluginError}]=await Promise.all([
-        supabase.from("restaurants").select("id,name").eq("id",rid).maybeSingle(),
-        supabase.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",rid)
+        supabaseCloud.from("restaurants").select("id,name").eq("id",rid).maybeSingle(),
+        supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",rid)
       ])
 
       if(restaurantError) throw restaurantError

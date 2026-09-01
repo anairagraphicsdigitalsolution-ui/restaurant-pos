@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireFeature } from "@/lib/featureGateServer"
 
@@ -53,7 +53,7 @@ export async function POST(req) {
      */
 
     const { data: profile, error: profileError } =
-      await supabaseAdmin
+      await supabaseCloudAdmin
         .from("profiles")
         .select("id, role, restaurant_id")
         .eq("id", user.id)
@@ -108,7 +108,7 @@ export async function POST(req) {
     let source = null
     if (sourceType === "table" || sourceType === "room") {
       const sourceTable = sourceType === "table" ? "tables" : "rooms"
-      const { data, error: sourceError } = await supabaseAdmin
+      const { data, error: sourceError } = await supabaseCloudAdmin
         .from(sourceTable)
         .select("*")
         .eq("id", sourceId)
@@ -129,7 +129,7 @@ export async function POST(req) {
           : "Takeaway"
 
     const { data: order, error: orderError } =
-      await supabaseAdmin
+      await supabaseCloudAdmin
         .from("orders")
         .insert([
           {
@@ -185,7 +185,7 @@ export async function POST(req) {
     }))
 
     const { data: insertedItems, error: itemError } =
-      await supabaseAdmin
+      await supabaseCloudAdmin
         .from("order_items")
         .insert(orderItems)
         .select("id")
@@ -197,7 +197,7 @@ export async function POST(req) {
        * Cleanup the order if order_items insertion fails.
        */
 
-      await supabaseAdmin
+      await supabaseCloudAdmin
         .from("orders")
         .delete()
         .eq("id", order.id)
@@ -228,9 +228,9 @@ export async function POST(req) {
       }
     })
     if (modifierRows.length) {
-      const { error: modifierError } = await supabaseAdmin.from("order_item_modifiers").insert(modifierRows)
+      const { error: modifierError } = await supabaseCloudAdmin.from("order_item_modifiers").insert(modifierRows)
       if (modifierError) {
-        await supabaseAdmin.from("orders").delete().eq("id", order.id).eq("restaurant_id", restaurantId)
+        await supabaseCloudAdmin.from("orders").delete().eq("id", order.id).eq("restaurant_id", restaurantId)
         return Response.json({ success:false, error:modifierError.message || "Unable to create order modifiers" }, { status:400 })
       }
     }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import QRCode from "react-qr-code"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const BRAND_LOGO = "/anaira-branding.png"
 const PUBLIC_BASE = "https://anairapos.in"
@@ -46,7 +46,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
     async function verifyAccess() {
       try {
         setPluginAccess(null)
-        const { data: sessionData } = await supabase.auth.getSession()
+        const { data: sessionData } = await supabaseCloud.auth.getSession()
         const token = sessionData?.session?.access_token
         if (!token) throw new Error("Session expired. Please login again.")
 
@@ -100,7 +100,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
       setError("")
 
       if (superAdmin) {
-        const { data, error: restError } = await supabase
+        const { data, error: restError } = await supabaseCloud
           .from("restaurants")
           .select("id,name,slug,logo,address,phone,description,cuisine")
           .order("name")
@@ -116,10 +116,10 @@ export default function QRPrintCenter({ superAdmin = false }) {
         return
       }
 
-      const { data: userData } = await supabase.auth.getUser()
+      const { data: userData } = await supabaseCloud.auth.getUser()
       if (!userData?.user) throw new Error("Please login again")
 
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile, error: profileError } = await supabaseCloud
         .from("profiles")
         .select("restaurant_id,role")
         .eq("id", userData.user.id)
@@ -135,7 +135,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
       let resolvedRestaurantId = profile?.restaurant_id || metadataRestaurantId || null
 
       if (!resolvedRestaurantId) {
-        const { data: ownedRestaurant } = await supabase
+        const { data: ownedRestaurant } = await supabaseCloud
           .from("restaurants")
           .select("id")
           .eq("owner_id", userData.user.id)
@@ -162,7 +162,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
       if (!silent) setLoading(true)
       setError("")
 
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
 
       if (!token) throw new Error("Session expired. Please login again.")
@@ -188,7 +188,7 @@ export default function QRPrintCenter({ superAdmin = false }) {
       setRooms(payload.rooms || [])
       setOrderingEnabled(payload.orderingEnabled === true)
       setPrintEnabled(payload.printEnabled === true)
-      const {data:settings}=await supabase.from("plugin_settings").select("config")
+      const {data:settings}=await supabaseCloud.from("plugin_settings").select("config")
         .eq("restaurant_id",rid).eq("plugin_code","qr-print-center").maybeSingle()
       setPrintConfig(settings?.config||{})
     } catch (err) {

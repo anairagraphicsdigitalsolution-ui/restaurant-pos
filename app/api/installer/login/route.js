@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
-import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
+import { supabaseCloudAdmin, supabaseCloudAuth } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
@@ -39,15 +38,8 @@ export async function POST(req) {
     }
 
     // Authenticate the installer user against the SAME Cloud Supabase project.
-    const authClient = createClient(url, anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    })
-
     const { data: authData, error: authError } =
-      await authClient.auth.signInWithPassword({ email, password })
+      await supabaseCloudAuth.auth.signInWithPassword({ email, password })
 
     if (authError || !authData?.user || !authData?.session) {
       return NextResponse.json(
@@ -65,7 +57,7 @@ export async function POST(req) {
     // IMPORTANT:
     // Installer login is a CLOUD control-plane operation. Do NOT use
     // supabaseServer.js here because a restaurant installation can run in
-    // local-primary mode. That client may intentionally point at local Supabase.
+    // The installer uses the Cloud Supabase configuration.
     const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("restaurant_id,role")

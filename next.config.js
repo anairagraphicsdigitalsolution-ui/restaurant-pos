@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   // Keep local development origins; production traffic is served by Vercel.
   allowedDevOrigins: [
     "192.168.0.149",

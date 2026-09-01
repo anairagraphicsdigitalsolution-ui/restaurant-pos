@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireFeature } from "@/lib/featureGateServer"
 
@@ -8,7 +8,7 @@ const money = (value) =>
   `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 
 async function resolveRestaurant(userId) {
-  const { data: profile } = await supabaseAdmin
+  const { data: profile } = await supabaseCloudAdmin
     .from("profiles")
     .select("restaurant_id,role")
     .eq("id", userId)
@@ -16,7 +16,7 @@ async function resolveRestaurant(userId) {
 
   if (profile?.restaurant_id) return { restaurantId: profile.restaurant_id, role: profile.role || "" }
 
-  const { data: restaurant } = await supabaseAdmin
+  const { data: restaurant } = await supabaseCloudAdmin
     .from("restaurants")
     .select("id")
     .eq("owner_id", userId)
@@ -32,7 +32,7 @@ function cleanMoney(value) {
 }
 
 async function addEvent({ restaurantId, deliveryId, status, note, userId }) {
-  await supabaseAdmin.from("delivery_events").insert([{
+  await supabaseCloudAdmin.from("delivery_events").insert([{
     restaurant_id: restaurantId,
     delivery_id: deliveryId,
     status,
@@ -54,30 +54,128 @@ export async function GET(req) {
     }
 
     const [restaurantRes, deliveryRes, riderRes, zoneRes] = await Promise.all([
-      supabaseAdmin.from("restaurants").select("id,name,address,phone,gst_enabled,gst_number").eq("id", restaurantId).maybeSingle(),
-      supabaseAdmin
+      supabaseCloudAdmin.from("restaurants").select("id,name,address,phone,gst_enabled,gst_number").eq("id", restaurantId).maybeSingle(),
+      supabaseCloudAdmin
         .from("restaurant_deliveries")
         .select("*")
         .eq("restaurant_id", restaurantId)
         .order("created_at", { ascending:false })
         .limit(200),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("delivery_riders")
         .select("*")
         .eq("restaurant_id", restaurantId)
         .order("name"),
-      supabaseAdmin
+      supabaseCloudAdmin
         .from("delivery_zones")
         .select("*")
         .eq("restaurant_id", restaurantId)
         .order("name")
     ])
 
+    // Delivery slips are customer-facing documents. Enrich every delivery from
+    // the same Cloud order source so the slip can show the exact ordered items,
+    // applied offer/discount, delivery charge, tax and final total.
+    const deliveries = deliveryRes.data || []
+    const orderIds = [...new Set(deliveries.map(d => d.order_id).filter(Boolean))]
+    let orderMap = {}
+    let itemMap = {}
+    let offerMap = {}
+
+    if (orderIds.length) {
+      const [{ data: orders }, { data: items }] = await Promise.all([
+        supabaseCloudAdmin
+          .from("orders")
+          .select("id,subtotal,discount_amount,tax_amount,total_amount,delivery_charge,offer_id,payment_method,overall_note")
+          .eq("restaurant_id", restaurantId)
+          .in("id", orderIds),
+        supabaseCloudAdmin
+          .from("order_items")
+          .select("id,order_id,item_name,quantity,unit_price,line_total,cooking_request")
+          .in("order_id", orderIds)
+          .order("id")
+      ])
+
+      ;(orders || []).forEach(order => { orderMap[order.id] = order })
+      ;(items || []).forEach(item => {
+        ;(itemMap[item.order_id] ||= []).push({ ...item, modifiers: [] })
+      })
+
+      // Include all item modifiers/add-ons on the customer-facing delivery bill.
+      const itemIds = (items || []).map(item => item.id).filter(Boolean)
+      if (itemIds.length) {
+        const { data: modifiers } = await supabaseCloudAdmin
+          .from("order_item_modifiers")
+          .select("order_item_id,modifier_name,price,quantity")
+          .in("order_item_id", itemIds)
+        const modifierMap = {}
+        ;(modifiers || []).forEach(modifier => {
+          ;(modifierMap[modifier.order_item_id] ||= []).push(modifier)
+        })
+        Object.keys(itemMap).forEach(orderId => {
+          itemMap[orderId] = itemMap[orderId].map(item => ({
+            ...item,
+            modifiers: modifierMap[item.id] || []
+          }))
+        })
+      }
+
+      const offerIds = [...new Set((orders || []).map(o => o.offer_id).filter(Boolean))]
+      if (offerIds.length) {
+        const { data: offers } = await supabaseCloudAdmin
+          .from("offers")
+          .select("id,title,discount,discount_type")
+          .in("id", offerIds)
+          .eq("restaurant_id", restaurantId)
+        ;(offers || []).forEach(offer => { offerMap[offer.id] = offer })
+      }
+    }
+
+    const enrichedDeliveries = deliveries.map(delivery => {
+      const order = orderMap[delivery.order_id] || null
+      const items = itemMap[delivery.order_id] || []
+      const offer = order?.offer_id ? offerMap[order.offer_id] || null : null
+      const deliveryCharge = cleanMoney(
+        delivery.delivery_charge ?? order?.delivery_charge ?? 0
+      )
+      const itemSubtotal = items.reduce((sum, item) => {
+        const line = Number.isFinite(Number(item?.line_total))
+          ? Number(item.line_total)
+          : Number(item?.quantity || 0) * Number(item?.unit_price || 0)
+        return sum + (Number.isFinite(line) ? line : 0)
+      }, 0)
+      const subtotal = cleanMoney(order?.subtotal ?? itemSubtotal)
+      const discount = cleanMoney(order?.discount_amount ?? 0)
+      const tax = cleanMoney(order?.tax_amount ?? 0)
+      // Customer-facing delivery bill total: item subtotal minus applied offer
+      // discount, plus tax and delivery charge. Use the stored order total only
+      // when the order has no bill components available.
+      const calculatedTotal = cleanMoney(subtotal - discount + tax + deliveryCharge)
+      const finalTotal = (order && (order.subtotal != null || items.length))
+        ? calculatedTotal
+        : cleanMoney(order?.total_amount ?? delivery.expected_amount)
+      return {
+        ...delivery,
+        // Keep the delivery record's expected amount synchronized with the
+        // customer-facing bill amount used for settlement.
+        expected_amount: finalTotal,
+        collection_expected: finalTotal,
+        slip_items: items,
+        slip_order: order,
+        slip_offer: offer,
+        slip_subtotal: subtotal,
+        slip_discount: discount,
+        slip_tax: tax,
+        slip_delivery_charge: deliveryCharge,
+        slip_total: finalTotal,
+      }
+    })
+
     return Response.json({
       success:true,
       restaurant_id:restaurantId,
       restaurant:restaurantRes.data || null,
-      deliveries:deliveryRes.data || [],
+      deliveries:enrichedDeliveries,
       riders:riderRes.data || [],
       zones:zoneRes.data || [],
       errors:{
@@ -112,7 +210,7 @@ export async function POST(req) {
         return Response.json({ success:false, error:"Delivery is required" }, { status:400 })
       }
 
-      const { data: delivery, error: deliveryError } = await supabaseAdmin
+      const { data: delivery, error: deliveryError } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .select("*")
         .eq("id", deliveryId)
@@ -133,7 +231,7 @@ export async function POST(req) {
 
       // One idempotent operation for Delivery -> Kitchen -> Billing. If the
       // kitchen order is already done, do not create a second transition.
-      const { data: order, error: orderError } = await supabaseAdmin
+      const { data: order, error: orderError } = await supabaseCloudAdmin
         .from("orders")
         .select("id,status,payment_status,total_amount,paid_amount")
         .eq("id", delivery.order_id)
@@ -150,7 +248,7 @@ export async function POST(req) {
       // so every non-done order must be transitioned to the canonical `done`
       // state here. Otherwise Billing filters it out and Finalize never appears.
       if (String(order.status || "").toLowerCase() !== "done") {
-        const { data: statusResult, error: statusError } = await supabaseAdmin.rpc("stage3_update_order_status", {
+        const { data: statusResult, error: statusError } = await supabaseCloudAdmin.rpc("stage3_update_order_status", {
           p_actor_id: user.id,
           p_order_id: delivery.order_id,
           p_status: "done",
@@ -162,7 +260,7 @@ export async function POST(req) {
         updatedOrder = { ...order, status: statusResult?.status || "done" }
       }
 
-      const { data: updatedDelivery, error: updateError } = await supabaseAdmin
+      const { data: updatedDelivery, error: updateError } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .update({
           status: delivery.status === "cancelled" ? "cancelled" : "delivered",
@@ -192,16 +290,37 @@ export async function POST(req) {
       const orderId = String(body?.order_id || "").trim()
       if (!orderId) return Response.json({ success:false,error:"Order is required" },{status:400})
 
-      const { data: order } = await supabaseAdmin
+      const { data: order } = await supabaseCloudAdmin
         .from("orders")
-        .select("id,restaurant_id,total_amount,order_mode,customer_id")
+        .select("id,restaurant_id,total_amount,order_mode,customer_id,customer_name,customer_phone,delivery_address,delivery_charge,payment_method")
         .eq("id",orderId)
         .eq("restaurant_id",restaurantId)
         .maybeSingle()
 
       if (!order) return Response.json({ success:false,error:"Order not found" },{status:404})
 
-      const { data: slip, error: slipError } = await supabaseAdmin.rpc("next_delivery_slip_no", { p_restaurant_id:restaurantId })
+      // Delivery creation is idempotent: the Order page creates the delivery
+      // slip immediately after the order is created. If the request is retried
+      // (refresh, double-click, network retry, etc.), reuse that same Cloud
+      // delivery row and slip number instead of generating a second slip.
+      const { data: existingDelivery, error: existingDeliveryError } = await supabaseCloudAdmin
+        .from("restaurant_deliveries")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .eq("order_id", orderId)
+        .order("created_at", { ascending:false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingDeliveryError) {
+        return Response.json({ success:false, error:existingDeliveryError.message || "Unable to check existing delivery" }, { status:400 })
+      }
+
+      if (existingDelivery) {
+        return Response.json({ success:true, delivery:existingDelivery, idempotent:true })
+      }
+
+      const { data: slip, error: slipError } = await supabaseCloudAdmin.rpc("next_delivery_slip_no", { p_restaurant_id:restaurantId })
       if (slipError) return Response.json({ success:false,error:slipError.message },{status:400})
 
       const row = {
@@ -209,11 +328,11 @@ export async function POST(req) {
         order_id: orderId,
         slip_no: slip,
         order_mode: String(body?.order_mode || order.order_mode || "delivery"),
-        customer_name: String(body?.customer_name || "Walk-in Customer").trim(),
-        phone: String(body?.phone || "").trim() || null,
-        address: String(body?.address || "").trim() || null,
+        customer_name: String(body?.customer_name || order.customer_name || "Walk-in Customer").trim(),
+        phone: String(body?.phone || order.customer_phone || "").trim() || null,
+        address: String(body?.address || order.delivery_address || "").trim() || null,
         zone: String(body?.zone || "").trim() || null,
-        delivery_charge: cleanMoney(body?.delivery_charge),
+        delivery_charge: cleanMoney(body?.delivery_charge ?? order.delivery_charge),
         rider_id: body?.delivery_person_type === "owner" ? null : (body?.rider_id || null),
         rider_name: body?.delivery_person_type === "owner" ? null : (String(body?.rider_name || "").trim() || null),
         rider_phone: body?.delivery_person_type === "owner" ? null : (String(body?.rider_phone || "").trim() || null),
@@ -228,7 +347,7 @@ export async function POST(req) {
             : (String(body?.rider_phone || "").trim() || null),
         expected_amount: cleanMoney(order.total_amount),
         collection_expected: cleanMoney(order.total_amount),
-        payment_method: String(body?.payment_method || "cash").toLowerCase(),
+        payment_method: String(body?.payment_method || order.payment_method || "cash").toLowerCase(),
         payment_status: "pending",
         settlement_status: "pending",
         collection_status:
@@ -246,7 +365,7 @@ export async function POST(req) {
         customer_notes: String(body?.customer_notes || "").trim() || null
       }
 
-      const { data: delivery, error } = await supabaseAdmin
+      const { data: delivery, error } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .insert([row])
         .select("*")
@@ -262,11 +381,11 @@ export async function POST(req) {
 
       if (action === "rider_delete") {
         if (!riderId) return Response.json({ success:false, error:"Rider is required" }, { status:400 })
-        const { data: existing, error: findError } = await supabaseAdmin
+        const { data: existing, error: findError } = await supabaseCloudAdmin
           .from("delivery_riders").select("id,name").eq("id", riderId).eq("restaurant_id", restaurantId).maybeSingle()
         if (findError) return Response.json({ success:false, error:findError.message }, { status:400 })
         if (!existing) return Response.json({ success:false, error:"Rider not found" }, { status:404 })
-        const { error } = await supabaseAdmin.from("delivery_riders").delete().eq("id", riderId).eq("restaurant_id", restaurantId)
+        const { error } = await supabaseCloudAdmin.from("delivery_riders").delete().eq("id", riderId).eq("restaurant_id", restaurantId)
         if (error) return Response.json({ success:false, error:error.message }, { status:400 })
         return Response.json({ success:true })
       }
@@ -279,17 +398,17 @@ export async function POST(req) {
 
       if (action === "rider_update") {
         if (!riderId) return Response.json({ success:false, error:"Rider is required" }, { status:400 })
-        const { data: rider, error } = await supabaseAdmin.from("delivery_riders")
+        const { data: rider, error } = await supabaseCloudAdmin.from("delivery_riders")
           .update({ name, phone, vehicle, active }).eq("id", riderId).eq("restaurant_id", restaurantId).select("*").single()
         if (error) return Response.json({ success:false, error:error.message }, { status:400 })
         return Response.json({ success:true, rider })
       }
 
-      const { data: duplicate } = await supabaseAdmin.from("delivery_riders")
+      const { data: duplicate } = await supabaseCloudAdmin.from("delivery_riders")
         .select("id").eq("restaurant_id", restaurantId).ilike("name", name).eq("active", true).limit(1)
       if (duplicate?.length) return Response.json({ success:false, error:"An active rider with this name already exists." }, { status:409 })
 
-      const { data: rider, error } = await supabaseAdmin.from("delivery_riders")
+      const { data: rider, error } = await supabaseCloudAdmin.from("delivery_riders")
         .insert([{ restaurant_id:restaurantId, name, phone, vehicle, active }]).select("*").single()
       if (error) return Response.json({ success:false, error:error.message }, { status:400 })
       return Response.json({ success:true, rider })
@@ -306,7 +425,7 @@ export async function POST(req) {
           )
         }
 
-        const { data: existing, error: findError } = await supabaseAdmin
+        const { data: existing, error: findError } = await supabaseCloudAdmin
           .from("delivery_zones")
           .select("id,name")
           .eq("id", zoneId)
@@ -327,7 +446,7 @@ export async function POST(req) {
           )
         }
 
-        const { error } = await supabaseAdmin
+        const { error } = await supabaseCloudAdmin
           .from("delivery_zones")
           .delete()
           .eq("id", zoneId)
@@ -363,7 +482,7 @@ export async function POST(req) {
           )
         }
 
-        const { data: duplicate } = await supabaseAdmin
+        const { data: duplicate } = await supabaseCloudAdmin
           .from("delivery_zones")
           .select("id")
           .eq("restaurant_id", restaurantId)
@@ -378,7 +497,7 @@ export async function POST(req) {
           )
         }
 
-        const { data: zone, error } = await supabaseAdmin
+        const { data: zone, error } = await supabaseCloudAdmin
           .from("delivery_zones")
           .update({
             name,
@@ -401,7 +520,7 @@ export async function POST(req) {
         return Response.json({ success: true, zone })
       }
 
-      const { data: duplicate } = await supabaseAdmin
+      const { data: duplicate } = await supabaseCloudAdmin
         .from("delivery_zones")
         .select("id")
         .eq("restaurant_id", restaurantId)
@@ -415,7 +534,7 @@ export async function POST(req) {
         )
       }
 
-      const { data: zone, error } = await supabaseAdmin
+      const { data: zone, error } = await supabaseCloudAdmin
         .from("delivery_zones")
         .insert([{
           restaurant_id: restaurantId,
@@ -440,7 +559,7 @@ export async function POST(req) {
     const deliveryId = String(body?.delivery_id || "").trim()
     if (!deliveryId) return Response.json({ success:false,error:"Delivery is required" },{status:400})
 
-    const { data: delivery } = await supabaseAdmin
+    const { data: delivery } = await supabaseCloudAdmin
       .from("restaurant_deliveries")
       .select("*")
       .eq("id",deliveryId)
@@ -459,7 +578,7 @@ export async function POST(req) {
       if (personType === "rider") {
         const riderId = body?.rider_id || null
         if (riderId) {
-          const { data } = await supabaseAdmin
+          const { data } = await supabaseCloudAdmin
             .from("delivery_riders")
             .select("id,name,phone")
             .eq("id", riderId)
@@ -488,7 +607,7 @@ export async function POST(req) {
         assigned_at: new Date().toISOString()
       }
 
-      const { data: updated,error } = await supabaseAdmin
+      const { data: updated,error } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .update(patch)
         .eq("id",deliveryId)
@@ -535,7 +654,7 @@ export async function POST(req) {
         patch.collection_status = "not_required"
       }
 
-      const { data: updated,error } = await supabaseAdmin
+      const { data: updated,error } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .update(patch)
         .eq("id",deliveryId)
@@ -560,7 +679,7 @@ export async function POST(req) {
        * Cancellation remains an explicit order-level cancellation.
        */
       if (delivery.order_id && next === "cancelled") {
-        await supabaseAdmin
+        await supabaseCloudAdmin
           .from("orders")
           .update({ status: "cancelled" })
           .eq("id", delivery.order_id)
@@ -596,7 +715,7 @@ export async function POST(req) {
       const expected = cleanMoney(delivery.collection_expected ?? delivery.expected_amount)
 
       if (!isCod) {
-        const { data: updated,error } = await supabaseAdmin
+        const { data: updated,error } = await supabaseCloudAdmin
           .from("restaurant_deliveries")
           .update({
             settlement_status:"settled",
@@ -650,7 +769,7 @@ export async function POST(req) {
               : "other"
 
       if (delivery.order_id && totalCollected > 0) {
-        const { data: existingPayments } = await supabaseAdmin
+        const { data: existingPayments } = await supabaseCloudAdmin
           .from("order_payments")
           .select("id,amount,payment_method,status")
           .eq("order_id",delivery.order_id)
@@ -668,7 +787,7 @@ export async function POST(req) {
           const n = Math.min(available, remaining)
           if (n <= 0) continue
 
-          await supabaseAdmin
+          await supabaseCloudAdmin
             .from("order_payments")
             .insert([{
               restaurant_id:restaurantId,
@@ -691,7 +810,7 @@ export async function POST(req) {
       const resultStatus =
         difference === 0 ? "settled" : difference < 0 ? "short" : "over"
 
-      const { data: updated,error } = await supabaseAdmin
+      const { data: updated,error } = await supabaseCloudAdmin
         .from("restaurant_deliveries")
         .update({
           cash_collected:cash,

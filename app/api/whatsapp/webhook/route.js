@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { verifyWhatsAppSignature } from "@/lib/whatsappServer"
 
 export const runtime = "nodejs"
 
 async function findRestaurant(phoneNumberId) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabaseCloudAdmin
     .from("plugin_settings")
     .select("restaurant_id,config")
     .eq("plugin_code","whatsapp-invoice")
@@ -26,7 +26,7 @@ export async function GET(req) {
       return new NextResponse("Bad Request", {status:400})
     }
 
-    const { data: rows, error } = await supabaseAdmin
+    const { data: rows, error } = await supabaseCloudAdmin
       .from("plugin_settings")
       .select("config")
       .eq("plugin_code","whatsapp-invoice")
@@ -69,7 +69,7 @@ export async function POST(req) {
       if (!valid) return NextResponse.json({success:false,error:"Invalid webhook signature"},{status:401})
 
       for (const message of value?.messages || []) {
-        await supabaseAdmin.from("whatsapp_messages").insert({
+        await supabaseCloudAdmin.from("whatsapp_messages").insert({
           restaurant_id: settings.restaurant_id,
           direction: "inbound",
           sender: message.from || null,
@@ -83,7 +83,7 @@ export async function POST(req) {
       }
 
       for (const status of value?.statuses || []) {
-        await supabaseAdmin.from("whatsapp_messages")
+        await supabaseCloudAdmin.from("whatsapp_messages")
           .update({status: status.status || "unknown", updated_at:new Date().toISOString(), response:status})
           .eq("restaurant_id", settings.restaurant_id)
           .eq("wamid", status.id)

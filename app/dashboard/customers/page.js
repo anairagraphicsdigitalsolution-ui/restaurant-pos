@@ -1,15 +1,32 @@
 "use client"
 import { formatIndiaDate } from "@/lib/indiaTime"
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = n => `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 export default function CustomersPage(){
   const [rid,setRid]=useState(null),[customers,setCustomers]=useState([]),[search,setSearch]=useState(""),[loading,setLoading]=useState(true),[selected,setSelected]=useState(null),[orders,setOrders]=useState([]),[showAdd,setShowAdd]=useState(false),[saving,setSaving]=useState(false),[form,setForm]=useState({name:"",phone:"",email:""}),[message,setMessage]=useState("")
   async function load(){
-    setLoading(true); const {data:u}=await supabase.auth.getUser(); if(!u?.user){setLoading(false);return}
-    const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",u.user.id).single(); if(!p?.restaurant_id){setLoading(false);return}
-    setRid(p.restaurant_id); const {data}=await supabase.from("customers").select("*").eq("restaurant_id",p.restaurant_id).order("total_spend",{ascending:false}); setCustomers(data||[]); setLoading(false)
+    setLoading(true)
+    try {
+      const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+      if (sessionError) throw sessionError
+      const accessToken = sessionData?.session?.access_token
+      if (!accessToken) throw new Error("Authentication session expired. Please sign in again.")
+      const response = await fetch("/api/dashboard/overview", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || "Unable to load Cloud customers")
+      setRid(payload.restaurant_id)
+      setCustomers(payload.customers || [])
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load Cloud customers")
+      setCustomers([])
+    } finally {
+      setLoading(false)
+    }
   }
   useEffect(()=>{load()},[])
 
@@ -20,11 +37,11 @@ export default function CustomersPage(){
     setSaving(true); setMessage("")
     try {
       if(phone){
-        const {data:existing,error:lookupError}=await supabase.from("customers").select("id,name").eq("restaurant_id",rid).eq("phone",phone).maybeSingle()
+        const {data:existing,error:lookupError}=await supabaseCloud.from("customers").select("id,name").eq("restaurant_id",rid).eq("phone",phone).maybeSingle()
         if(lookupError) throw lookupError
         if(existing){ setMessage(`Customer already exists: ${existing.name || phone}`); return }
       }
-      const {error}=await supabase.from("customers").insert({restaurant_id:rid,name:form.name.trim(),phone:phone||null,email:form.email.trim()||null})
+      const {error}=await supabaseCloud.from("customers").insert({restaurant_id:rid,name:form.name.trim(),phone:phone||null,email:form.email.trim()||null})
       if(error) throw error
       setForm({name:"",phone:"",email:""}); setShowAdd(false); setMessage("Customer added successfully"); await load()
     } catch(error) {
@@ -32,7 +49,7 @@ export default function CustomersPage(){
     } finally { setSaving(false) }
   }
 
-  async function open(c){setSelected(c); const {data}=await supabase.from("orders").select("id,created_at,status,total_amount,source_type").eq("restaurant_id",rid).eq("customer_id",c.id).order("created_at",{ascending:false}).limit(50); setOrders(data||[])}
+  async function open(c){setSelected(c); const {data}=await supabaseCloud.from("orders").select("id,created_at,status,total_amount,source_type").eq("restaurant_id",rid).eq("customer_id",c.id).order("created_at",{ascending:false}).limit(50); setOrders(data||[])}
   const filtered=useMemo(()=>customers.filter(c=>`${c.name||""} ${c.phone||""} ${c.email||""}`.toLowerCase().includes(search.toLowerCase())),[customers,search])
   return <div className="app-shell"><main className="page"><div className="page-head"><div><span className="eyebrow">CRM</span><h1>Customers</h1><p>Customer 360, repeat visits and lifetime value.</p></div><div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}><button className="btn primary" onClick={()=>setShowAdd(true)}>＋ Add Customer</button><button className="btn" onClick={load}>↻ Refresh</button></div></div>
     <div className="stats"><div><b>{customers.length}</b><span>Total Customers</span></div><div><b>{customers.filter(c=>Number(c.total_orders)>1).length}</b><span>Returning</span></div><div><b>{money(customers.reduce((s,c)=>s+Number(c.total_spend||0),0))}</b><span>Lifetime Revenue</span></div><div><b>{customers.length?money(customers.reduce((s,c)=>s+Number(c.total_spend||0),0)/customers.length):money(0)}</b><span>Avg Customer Value</span></div></div>

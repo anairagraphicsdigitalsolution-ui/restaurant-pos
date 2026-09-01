@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { rateLimit, rateLimitResponse } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
@@ -42,7 +42,7 @@ export async function GET(req) {
     // -----------------------------------------
 
     const { data, error } =
-      await supabaseAdmin.rpc(
+      await supabaseCloudAdmin.rpc(
         "get_public_qr_context",
         {
           p_slug: slug,
@@ -91,7 +91,7 @@ export async function GET(req) {
       return Response.json({ success:false, error:"Restaurant is unavailable" }, { status:404, headers:{"Cache-Control":"no-store"} })
     }
 
-    const { data: qrEnabled, error: qrPlanError } = await supabaseAdmin.rpc("has_restaurant_plan_feature", {
+    const { data: qrEnabled, error: qrPlanError } = await supabaseCloudAdmin.rpc("has_restaurant_plan_feature", {
       p_restaurant_id: restaurantId,
       p_plugin_code: "qr-menu"
     })
@@ -100,7 +100,7 @@ export async function GET(req) {
       return Response.json({ success:false, error:"QR Menu is not available on this restaurant plan" }, { status:403, headers:{"Cache-Control":"no-store"} })
     }
 
-    const { data: qrPlugin, error: qrPluginError } = await supabaseAdmin
+    const { data: qrPlugin, error: qrPluginError } = await supabaseCloudAdmin
       .from("restaurant_plugins")
       .select("enabled")
       .eq("restaurant_id", restaurantId)
@@ -130,11 +130,11 @@ export async function GET(req) {
       { data: brandingPlugin },
       { data: operationsHubPlugin },
     ] = await Promise.all([
-      supabaseAdmin.from("restaurants").select("theme_config").eq("id", restaurantId).maybeSingle(),
-      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
-      supabaseAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
-      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
-      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "operations-hub").maybeSingle(),
+      supabaseCloudAdmin.from("restaurants").select("theme_config").eq("id", restaurantId).maybeSingle(),
+      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseCloudAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "theme-branding").maybeSingle(),
+      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "operations-hub").maybeSingle(),
     ])
 
     const themeBrandingEnabled = themePlugin?.enabled === true
@@ -148,8 +148,8 @@ export async function GET(req) {
     // Offers & Combos master plugin. The master switch must be ON; the two
     // capabilities are then controlled independently by Super Admin config.
     const [{ data: offersComboPlugin }, { data: offersComboSettings }] = await Promise.all([
-      supabaseAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle(),
-      supabaseAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle()
+      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle(),
+      supabaseCloudAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurantId).eq("plugin_code", "offers").maybeSingle()
     ])
     const masterEnabled = offersComboPlugin?.enabled === true
     const offersEnabled = masterEnabled && offersComboSettings?.config?.offers_enabled !== false
@@ -166,7 +166,7 @@ export async function GET(req) {
     if (Array.isArray(data?.offers) && data.offers.length) {
       const offerIds = data.offers.map(o => o.id).filter(Boolean)
       if (offerIds.length) {
-        const { data: offerProducts, error: offerProductsError } = await supabaseAdmin
+        const { data: offerProducts, error: offerProductsError } = await supabaseCloudAdmin
           .from("offer_products")
           .select("offer_id,menu_item_id")
           .in("offer_id", offerIds)
@@ -194,7 +194,7 @@ export async function GET(req) {
     let rating = { average: 0, count: 0 }
 
     if (feedbackEnabled && restaurantId) {
-      const { data: feedbackRows } = await supabaseAdmin
+      const { data: feedbackRows } = await supabaseCloudAdmin
         .from("customer_feedback")
         .select("rating")
         .eq("restaurant_id", restaurantId)

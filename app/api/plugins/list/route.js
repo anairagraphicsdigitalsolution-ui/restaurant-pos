@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { PLUGIN_CATALOG } from "@/lib/pluginCatalog"
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs"
 export async function GET(req) {
   try {
     const user = await requireApiUser(req)
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseCloudAdmin
       .from("profiles")
       .select("id, role, restaurant_id")
       .eq("id", user.id)
@@ -36,7 +36,7 @@ export async function GET(req) {
     if(!restaurantId) return Response.json({success:false,error:"restaurant_id is required"},{status:400})
     if(!isSuperAdmin && restaurantId!==profile.restaurant_id) return Response.json({success:false,error:"Not authorized"},{status:403})
 
-    const {data:installed,error}=await supabaseAdmin.from("restaurant_plugins").select("*")
+    const {data:installed,error}=await supabaseCloudAdmin.from("restaurant_plugins").select("*")
       .eq("restaurant_id",restaurantId).order("plugin_code")
     if(error) throw error
 

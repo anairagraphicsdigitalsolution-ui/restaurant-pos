@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value))) }
@@ -37,15 +37,15 @@ export default function CallingDevicePage(){
   }, [])
 
   async function init(){
-    const {data:{user}}=await supabase.auth.getUser()
+    const {data:{user}}=await supabaseCloud.auth.getUser()
     if(!user)return
-    const {data:profile}=await supabase.from("profiles").select("restaurant_id").eq("id",user.id).maybeSingle()
+    const {data:profile}=await supabaseCloud.from("profiles").select("restaurant_id").eq("id",user.id).maybeSingle()
     const rid=profile?.restaurant_id
     if(!rid)return
     setRestaurantId(rid)
-    const {data:row}=await supabase.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
+    const {data:row}=await supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
     setEnabled(row?.enabled===true)
-    const {data:settings}=await supabase.from("plugin_settings").select("config").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
+    const {data:settings}=await supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",rid).eq("plugin_code","calling-device").maybeSingle()
     const cfg=settings?.config||{}
     const storedVoiceName = (() => {
       try { return window.localStorage.getItem("anaira.calling.voiceName") || "" } catch { return "" }

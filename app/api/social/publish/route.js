@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
@@ -20,10 +20,10 @@ export async function POST(req){
     if(!["facebook","instagram"].includes(platform))throw new Error("Unsupported social platform")
 
     const pluginCode = `${platform}-integration`
-    const {data:plugin}=await supabaseAdmin.from("restaurant_plugins").select("enabled")
+    const {data:plugin}=await supabaseCloudAdmin.from("restaurant_plugins").select("enabled")
       .eq("restaurant_id",restaurantId).eq("plugin_code",pluginCode).maybeSingle()
     if (plugin?.enabled !== true) throw new Error(`${platform} integration plugin is not active for this restaurant`)
-    const {data:settings}=await supabaseAdmin.from("plugin_settings")
+    const {data:settings}=await supabaseCloudAdmin.from("plugin_settings")
       .select("config").eq("restaurant_id",restaurantId)
       .eq("plugin_code",pluginCode).maybeSingle()
     const cfg=settings?.config||{}

@@ -4,7 +4,7 @@ import { indiaDateKey } from "@/lib/indiaTime"
 import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN",{maximumFractionDigits:2})}`
 
@@ -23,9 +23,9 @@ export default function RestaurantSuite() {
   useEffect(()=>{init()},[])
 
   async function init(){
-    const {data:u}=await supabase.auth.getUser()
+    const {data:u}=await supabaseCloud.auth.getUser()
     if(!u?.user){setLoading(false);return}
-    const {data:p}=await supabase.from("profiles").select("restaurant_id").eq("id",u.user.id).maybeSingle()
+    const {data:p}=await supabaseCloud.from("profiles").select("restaurant_id").eq("id",u.user.id).maybeSingle()
     if(!p?.restaurant_id){setLoading(false);return}
     setRid(p.restaurant_id); await load(p.restaurant_id)
   }
@@ -35,19 +35,19 @@ export default function RestaurantSuite() {
     setLoading(true)
     const today=indiaDateKey()
     const results=await Promise.all([
-      supabase.from("orders").select("id,source_label,order_mode,status,total_amount,payment_status,created_at").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(200),
-      supabase.from("order_tokens").select("*").eq("restaurant_id",r).eq("token_date",today).order("token_no"),
-      supabase.from("online_channels").select("*").eq("restaurant_id",r).order("channel_name"),
-      supabase.from("online_order_reconciliations").select("*").eq("restaurant_id",r).order("order_date",{ascending:false}).limit(100),
-      supabase.from("marketing_campaigns").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50),
-      supabase.from("captain_sessions").select("*").eq("restaurant_id",r).order("last_seen_at",{ascending:false}),
-      supabase.from("menu_items").select("id,name,price").eq("restaurant_id",r).order("name"),
-      supabase.from("pos_terminals").select("*").eq("restaurant_id",r).order("terminal_name"),
-      supabase.from("delivery_settlements").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(100),
-      supabase.from("aggregator_payouts").select("*").eq("restaurant_id",r).order("payout_date",{ascending:false}).limit(100),
-      supabase.from("digital_display_calls").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50),
-      supabase.from("customer_wallets").select("*").eq("restaurant_id",r).order("updated_at",{ascending:false}).limit(100),
-      supabase.from("report_exports").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50)
+      supabaseCloud.from("orders").select("id,source_label,order_mode,status,total_amount,payment_status,created_at").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(200),
+      supabaseCloud.from("order_tokens").select("*").eq("restaurant_id",r).eq("token_date",today).order("token_no"),
+      supabaseCloud.from("online_channels").select("*").eq("restaurant_id",r).order("channel_name"),
+      supabaseCloud.from("online_order_reconciliations").select("*").eq("restaurant_id",r).order("order_date",{ascending:false}).limit(100),
+      supabaseCloud.from("marketing_campaigns").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50),
+      supabaseCloud.from("captain_sessions").select("*").eq("restaurant_id",r).order("last_seen_at",{ascending:false}),
+      supabaseCloud.from("menu_items").select("id,name,price").eq("restaurant_id",r).order("name"),
+      supabaseCloud.from("pos_terminals").select("*").eq("restaurant_id",r).order("terminal_name"),
+      supabaseCloud.from("delivery_settlements").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(100),
+      supabaseCloud.from("aggregator_payouts").select("*").eq("restaurant_id",r).order("payout_date",{ascending:false}).limit(100),
+      supabaseCloud.from("digital_display_calls").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50),
+      supabaseCloud.from("customer_wallets").select("*").eq("restaurant_id",r).order("updated_at",{ascending:false}).limit(100),
+      supabaseCloud.from("report_exports").select("*").eq("restaurant_id",r).order("created_at",{ascending:false}).limit(50)
     ])
     setOrders(results[0].data||[]);setTokens(results[1].data||[]);setChannels(results[2].data||[]);setRecon(results[3].data||[])
     setCampaigns(results[4].data||[]);setCaptains(results[5].data||[]);setItems(results[6].data||[]);setTerminals(results[7].data||[])
@@ -57,13 +57,13 @@ export default function RestaurantSuite() {
 
   async function patchToken(id,status){
     const patch={status}; if(status==="ready")patch.ready_at=new Date().toISOString();if(status==="picked_up")patch.picked_up_at=new Date().toISOString()
-    const {error}=await supabase.from("order_tokens").update(patch).eq("id",id).eq("restaurant_id",rid)
+    const {error}=await supabaseCloud.from("order_tokens").update(patch).eq("id",id).eq("restaurant_id",rid)
     setMsg(error?.message||"Token updated");if(!error)load()
   }
 
   async function saveChannel(e){
     e.preventDefault()
-    const {error}=await supabase.from("online_channels").upsert({...online,restaurant_id:rid,updated_at:new Date().toISOString()},{onConflict:"restaurant_id,channel_code"})
+    const {error}=await supabaseCloud.from("online_channels").upsert({...online,restaurant_id:rid,updated_at:new Date().toISOString()},{onConflict:"restaurant_id,channel_code"})
     setMsg(error?.message||"Channel saved");if(!error)load()
   }
 
@@ -72,32 +72,32 @@ export default function RestaurantSuite() {
     const ec=Number(settle.expected_cash||0),eu=Number(settle.expected_upi||0),ed=Number(settle.expected_card||0)
     const sc=Number(settle.submitted_cash||0),su=Number(settle.submitted_upi||0),sd=Number(settle.submitted_card||0)
     const diff=Number(sc+su+sd-ec-eu-ed)
-    const {error}=await supabase.from("delivery_settlements").insert({restaurant_id:rid,...Object.fromEntries(Object.entries(settle).map(([k,v])=>[k,Number(v)||0])),rider_name:settle.rider_name,difference:diff,status:Math.abs(diff)<.01?"settled":"short_or_excess",settled_at:new Date().toISOString()})
+    const {error}=await supabaseCloud.from("delivery_settlements").insert({restaurant_id:rid,...Object.fromEntries(Object.entries(settle).map(([k,v])=>[k,Number(v)||0])),rider_name:settle.rider_name,difference:diff,status:Math.abs(diff)<.01?"settled":"short_or_excess",settled_at:new Date().toISOString()})
     setMsg(error?.message||`Settlement saved • Difference ${money(diff)}`);if(!error){setSettle({rider_name:"",expected_cash:"",expected_upi:"",expected_card:"",submitted_cash:"",submitted_upi:"",submitted_card:""});load()}
   }
 
   async function saveTerminal(e){
     e.preventDefault()
-    const {error}=await supabase.from("pos_terminals").insert({...terminal,restaurant_id:rid})
+    const {error}=await supabaseCloud.from("pos_terminals").insert({...terminal,restaurant_id:rid})
     setMsg(error?.message||"Terminal registered");if(!error){setTerminal({terminal_code:"",terminal_name:"",device_type:"pos"});load()}
   }
 
   async function saveCall(e){
     e.preventDefault()
-    const {error}=await supabase.from("digital_display_calls").insert({...call,restaurant_id:rid})
+    const {error}=await supabaseCloud.from("digital_display_calls").insert({...call,restaurant_id:rid})
     setMsg(error?.message||"Display call queued");if(!error){setCall({token_no:"",display_name:"",message:""});load()}
   }
 
   async function saveCampaign(e){
     e.preventDefault()
-    const {data:u}=await supabase.auth.getUser()
-    const {error}=await supabase.from("marketing_campaigns").insert({restaurant_id:rid,...campaign,created_by:u?.user?.id||null,status:"draft"})
+    const {data:u}=await supabaseCloud.auth.getUser()
+    const {error}=await supabaseCloud.from("marketing_campaigns").insert({restaurant_id:rid,...campaign,created_by:u?.user?.id||null,status:"draft"})
     setMsg(error?.message||"Campaign saved");if(!error){setCampaign({name:"",channel:"whatsapp",message:""});load()}
   }
 
   async function requestExport(type){
-    const {data:u}=await supabase.auth.getUser()
-    const {error}=await supabase.from("report_exports").insert({restaurant_id:rid,report_type:type,format:"csv",requested_by:u?.user?.id||null,status:"requested"})
+    const {data:u}=await supabaseCloud.auth.getUser()
+    const {error}=await supabaseCloud.from("report_exports").insert({restaurant_id:rid,report_type:type,format:"csv",requested_by:u?.user?.id||null,status:"requested"})
     setMsg(error?.message||"Report export requested");if(!error)load()
   }
 

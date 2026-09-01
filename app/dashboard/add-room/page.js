@@ -13,7 +13,7 @@ export default function AddRoom(){
    if(!restaurantId){setMessage("Restaurant is not linked to this account.");return}
    setLoading(true);setMessage("")
    try {
-     const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession()
+     const { data: { session } } = await (await import("@/lib/supabaseCloud")).supabaseCloud.auth.getSession()
      const res = await fetch("/api/dashboard-add-room", {
        method:"POST",
        headers:{"Content-Type":"application/json", ...(session?.access_token ? {Authorization:`Bearer ${session.access_token}`} : {})},

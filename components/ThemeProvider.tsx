@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useAuth } from "@/components/AuthProvider"
 
 export type ThemeDefinition = {
@@ -547,7 +547,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // restaurant theme. localStorage is intentionally not used as the
       // source of truth so the same platform theme follows the Super Admin
       // across browsers/devices.
-      const { data, error } = await supabase
+      const { data, error } = await supabaseCloud
         .from("platform_settings")
         .select("config")
         .eq("setting_key", "theme")
@@ -583,18 +583,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       { data: themePlugin },
       { data: themeSettings },
     ] = await Promise.all([
-      supabase
+      supabaseCloud
         .from("restaurants")
         .select("theme_config")
         .eq("id", restaurantId)
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
         .eq("plugin_code", "theme-branding")
         .maybeSingle(),
-      supabase
+      supabaseCloud
         .from("plugin_settings")
         .select("config")
         .eq("restaurant_id", restaurantId)
@@ -645,7 +645,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     selectedId: string,
   ) => {
     if (role === "super_admin") {
-      const { error } = await supabase
+      const { error } = await supabaseCloud
         .from("platform_settings")
         .upsert({
           setting_key: "theme",
@@ -664,7 +664,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const safeList = mergeThemeList(themeList)
 
-    const { data: themeSettings, error: settingsError } = await supabase
+    const { data: themeSettings, error: settingsError } = await supabaseCloud
       .from("plugin_settings")
       .select("config")
       .eq("restaurant_id", restaurantId)
@@ -676,7 +676,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const { data: restaurantRow, error: restaurantError } = await supabase
+    const { data: restaurantRow, error: restaurantError } = await supabaseCloud
       .from("restaurants")
       .select("theme_config")
       .eq("id", restaurantId)
@@ -693,7 +693,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       "both"
     ).toLowerCase()
 
-    const { error: rpcError } = await supabase.rpc("admin_save_restaurant_theme", {
+    const { error: rpcError } = await supabaseCloud.rpc("admin_save_restaurant_theme", {
       p_restaurant_id: restaurantId,
       p_theme_config: {
         selected: selectedId,

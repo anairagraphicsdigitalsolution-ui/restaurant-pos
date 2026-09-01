@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useRouter } from "next/navigation"
 
 export default function ResetPassword() {
@@ -35,7 +35,7 @@ export default function ResetPassword() {
         data: {
           session
         }
-      } = await supabase.auth.getSession()
+      } = await supabaseCloud.auth.getSession()
 
       if (!mounted) return
 
@@ -60,7 +60,7 @@ export default function ResetPassword() {
 
     const {
       data: listener
-    } = supabase.auth.onAuthStateChange(
+    } = supabaseCloud.auth.onAuthStateChange(
       async (event) => {
 
         if (
@@ -136,7 +136,7 @@ export default function ResetPassword() {
 
       const {
         error
-      } = await supabase.auth.updateUser({
+      } = await supabaseCloud.auth.updateUser({
         password
       })
 
@@ -159,7 +159,7 @@ export default function ResetPassword() {
 
 
       // Sign out recovery session
-      await supabase.auth.signOut()
+      await supabaseCloud.auth.signOut()
 
 
       setTimeout(() => {

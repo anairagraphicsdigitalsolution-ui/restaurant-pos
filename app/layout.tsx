@@ -8,9 +8,7 @@ import { ThemeProvider } from "@/components/ThemeProvider"
 import RealtimeNotificationProvider from "@/components/RealtimeNotificationProvider"
 import OrderNotificationListener from "@/components/OrderNotificationListener"
 import CallingRuntimeProvider from "@/components/CallingRuntimeProvider"
-import MobileSyncProvider from "@/components/MobileSyncProvider"
-import ServiceWorkerRegister from "@/components/ServiceWorkerRegister"
-import AndroidOfflineApiBridge from "@/components/AndroidOfflineApiBridge"
+import CloudOnlyCleanup from "@/components/CloudOnlyCleanup"
 import "./globals.css"
 
 export const viewport = {
@@ -40,9 +38,7 @@ export default function RootLayout({
             <RealtimeNotificationProvider />
             <OrderNotificationListener />
             <CallingRuntimeProvider />
-            <MobileSyncProvider />
-            <ServiceWorkerRegister />
-            <AndroidOfflineApiBridge />
+            <CloudOnlyCleanup />
             {children}
           </ThemeProvider>
         </AuthProvider>

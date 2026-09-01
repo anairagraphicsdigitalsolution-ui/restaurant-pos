@@ -8,7 +8,7 @@ import React, {
   useState,
   CSSProperties
 } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 import { CORE_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 
 
@@ -53,13 +53,13 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   }, [pathname])
 
   async function fetchData() {
-    const { data: userData } = await supabase.auth.getUser()
+    const { data: userData } = await supabaseCloud.auth.getUser()
     if (!userData?.user) return
 
     const user = userData.user
     setUserEmail(user.email || "")
 
-    const { data: profile } = await supabase
+    const { data: profile } = await supabaseCloud
       .from("profiles")
       .select("role, restaurant_id")
       .eq("id", user.id)
@@ -77,7 +77,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     if (profile.restaurant_id) {
       setRestaurantId(profile.restaurant_id)
 
-      const { count: unreadCount } = await supabase
+      const { count: unreadCount } = await supabaseCloud
         .from("notifications")
         .select("id", { count: "exact", head: true })
         .eq("restaurant_id", profile.restaurant_id)
@@ -85,7 +85,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
       setUnreadNotifications(unreadCount || 0)
 
-      const { data: rest } = await supabase
+      const { data: rest } = await supabaseCloud
         .from("restaurants")
         .select("id,name,logo,status")
         .eq("id", profile.restaurant_id)
@@ -96,18 +96,18 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         setLogo(rest.logo || "")
       }
 
-      const { data: planData } = await supabase.rpc("get_restaurant_plan", { p_restaurant_id: profile.restaurant_id })
+      const { data: planData } = await supabaseCloud.rpc("get_restaurant_plan", { p_restaurant_id: profile.restaurant_id })
       const plan = planData?.plan || null
       const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
       const live = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
       setPlanName(plan?.name || "")
       setPlanEndsAt(planData?.subscription?.ends_at || "")
       const [{ data: pluginRows }, { data: operationsSettingRows }] = await Promise.all([
-        supabase
+        supabaseCloud
           .from("restaurant_plugins")
           .select("plugin_code,enabled")
           .eq("restaurant_id", profile.restaurant_id),
-        supabase
+        supabaseCloud
           .from("plugin_settings")
           .select("plugin_code,config")
           .eq("restaurant_id", profile.restaurant_id)
@@ -186,7 +186,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     if (!restaurantId || role === "super_admin") return
     let mounted = true
     async function loadUnread() {
-      const { count } = await supabase.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
+      const { count } = await supabaseCloud.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
       if (mounted) setUnreadNotifications(count || 0)
     }
     void loadUnread()
@@ -196,7 +196,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   }, [restaurantId, role])
 
   async function handleLogout() {
-    await supabase.auth.signOut()
+    await supabaseCloud.auth.signOut()
     router.replace("/login")
   }
 

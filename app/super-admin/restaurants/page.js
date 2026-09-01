@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { supabaseCloud as supabase } from "@/lib/supabase"
+import { supabaseCloud } from "@/lib/supabaseCloud"
 
 export default function RestaurantsPage() {
 
@@ -20,7 +20,7 @@ export default function RestaurantsPage() {
 
   async function loadData() {
 
-    const { data: restData } = await supabase
+    const { data: restData } = await supabaseCloud
       .from("restaurants")
       .select("*")
 
@@ -33,12 +33,12 @@ export default function RestaurantsPage() {
 
     for (let rest of restData) {
 
-      const { data: orders } = await supabase
+      const { data: orders } = await supabaseCloud
         .from("orders")
         .select("*")
         .eq("restaurant_id", rest.id)
 
-      const { data: menu } = await supabase
+      const { data: menu } = await supabaseCloud
         .from("menu_items")
         .select("*")
         .eq("restaurant_id", rest.id)
@@ -88,7 +88,7 @@ export default function RestaurantsPage() {
     setDeletingId(restaurant.id)
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabaseCloud.auth.getSession()
       const token = sessionData?.session?.access_token
       if (!token) throw new Error("Session expired. Please login again.")
 

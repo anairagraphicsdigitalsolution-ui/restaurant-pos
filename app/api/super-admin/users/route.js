@@ -1,20 +1,8 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { supabaseCloudAdmin, supabaseCloudAuth } from "@/lib/supabaseCloudServer"
 
 export const runtime = "nodejs"
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-function adminClient() {
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
-}
 
 async function authenticateSuperAdmin(request) {
   const auth = request.headers.get("authorization") || ""
@@ -29,23 +17,16 @@ async function authenticateSuperAdmin(request) {
     return { error: "Authentication required", status: 401 }
   }
 
-  const authClient = createClient(url, anonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
-
   const {
     data: { user },
     error: userError
-  } = await authClient.auth.getUser(token)
+  } = await supabaseCloudAuth.auth.getUser(token)
 
   if (userError || !user) {
     return { error: "Invalid or expired session", status: 401 }
   }
 
-  const db = adminClient()
+  const db = supabaseCloudAdmin
 
   const { data: profile, error: profileError } = await db
     .from("profiles")

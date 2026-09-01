@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabaseServer"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 
 export const runtime = "nodejs"
 
 async function resolveRestaurant(userId, user) {
-  const { data: profile, error } = await supabaseAdmin
+  const { data: profile, error } = await supabaseCloudAdmin
     .from("profiles")
     .select("id, role, restaurant_id")
     .eq("id", userId)
@@ -25,7 +25,7 @@ async function resolveRestaurant(userId, user) {
   const metadataId = String(user?.user_metadata?.restaurant_id || "").trim()
   if (metadataId) return metadataId
 
-  const { data: owned } = await supabaseAdmin
+  const { data: owned } = await supabaseCloudAdmin
     .from("restaurants")
     .select("id")
     .eq("owner_id", userId)
@@ -50,7 +50,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Restaurant not linked to this account." }, { status: 400 })
     }
 
-    const { data: restaurant } = await supabaseAdmin
+    const { data: restaurant } = await supabaseCloudAdmin
       .from("restaurants")
       .select("id")
       .eq("id", restaurantId)
@@ -60,7 +60,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Restaurant not found." }, { status: 404 })
     }
 
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await supabaseCloudAdmin
       .from("tables")
       .select("id")
       .eq("restaurant_id", restaurantId)
@@ -72,7 +72,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Table Number already exists." }, { status: 409 })
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabaseCloudAdmin
       .from("tables")
       .insert({ table_number: value, restaurant_id: restaurantId })
       .select("*")
