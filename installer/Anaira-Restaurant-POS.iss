@@ -1,5 +1,5 @@
 #define MyAppName "Anaira Restaurant POS"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Anaira Graphics & Digital Solution"
 #define MyAppExeName "Anaira Restaurant POS.exe"
 

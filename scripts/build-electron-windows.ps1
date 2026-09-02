@@ -19,7 +19,76 @@ if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
     throw "Electron runtime not found. Run npm install first."
 }
 
-Write-Host "Building Next.js standalone..."
+# The packaged Windows app is Cloud-only. Require the Cloud runtime
+# credentials at build time and explicitly disable all legacy local-mode
+# switches for the Electron/Next.js process.
+$envFile = Join-Path $root ".env.local"
+if (-not (Test-Path $envFile)) {
+    throw ".env.local not found. Create it with the Cloud Supabase credentials before building the Windows app."
+}
+
+$envText = Get-Content $envFile -Raw
+$requiredCloudKeys = @(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY"
+)
+foreach ($key in $requiredCloudKeys) {
+    if ($envText -notmatch "(?m)^\s*$([regex]::Escape($key))\s*=") {
+        throw "Required Cloud Supabase variable is missing from .env.local: $key"
+    }
+}
+
+$env:NEXT_PUBLIC_ANAIRA_LOCAL_PRIMARY = "false"
+$env:ANAIRA_LOCAL_PRIMARY = "false"
+$env:ANAIRA_LOCAL_SERVER_ENABLED = "false"
+Remove-Item Env:NEXT_PUBLIC_LOCAL_SUPABASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:NEXT_PUBLIC_LOCAL_SUPABASE_ANON_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:ANAIRA_LOCAL_SUPABASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:ANAIRA_LOCAL_SUPABASE_ANON_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:SUPABASE_LOCAL_SERVICE_ROLE_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:ANAIRA_LOCAL_SUPABASE_SERVICE_ROLE_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:LOCAL_DATABASE_URL -ErrorAction SilentlyContinue
+
+# Force the packaged Electron build to use Cloud Supabase values from .env.local.
+$envFile = Join-Path $root ".env.local"
+if (-not (Test-Path $envFile)) { throw "Cloud configuration file not found: $envFile" }
+
+$legacyKeys = @(
+    "ANAIRA_LOCAL_PRIMARY","NEXT_PUBLIC_ANAIRA_LOCAL_PRIMARY",
+    "NEXT_PUBLIC_LOCAL_SUPABASE_URL","NEXT_PUBLIC_LOCAL_SUPABASE_ANON_KEY",
+    "LOCAL_DATABASE_URL","DATABASE_URL","LOCAL_SUPABASE_URL","LOCAL_SUPABASE_ANON_KEY"
+)
+foreach ($key in $legacyKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+
+$cloudKeys = @("NEXT_PUBLIC_SUPABASE_URL","NEXT_PUBLIC_SUPABASE_ANON_KEY","SUPABASE_SERVICE_ROLE_KEY")
+foreach ($rawLine in Get-Content $envFile) {
+    $line=$rawLine.Trim()
+    if (-not $line -or $line.StartsWith("#")) { continue }
+    $eq=$line.IndexOf("=")
+    if ($eq -le 0) { continue }
+    $key=$line.Substring(0,$eq).Trim()
+    $value=$line.Substring($eq+1).Trim()
+    if ($key -in $cloudKeys) {
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+            $value=$value.Substring(1,$value.Length-2)
+        }
+        if ([string]::IsNullOrWhiteSpace($value)) { throw "Cloud environment value is empty: $key" }
+        Set-Item "Env:$key" $value
+    }
+}
+foreach ($key in $cloudKeys) {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($key,"Process"))) {
+        throw "Required Cloud Supabase environment variable is missing: $key"
+    }
+}
+if ($env:NEXT_PUBLIC_SUPABASE_URL -notmatch '^https://[A-Za-z0-9._-]+\.supabase\.co/?$') {
+    throw "Electron build requires a Cloud Supabase URL (.supabase.co). Got: $($env:NEXT_PUBLIC_SUPABASE_URL)"
+}
+$env:NEXT_PUBLIC_SUPABASE_URL=$env:NEXT_PUBLIC_SUPABASE_URL.TrimEnd("/")
+Write-Host "Cloud Supabase build configuration validated: $($env:NEXT_PUBLIC_SUPABASE_URL)"
+
+Write-Host "Building Next.js standalone in Cloud-only mode..."
 npm run build
 if ($LASTEXITCODE -ne 0) { throw "Next.js build failed." }
 
@@ -31,9 +100,7 @@ Copy-Item ".\electron" $appDir -Recurse -Force
 Copy-Item ".\package.json" $appDir -Force
 Copy-Item ".\public" $appDir -Recurse -Force
 # Cloud runtime configuration for the packaged Next server.
-if (Test-Path ".\.env.local") {
-    Copy-Item ".\.env.local" $appDir -Force
-}
+Copy-Item ".\.env.local" $appDir -Force
 
 Write-Host "Copying Next.js standalone output..."
 $standaloneSource = Join-Path $root ".next\standalone"

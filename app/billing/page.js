@@ -253,16 +253,68 @@ export default function BillingPage() {
   async function fetchOrders(restId) {
     if (!restId) return
 
-    // Billing is unlocked only after the kitchen/operator explicitly marks
-    // the order as DONE. Pending and Preparing orders must never enter the
-    // billing queue, reports, or bill selector.
-    const { data, error } = await supabaseCloud
-      .from("orders")
-      .select("*")
-      .eq("restaurant_id", restId)
-      .eq("status", "done")
-      .order("created_at", { ascending: false })
-      .limit(500)
+    const isElectron = typeof window !== "undefined" &&
+      /Electron\//i.test(window.navigator?.userAgent || "")
+
+    // Electron uses a server-side Cloud Supabase reporting endpoint. This
+    // avoids renderer-side RLS/session differences between development and
+    // freshly installed Windows builds. Web and Android keep their existing
+    // direct Supabase path unchanged.
+    let data = null
+    let error = null
+    let paymentRows = []
+    let paymentError = null
+    let refundRows = []
+    let refundError = null
+    let orderItems = []
+    let orderItemsError = null
+    let modifierRows = []
+    let modifierError = null
+    let menuRows = []
+    let menuError = null
+
+    if (isElectron) {
+      try {
+        const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+        if (sessionError) throw sessionError
+        const accessToken = sessionData?.session?.access_token
+        if (!accessToken) throw new Error("Cloud session is not available")
+
+        const response = await fetch(`/api/billing/analytics?restaurant_id=${encodeURIComponent(restId)}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store"
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || payload?.success !== true) {
+          throw new Error(payload?.error || `Billing analytics request failed (${response.status})`)
+        }
+
+        data = payload.orders || []
+        paymentRows = payload.paymentRows || []
+        refundRows = payload.refundRows || []
+        orderItems = payload.orderItems || []
+        modifierRows = payload.modifierRows || []
+        menuRows = payload.menuRows || []
+      } catch (e) {
+        error = e
+        console.error("Electron Billing Cloud analytics:", e)
+      }
+    } else {
+      // Billing is unlocked only after the kitchen/operator explicitly marks
+      // the order as DONE. Pending and Preparing orders must never enter the
+      // billing queue, reports, or bill selector.
+      const result = await supabaseCloud
+        .from("orders")
+        .select("*")
+        .eq("restaurant_id", restId)
+        .eq("status", "done")
+        .order("created_at", { ascending: false })
+        .limit(500)
+
+      data = result.data
+      error = result.error
+    }
 
     if (error) {
       console.error("Billing orders:", error)
@@ -282,19 +334,25 @@ export default function BillingPage() {
 
     const orderIds = orderRows.map(o => o.id)
 
-    const { data: paymentRows, error: paymentError } = orderIds.length
-      ? await supabaseCloud
-          .from("order_payments")
-          .select("id,order_id,payment_method,amount,status,reference,paid_at,created_at")
-          .in("order_id", orderIds)
-      : { data: [], error: null }
+    if (!isElectron) {
+      const paymentResult = orderIds.length
+        ? await supabaseCloud
+            .from("order_payments")
+            .select("id,order_id,payment_method,amount,status,reference,paid_at,created_at")
+            .in("order_id", orderIds)
+        : { data: [], error: null }
+      paymentRows = paymentResult.data || []
+      paymentError = paymentResult.error
 
-    const { data: refundRows, error: refundError } = orderIds.length
-      ? await supabaseCloud
-          .from("order_refunds")
-          .select("id,order_id,amount,status,created_at")
-          .in("order_id", orderIds)
-      : { data: [], error: null }
+      const refundResult = orderIds.length
+        ? await supabaseCloud
+            .from("order_refunds")
+            .select("id,order_id,amount,status,created_at")
+            .in("order_id", orderIds)
+        : { data: [], error: null }
+      refundRows = refundResult.data || []
+      refundError = refundResult.error
+    }
 
     if (paymentError) console.error("Billing payments:", paymentError)
     if (refundError) console.error("Billing refunds:", refundError)
@@ -353,23 +411,28 @@ export default function BillingPage() {
     setOrders(reconciledOrders)
 
 
-    const { data: orderItems, error: orderItemsError } = orderIds.length
-      ? await supabaseCloud
-          .from("order_items")
-          .select("id,order_id,item_id,item_name,unit_price,quantity,line_total")
-          .in("order_id", orderIds)
-      : { data: [], error: null }
+    if (!isElectron) {
+      const orderItemsResult = orderIds.length
+        ? await supabaseCloud
+            .from("order_items")
+            .select("id,order_id,item_id,item_name,unit_price,quantity,line_total")
+            .in("order_id", orderIds)
+        : { data: [], error: null }
+      orderItems = orderItemsResult.data || []
+      orderItemsError = orderItemsResult.error
+
+      const orderItemIds = (orderItems || []).map(i => i.id).filter(Boolean)
+      const modifierResult = orderItemIds.length
+        ? await supabaseCloud
+            .from("order_item_modifiers")
+            .select("order_item_id,modifier_name,price,quantity")
+            .in("order_item_id", orderItemIds)
+        : { data: [], error: null }
+      modifierRows = modifierResult.data || []
+      modifierError = modifierResult.error
+    }
 
     if (orderItemsError) console.error("Billing order items:", orderItemsError)
-
-    const orderItemIds = (orderItems || []).map(i => i.id).filter(Boolean)
-    const { data: modifierRows, error: modifierError } = orderItemIds.length
-      ? await supabaseCloud
-          .from("order_item_modifiers")
-          .select("order_item_id,modifier_name,price,quantity")
-          .in("order_item_id", orderItemIds)
-      : { data: [], error: null }
-
     if (modifierError) console.error("Billing modifiers:", modifierError)
 
     const modifiersByItem = {}
@@ -382,12 +445,16 @@ export default function BillingPage() {
       ...new Set((orderItems || []).map(i => i.item_id).filter(Boolean))
     ]
 
-    const { data: menuRows, error: menuError } = itemIds.length
-      ? await supabaseCloud
-          .from("menu_items")
-          .select("id,name,price,category")
-          .in("id", itemIds)
-      : { data: [], error: null }
+    if (!isElectron) {
+      const menuResult = itemIds.length
+        ? await supabaseCloud
+            .from("menu_items")
+            .select("id,name,price,category")
+            .in("id", itemIds)
+        : { data: [], error: null }
+      menuRows = menuResult.data || []
+      menuError = menuResult.error
+    }
 
     if (menuError) console.error("Billing menu items:", menuError)
 

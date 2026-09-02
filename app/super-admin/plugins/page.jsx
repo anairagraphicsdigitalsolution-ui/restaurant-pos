@@ -26,6 +26,7 @@ const categoryMeta = {
 }
 
 const hubCodes = new Set(["operations-hub","restaurant-core","restaurant-pro"])
+const MASTER_PLUGIN_CODES = new Set(["operations-hub","restaurant-core","restaurant-pro"])
 
 export default function PluginsPage(){
   const [restaurants,setRestaurants]=useState([])
@@ -209,7 +210,7 @@ export default function PluginsPage(){
 
   async function toggle(plugin){
     if(!selected) return
-    if (CORE_FEATURE_CODES.has(plugin.code)) {
+    if (CORE_FEATURE_CODES.has(plugin.code) && !MASTER_PLUGIN_CODES.has(plugin.code)) {
       setMessage("Restaurant Core feature modules are controlled by the Restaurant Core master switch.")
       return
     }

@@ -581,37 +581,29 @@ export async function PATCH(request) {
 
     await ensureRestaurant(admin, restaurantId)
 
-    // Restaurant Core is a real Super Admin-controlled master switch.
-    if (String(body?.plugin_code || "").trim() === "restaurant-core") {
-      const enabled = body?.enabled === true
-      if (!enabled) {
-        return NextResponse.json({
-          success: false,
-          error: "Restaurant Core is a protected master plugin and cannot be deactivated. Disable optional plugins individually instead."
-        }, { status: 400 })
-      }
-      const { data: coreRow, error: coreError } = await admin
+    // Restaurant Core and Operations Hub are real Super Admin-controlled master switches.
+    // They may be toggled, but their rows remain non-deletable.
+    const requestedMasterCode = String(body?.plugin_code || "").trim()
+    if (["restaurant-core", "operations-hub"].includes(requestedMasterCode) && !id) {
+      const { data: masterRow, error: masterError } = await admin
         .from("restaurant_plugins")
         .upsert({
           restaurant_id: restaurantId,
-          plugin_code: "restaurant-core",
-          enabled,
-          installed: true,
-          updated_at: new Date().toISOString()
+          plugin_code: requestedMasterCode,
+          plugin_slug: requestedMasterCode,
+          enabled: body.enabled === true,
+          display_name: requestedMasterCode === "restaurant-core" ? "Restaurant Core" : "Operations Hub",
+          category: "Core",
+          description: requestedMasterCode === "restaurant-core"
+            ? "Core POS, orders, tables, KDS, billing and delivery master switch."
+            : "Master restaurant operations workspace.",
+          feature_kind: "hub"
         }, { onConflict: "restaurant_id,plugin_code" })
         .select("*")
         .single()
 
-      if (coreError) throw new Error(coreError.message)
-
-      return NextResponse.json({
-        success: true,
-        plugin: coreRow,
-        plugins: [coreRow],
-        message: enabled
-          ? "Restaurant Core activated."
-          : "Restaurant Core deactivated. Core POS feature gates are now disabled."
-      })
+      if (masterError) throw new Error(masterError.message)
+      return NextResponse.json({ success:true, plugin:masterRow, plugins:[masterRow] })
     }
 
     const { data: current, error: currentError } = await admin
@@ -623,6 +615,30 @@ export async function PATCH(request) {
 
     if (currentError) throw new Error(currentError.message)
     if (!current) throw new Error("Plugin not found")
+
+    // Master plugins are independently toggleable; their rows cannot be deleted.
+    if (["operations-hub", "restaurant-core"].includes(current.plugin_code)) {
+      const enabled = body.enabled === true
+      const { data: updatedRows, error: updateError } = await admin
+        .from("restaurant_plugins")
+        .update({
+          enabled,
+          activated_by: enabled ? auth.userId || null : null,
+          activated_at: enabled ? new Date().toISOString() : null,
+          disabled_at: enabled ? null : new Date().toISOString()
+        })
+        .eq("id", current.id)
+        .eq("restaurant_id", restaurantId)
+        .select("*")
+
+      if (updateError) throw new Error(updateError.message)
+      return NextResponse.json({
+        success: true,
+        plugin: updatedRows?.[0] || null,
+        plugins: updatedRows || [],
+        message: `${current.plugin_code} ${enabled ? "activated" : "deactivated"}.`
+      })
+    }
 
     // Other Core feature codes are not independent plugins.
     // Restaurant Core controls them as a group.
