@@ -215,23 +215,27 @@ export default function PluginsPage(){
       return
     }
     const row=plugin.plugin
+    const isMaster = MASTER_PLUGIN_CODES.has(plugin.code) && plugin.code !== "restaurant-pro"
+    const nextEnabled = row?.enabled !== true
     setSaving(plugin.code)
     setMessage("")
     try{
       const headers=await authHeaders()
       const res=await fetch("/api/super-admin/plugins",{
-        method:row?"PATCH":"POST",
+        method:isMaster?"PATCH":(row?"PATCH":"POST"),
         headers,
-        body:JSON.stringify(row
-          ? {restaurant_id:selected.id,id:row.id,enabled:!row.enabled}
-          : {restaurant_id:selected.id,plugin_code:plugin.code}
+        body:JSON.stringify(isMaster
+          ? {restaurant_id:selected.id,plugin_code:plugin.code,enabled:nextEnabled}
+          : row
+            ? {restaurant_id:selected.id,id:row.id,enabled:!row.enabled}
+            : {restaurant_id:selected.id,plugin_code:plugin.code}
         )
       })
       const data=await res.json()
       if(!res.ok||!data.success) throw new Error(data.error||"Plugin update failed")
       await selectRestaurant(selected)
       if(typeof window!=="undefined") window.dispatchEvent(new CustomEvent("anaira:plugins-updated"))
-      setMessage(`✅ ${plugin.name} ${row?.enabled?"deactivated":"activated"}`)
+      setMessage(`✅ ${plugin.name} ${isMaster ? (nextEnabled?"activated":"deactivated") : (row?.enabled?"deactivated":"activated")}`)
     }catch(e){
       setMessage(`❌ ${e.message}`)
     }finally{

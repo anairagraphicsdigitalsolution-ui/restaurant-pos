@@ -582,28 +582,68 @@ export async function PATCH(request) {
     await ensureRestaurant(admin, restaurantId)
 
     // Restaurant Core and Operations Hub are real Super Admin-controlled master switches.
-    // They may be toggled, but their rows remain non-deletable.
+    // Their state is authoritative by restaurant_id + plugin_code, never by a stale row id.
     const requestedMasterCode = String(body?.plugin_code || "").trim()
-    if (["restaurant-core", "operations-hub"].includes(requestedMasterCode) && !id) {
-      const { data: masterRow, error: masterError } = await admin
+    if (["restaurant-core", "operations-hub"].includes(requestedMasterCode)) {
+      const enabled = body.enabled === true
+      const { data: existingMaster, error: masterLookupError } = await admin
         .from("restaurant_plugins")
-        .upsert({
+        .select("id,plugin_code")
+        .eq("restaurant_id", restaurantId)
+        .eq("plugin_code", requestedMasterCode)
+        .maybeSingle()
+
+      if (masterLookupError) throw new Error(masterLookupError.message)
+
+      if (existingMaster?.id) {
+        const { data: updatedMasterRows, error: masterUpdateError } = await admin
+          .from("restaurant_plugins")
+          .update({
+            enabled,
+            activated_by: enabled ? auth.userId || null : null,
+            activated_at: enabled ? new Date().toISOString() : null,
+            disabled_at: enabled ? null : new Date().toISOString()
+          })
+          .eq("restaurant_id", restaurantId)
+          .eq("plugin_code", requestedMasterCode)
+          .select("*")
+
+        if (masterUpdateError) throw new Error(masterUpdateError.message)
+        return NextResponse.json({
+          success:true,
+          plugin:updatedMasterRows?.[0] || null,
+          plugins:updatedMasterRows || [],
+          message:`${requestedMasterCode} ${enabled ? "activated" : "deactivated"}.`
+        })
+      }
+
+      const { data: createdMaster, error: masterInsertError } = await admin
+        .from("restaurant_plugins")
+        .insert({
           restaurant_id: restaurantId,
           plugin_code: requestedMasterCode,
           plugin_slug: requestedMasterCode,
-          enabled: body.enabled === true,
+          enabled,
+          activated_by: enabled ? auth.userId || null : null,
+          activated_at: enabled ? new Date().toISOString() : null,
+          disabled_at: enabled ? null : new Date().toISOString(),
           display_name: requestedMasterCode === "restaurant-core" ? "Restaurant Core" : "Operations Hub",
           category: "Core",
           description: requestedMasterCode === "restaurant-core"
             ? "Core POS, orders, tables, KDS, billing and delivery master switch."
             : "Master restaurant operations workspace.",
           feature_kind: "hub"
-        }, { onConflict: "restaurant_id,plugin_code" })
+        })
         .select("*")
         .single()
 
-      if (masterError) throw new Error(masterError.message)
-      return NextResponse.json({ success:true, plugin:masterRow, plugins:[masterRow] })
+      if (masterInsertError) throw new Error(masterInsertError.message)
+      return NextResponse.json({
+        success:true,
+        plugin:createdMaster,
+        plugins:[createdMaster],
+        message:`${requestedMasterCode} ${enabled ? "activated" : "deactivated"}.`
+      })
     }
 
     const { data: current, error: currentError } = await admin
