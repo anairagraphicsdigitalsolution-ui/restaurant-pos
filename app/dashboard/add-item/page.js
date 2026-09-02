@@ -27,6 +27,7 @@ export default function AddItem() {
   const [newCategory, setNewCategory] = useState("")
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState("")
+  const [variants, setVariants] = useState([])
 
   useEffect(() => {
     if (!restaurantId) return
@@ -65,18 +66,26 @@ export default function AddItem() {
     setLoading(true)
     setMessage("")
 
-    const { error } = await supabaseCloud
+    const { data: createdItem, error } = await supabaseCloud
       .from("menu_items")
       .insert([{ name: name.trim(), price: Number(price), category: category.trim() || "Other", restaurant_id: restaurantId }])
+      .select("id")
+      .single()
 
     if (error) {
       console.error(error)
       setMessage("Unable to add the menu item. Please try again.")
     } else {
+      const validVariants = variants.map(v => ({...v,name:String(v.name||"").trim(),price_delta:Number(v.price_delta||0)})).filter(v=>v.name)
+      if (validVariants.length) {
+        const { error: variantError } = await supabaseCloud.from("menu_variants").insert(validVariants.map(v=>({restaurant_id:restaurantId,menu_item_id:createdItem.id,name:v.name,price_delta:v.price_delta,active:true})))
+        if (variantError) { setMessage(`Item added, but variants failed: ${variantError.message}`); setLoading(false); return }
+      }
       setMessage("Menu item added successfully.")
       setName("")
       setPrice("")
       setCategory("")
+      setVariants([])
     }
     setLoading(false)
   }
@@ -120,6 +129,12 @@ export default function AddItem() {
                 {categories.map(item => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
+
+            <div style={{margin:"8px 0 18px",padding:14,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface-2)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><b style={{fontSize:12}}>Variants (optional)</b><button type="button" className="secondary" style={{height:36}} onClick={()=>setVariants(v=>[...v,{name:"",price_delta:""}])}>＋ Add variant</button></div>
+              {variants.map((v,i)=><div key={i} style={{display:"grid",gridTemplateColumns:"1fr 140px auto",gap:8,marginBottom:8}}><input style={inputStyle} value={v.name} placeholder="e.g. Medium" onChange={e=>setVariants(prev=>prev.map((x,j)=>j===i?{...x,name:e.target.value}:x))}/><input style={inputStyle} type="number" step="0.01" value={v.price_delta} placeholder="Price + / −" onChange={e=>setVariants(prev=>prev.map((x,j)=>j===i?{...x,price_delta:e.target.value}:x))}/><button type="button" className="secondary" style={{height:48}} onClick={()=>setVariants(prev=>prev.filter((_,j)=>j!==i))}>✕</button></div>)}
+              <small style={{color:"var(--muted)"}}>Variant price = base price + adjustment. Leave this empty for existing items without variants.</small>
+            </div>
 
             <div className="new-category-row">
               <input style={inputStyle} value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="New category, e.g. Pizza" />

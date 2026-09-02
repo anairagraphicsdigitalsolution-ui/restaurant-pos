@@ -137,6 +137,10 @@ export async function POST(req) {
             source_type: sourceType,
             source_id: sourceId || null,
             source_label: sourceLabel,
+            marketing_source: cleanText(body?.marketing_source, 80) || null,
+            marketing_campaign: cleanText(body?.marketing_campaign_id || body?.marketing_campaign, 160) || null,
+            marketing_medium: cleanText(body?.marketing_medium, 80) || null,
+            marketing_content: cleanText(body?.marketing_content, 160) || null,
             order_mode: sourceType === "table" || sourceType === "room" ? "dine_in" : sourceType,
             status: "pending",
             subtotal: Number(body?.subtotal || 0),
@@ -174,15 +178,24 @@ export async function POST(req) {
      * ============================================================
      */
 
-    const orderItems = items.map((item) => ({
-      order_id: order.id,
-      item_id: item.item_id,
-      quantity: Number(item.quantity),
-      item_name: cleanText(item.item_name || item.name, 200),
-      unit_price: Number(item.unit_price || 0),
-      line_total: Number(item.line_total || 0),
-      cooking_request: cleanText(item.cooking_request, 500)
-    }))
+    const orderItems = []
+    for (const item of items) {
+      const { data: menuItem, error: menuError } = await supabaseCloudAdmin.from("menu_items").select("id,name,price,item_type,restaurant_id").eq("id", item.item_id).eq("restaurant_id", restaurantId).maybeSingle()
+      if (menuError || !menuItem) throw new Error("Menu item not found")
+      let effectivePrice = Number(menuItem.price || 0)
+      let variantName = null
+      const variantId = cleanText(item?.variant_id, 80)
+      if (variantId && menuItem.item_type !== "combo") {
+        const { data: variant } = await supabaseCloudAdmin.from("menu_variants").select("id,name,price_delta,active").eq("id", variantId).eq("menu_item_id", menuItem.id).eq("restaurant_id", restaurantId).eq("active", true).maybeSingle()
+        if (!variant) throw new Error("Selected variant is unavailable")
+        effectivePrice += Number(variant.price_delta || 0); variantName = variant.name
+      }
+      if (effectivePrice < 0) throw new Error("Item price cannot be negative")
+      const quantity = Number(item.quantity)
+      const modifiers = Array.isArray(item?.selected_modifiers) ? item.selected_modifiers : []
+      const modifierTotal = modifiers.reduce((sum,m)=>sum + Number(m?.price||0)*Number(m?.quantity||1),0)
+      orderItems.push({ order_id: order.id, item_id: menuItem.id, variant_id: variantName ? variantId : null, variant_name: variantName, quantity, item_name: cleanText(variantName ? `${menuItem.name} — ${variantName}` : (item.item_name || item.name || menuItem.name),200), unit_price: effectivePrice, line_total: (effectivePrice + modifierTotal) * quantity, cooking_request: cleanText(item.cooking_request,500) })
+    }
 
     const { data: insertedItems, error: itemError } =
       await supabaseCloudAdmin

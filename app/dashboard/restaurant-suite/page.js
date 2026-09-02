@@ -91,7 +91,7 @@ export default function RestaurantSuite() {
   async function saveCampaign(e){
     e.preventDefault()
     const {data:u}=await supabaseCloud.auth.getUser()
-    const {error}=await supabaseCloud.from("marketing_campaigns").insert({restaurant_id:rid,...campaign,created_by:u?.user?.id||null,status:"draft"})
+    const {data:perm}=await supabaseCloud.from("staff_permissions").select("enabled").eq("restaurant_id",rid).eq("staff_id",u?.user?.id||"").eq("permission_key","marketing").maybeSingle(); const isAdmin=["admin","super_admin"].includes(String(u?.user?.user_metadata?.role||u?.user?.role||"").toLowerCase()); if(!isAdmin && perm?.enabled!==true) throw new Error("Marketing permission required"); const {error}=await supabaseCloud.from("marketing_campaigns").insert({restaurant_id:rid,...campaign,created_by:u?.user?.id||null,status:"draft"})
     setMsg(error?.message||"Campaign saved");if(!error){setCampaign({name:"",channel:"whatsapp",message:""});load()}
   }
 

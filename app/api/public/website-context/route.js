@@ -13,10 +13,13 @@ export async function GET(req){
       .select("id,name,slug,logo,description,cuisine,gst_enabled,gst_rate")
       .eq("slug",slug).maybeSingle()
     if(error||!restaurant)return Response.json({success:false,error:"Restaurant not found"},{status:404})
-    const {data:menu}=await supabaseCloudAdmin.from("menu_items")
-      .select("id,name,price,category,image,description,active,item_type,combo_config")
-      .eq("restaurant_id",restaurant.id).eq("active",true)
-      .order("category").order("name")
+    const [{data:menu},{data:variants}]=await Promise.all([
+      supabaseCloudAdmin.from("menu_items").select("id,name,price,category,image,description,active,item_type,combo_config").eq("restaurant_id",restaurant.id).eq("active",true).order("category").order("name"),
+      supabaseCloudAdmin.from("menu_variants").select("id,menu_item_id,name,price_delta,active").eq("restaurant_id",restaurant.id).eq("active",true).order("created_at")
+    ])
+    const variantMap={}
+    ;(variants||[]).forEach(v=>{if(!variantMap[v.menu_item_id])variantMap[v.menu_item_id]=[];variantMap[v.menu_item_id].push(v)})
+    const menuWithVariants=(menu||[]).map(item=>({...item,variants:variantMap[item.id]||[]}))
     const [{data:plugin},{data:settings},{data:offers}] = await Promise.all([
       supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurant.id).eq("plugin_code","offers").maybeSingle(),
       supabaseCloudAdmin.from("plugin_settings").select("config").eq("restaurant_id",restaurant.id).eq("plugin_code","offers").maybeSingle(),
@@ -25,7 +28,7 @@ export async function GET(req){
     const masterEnabled=plugin?.enabled===true
     const offersEnabled=masterEnabled && settings?.config?.offers_enabled!==false
     const combosEnabled=masterEnabled && settings?.config?.combos_enabled!==false
-    const visibleMenu=combosEnabled ? (menu||[]) : (menu||[]).filter(item=>item?.item_type!=="combo")
+    const visibleMenu=combosEnabled ? menuWithVariants : menuWithVariants.filter(item=>item?.item_type!=="combo")
     return Response.json({success:true,restaurant,menu:visibleMenu,offers:offersEnabled?(offers||[]):[],offers_combos:{enabled:masterEnabled,offers_enabled:offersEnabled,combos_enabled:combosEnabled}},{
       headers:{"Cache-Control":"public,max-age=30,stale-while-revalidate=60"}
     })

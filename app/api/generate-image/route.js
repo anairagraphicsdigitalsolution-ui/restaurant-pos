@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import crypto from "node:crypto"
 import { requireApiUser } from "@/lib/serverAuth"
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 
@@ -80,19 +81,20 @@ export async function POST(req) {
       quality
     })
 
-    const image = result?.data?.[0]?.url
+    const item = result?.data?.[0]
+    let bytes = null
+    if (item?.b64_json) bytes = Buffer.from(item.b64_json, "base64")
+    else if (item?.url) { const ir = await fetch(item.url); if (!ir.ok) throw new Error("Unable to retrieve generated image"); bytes = Buffer.from(await ir.arrayBuffer()) }
+    if (!bytes) return Response.json({ success:false, error:"No image generated" }, { status:500 })
 
-    if (!image) {
-      return Response.json(
-        { success: false, error: "No image generated" },
-        { status: 500 }
-      )
-    }
+    const bucket = isSuperAdmin ? "platform-marketing-media" : "restaurant-marketing-media"
+    const path = `${isSuperAdmin ? user.id : restaurantId}/ai-${crypto.randomUUID()}.png`
+    const { error: uploadError } = await supabaseCloudAdmin.storage.from(bucket).upload(path, bytes, { contentType:"image/png", upsert:false })
+    if (uploadError) throw uploadError
+    const { data: signed, error: signedError } = await supabaseCloudAdmin.storage.from(bucket).createSignedUrl(path, 60 * 60)
+    if (signedError) throw signedError
 
-    return Response.json({
-      success: true,
-      image
-    })
+    return Response.json({ success:true, image:signed.signedUrl, media_path:path })
   } catch (err) {
     console.error("IMAGE GENERATION ERROR:", err)
 

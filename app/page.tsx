@@ -1,118 +1,40 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { supabaseCloud } from "@/lib/supabaseCloud"
+import Link from "next/link"
+import PublicMarketingChrome from "@/components/PublicMarketingChrome"
 
-export default function Home() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
+const features = [
+  ["🍽️","Restaurant POS","Orders, tables, billing and day-to-day restaurant operations in one workspace."],
+  ["📱","QR Ordering","Branded table and room QR ordering so guests can browse and order directly."],
+  ["👨‍🍳","Kitchen Display","Live kitchen workflow from new order to preparing, ready and completed."],
+  ["🧾","Billing & Invoices","Fast billing, payments, professional invoices and clean transaction history."],
+  ["📅","Reservations","Keep bookings, guests and table planning organized without scattered tools."],
+  ["🎯","Offers & Combos","Run promotions with controlled eligibility and clear discount calculations."],
+  ["🚴","Delivery","Manage riders, assignments, events, settlement and delivery slips from one place."],
+  ["📊","Analytics","Understand sales, restaurant performance, products and operational trends."],
+  ["📣","Marketing Hub","Facebook, Instagram and WhatsApp marketing with campaigns, audience, CRM and attribution."],
+  ["🧩","Plugin Architecture","Enable the capabilities each restaurant needs while keeping tenants isolated."],
+]
 
-  useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabaseCloud.auth.getUser()
+const stats = [["01","Cloud-first platform"],["02","Restaurant-wise data isolation"],["03","Built for Indian workflows"],["04","POS → Growth in one system"]]
 
-        // Not logged in
-        if (!user) {
-          router.replace("/login")
-          return
-        }
-
-        // Get user role
-        const { data: profile, error } = await supabaseCloud
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single()
-
-        if (error || !profile) {
-          await supabaseCloud.auth.signOut()
-          router.replace("/login")
-          return
-        }
-
-        switch (profile.role) {
-          case "staff":
-            router.replace("/staff")
-            break
-
-          case "admin":
-            router.replace("/dashboard")
-            break
-
-          case "super_admin":
-            router.replace("/super-admin")
-            break
-
-          default:
-            await supabaseCloud.auth.signOut()
-            router.replace("/login")
-        }
-      } catch (err) {
-        console.error(err)
-        router.replace("/login")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    checkUser()
-  }, [router])
-
-  return (
-    <div style={container}>
-      <div style={card}>
-        <div style={spinner}></div>
-
-        <h2 style={title}>Anaira Graphics</h2>
-
-        <p style={text}>
-          Verifying your account...
-        </p>
-      </div>
-    </div>
-  )
-}
-
-const container = {
-  minHeight: "100vh",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  background:
-    "radial-gradient(circle at top,var(--surface-2),var(--background),#000)",
-}
-
-const card = {
-  padding: "40px",
-  borderRadius: "24px",
-  textAlign: "center" as const,
-  background: "rgba(var(--surface-2-rgb),.65)",
-  backdropFilter: "blur(20px)",
-  border: "1px solid rgba(var(--primary-rgb),.15)",
-}
-
-const spinner = {
-  width: "60px",
-  height: "60px",
-  margin: "0 auto 20px",
-  border: "4px solid rgba(var(--primary-rgb),.15)",
-  borderTop: "4px solid var(--primary)",
-  borderRadius: "50%",
-  animation: "spin 1s linear infinite",
-}
-
-const title = {
-  color: "var(--primary)",
-  fontSize: "28px",
-  fontWeight: 800,
-  marginBottom: "10px",
-}
-
-const text = {
-  color: "var(--muted)",
-  fontSize: "14px",
+export default function Home(){
+ return <PublicMarketingChrome><main>
+  <style jsx>{`
+    .hero{position:relative;overflow:hidden;padding:92px 0 72px;background:radial-gradient(circle at 75% 25%,rgba(245,183,46,.13),transparent 30%),radial-gradient(circle at 15% 35%,rgba(56,211,159,.10),transparent 28%)}
+    .heroGrid{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center}.eyebrow{display:inline-flex;padding:8px 13px;border:1px solid rgba(56,211,159,.25);background:rgba(56,211,159,.08);border-radius:999px;color:#6ee7b7;font-size:11px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
+    h1{font-size:clamp(44px,6vw,76px);line-height:.97;letter-spacing:-.06em;margin:20px 0}.gold{color:var(--gold)}.hero p{color:var(--muted);font-size:18px;line-height:1.75;max-width:650px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 19px;border-radius:12px;text-decoration:none;font-size:13px;font-weight:850}.primary{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#17110a}.secondary{background:rgba(255,255,255,.05);border:1px solid var(--line);color:#fff}
+    .proof{display:flex;gap:24px;flex-wrap:wrap;margin-top:24px;color:#8291a6;font-size:11px}.proof span{display:flex;gap:7px;align-items:center}.proof i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px rgba(56,211,159,.5)}
+    .product{padding:12px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.035));box-shadow:0 35px 90px rgba(0,0,0,.45);transform:perspective(1200px) rotateY(-5deg) rotateX(2deg)}.window{overflow:hidden;border-radius:17px;background:#09111e;border:1px solid rgba(255,255,255,.07)}.bar{height:38px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:6px;padding:0 12px}.dot{width:7px;height:7px;border-radius:50%;background:#718096}.body{display:grid;grid-template-columns:130px 1fr;min-height:370px}.side{padding:18px 11px;background:#07101b;border-right:1px solid rgba(255,255,255,.06)}.side b{color:var(--gold);font-size:14px}.side div{margin-top:17px;color:#8190a5;font-size:10px;padding:9px;border-radius:8px}.side .on{background:rgba(245,183,46,.12);color:var(--gold)}.main{padding:22px}.main h3{margin:0;font-size:20px}.sub{color:#7f8ca0;font-size:10px;margin-top:4px}.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:18px}.card{padding:15px;border:1px solid rgba(255,255,255,.06);border-radius:13px;background:#0d1725}.card small{color:#8291a6;font-size:9px}.card strong{display:block;font-size:22px;margin-top:7px}.green{color:var(--green);font-size:9px}.chart{height:90px;margin-top:12px;border-radius:12px;background:linear-gradient(180deg,rgba(245,183,46,.09),rgba(245,183,46,.015));border:1px solid rgba(245,183,46,.09);position:relative;overflow:hidden}.chart:after{content:"";position:absolute;left:-5%;right:-5%;bottom:18px;height:45px;border-top:2px solid var(--gold);transform:skewY(-7deg)}
+    .section{padding:82px 0}.sectionHead{max-width:720px;margin-bottom:32px}.kicker{color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.13em;text-transform:uppercase}.section h2{font-size:clamp(32px,4vw,50px);line-height:1.02;letter-spacing:-.045em;margin:10px 0}.sectionHead p{color:var(--muted);line-height:1.75}.featureGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.feature{padding:22px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,#0c1726,#07101b)}.icon{font-size:22px}.feature h3{font-size:15px;margin:15px 0 7px}.feature p{color:var(--muted);font-size:12px;line-height:1.7;margin:0}.band{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#08111d}.stats{display:grid;grid-template-columns:repeat(4,1fr)}.stat{padding:28px 20px;border-right:1px solid var(--line)}.stat:last-child{border:0}.stat b{display:block;color:var(--gold);font-size:12px}.stat span{display:block;margin-top:7px;color:#dbe4ee;font-size:12px;font-weight:700}.cta{padding:75px 0;text-align:center;background:radial-gradient(circle at 50% 0,rgba(245,183,46,.13),transparent 35%)}.cta p{color:var(--muted);max-width:600px;margin:0 auto;line-height:1.7}.cta .actions{justify-content:center}
+    @media(max-width:900px){.heroGrid{grid-template-columns:1fr}.product{transform:none}.featureGrid{grid-template-columns:repeat(2,1fr)}.stats{grid-template-columns:repeat(2,1fr)}.stat:nth-child(2){border-right:0}.stat:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+    @media(max-width:560px){.hero{padding-top:65px}.featureGrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.stat{border-right:0!important;border-bottom:1px solid var(--line)}.stat:last-child{border-bottom:0}.body{grid-template-columns:95px 1fr}.side{padding:14px 7px}.main{padding:15px}}
+  `}</style>
+  <section className="hero"><div className="amContainer heroGrid"><div><span className="eyebrow">● Built for modern restaurants</span><h1>Run your restaurant.<br/><span className="gold">Grow your business.</span></h1><p>Anaira is a cloud-first restaurant SaaS platform that brings POS, QR ordering, kitchen operations, billing, delivery, analytics and marketing into one connected system.</p><div className="actions"><Link href="/demo" className="btn primary">Explore Live Demo →</Link><Link href="/pricing" className="btn secondary">View Pricing</Link></div><div className="proof"><span><i/>Cloud Supabase architecture</span><span><i/>Restaurant-wise isolation</span><span><i/>Built for scale</span></div></div>
+  <div className="product"><div className="window"><div className="bar"><span className="dot"/><span className="dot"/><span className="dot"/></div><div className="body"><aside className="side"><b>Anaira POS</b><div className="on">Dashboard</div><div>Orders</div><div>Tables</div><div>QR Ordering</div><div>Kitchen</div><div>Billing</div><div>Marketing</div></aside><section className="main"><h3>Restaurant Dashboard</h3><div className="sub">Today at a glance</div><div className="cards"><div className="card"><small>Today's Sale</small><strong>₹24,850</strong><span className="green">↗ 18.4%</span></div><div className="card"><small>Total Orders</small><strong>128</strong><span className="green">Today</span></div><div className="card"><small>Top Item</small><strong>42</strong><span className="green">Paneer Tikka</span></div><div className="card"><small>Pending</small><strong>07</strong><span className="green">Kitchen</span></div></div><div className="chart"/></section></div></div></div></div></section>
+  <div className="band"><div className="amContainer stats">{stats.map(([a,b])=><div className="stat" key={a}><b>{a}</b><span>{b}</span></div>)}</div></div>
+  <section className="section" id="features"><div className="amContainer"><div className="sectionHead"><span className="kicker">One platform</span><h2>Everything your restaurant needs to operate and grow.</h2><p>Designed around the real workflow of a restaurant — from a guest scanning a QR to the kitchen, bill, delivery and the marketing team bringing the next customer back.</p></div><div className="featureGrid">{features.map(([i,t,d])=><article className="feature" key={t}><div className="icon">{i}</div><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
+  <section className="section" style={{paddingTop:20}}><div className="amContainer"><div className="sectionHead"><span className="kicker">Connected workflow</span><h2>From first order to repeat customer.</h2><p>Operations and marketing stay connected without mixing restaurant tenants or compromising the core POS workflow.</p></div><div className="featureGrid"><article className="feature"><div className="icon">1️⃣</div><h3>Operate</h3><p>Orders, tables, QR, kitchen, billing, reservations, delivery and daily operations.</p></article><article className="feature"><div className="icon">2️⃣</div><h3>Understand</h3><p>Sales, reports, analytics, customer signals and operational performance.</p></article><article className="feature"><div className="icon">3️⃣</div><h3>Market</h3><p>Facebook, Instagram, WhatsApp, campaigns, content, leads, attribution and growth analytics.</p></article></div></div></section>
+  <section className="cta"><div className="amContainer"><span className="kicker">See Anaira in action</span><h2>Ready to see your restaurant on one platform?</h2><p>Explore the product demo, compare plans or talk to the Anaira team about your restaurant workflow.</p><div className="actions"><Link href="/demo" className="btn primary">Explore Demo →</Link><Link href="/contact" className="btn secondary">Talk to Sales</Link></div></div></section>
+ </main></PublicMarketingChrome>
 }

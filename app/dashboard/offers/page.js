@@ -32,7 +32,8 @@ const emptyForm = () => ({
   new_customer_only: false,
   buy_quantity: 1,
   get_quantity: 1,
-  get_product_id: ""
+  get_product_id: "",
+  get_product_variant_id: ""
 })
 
 const dayOptions = [
@@ -49,6 +50,7 @@ export default function OffersPage() {
   const [activeTab, setActiveTab] = useState("offers")
   const [offers, setOffers] = useState([])
   const [menuItems, setMenuItems] = useState([])
+  const [productVariantIds, setProductVariantIds] = useState({})
   const [restaurantId, setRestaurantId] = useState(null)
 
   const [loading, setLoading] = useState(true)
@@ -108,22 +110,64 @@ export default function OffersPage() {
   }
 
   async function fetchOffers() {
+    // Fetch offers independently from offer_products. A stale PostgREST
+    // relationship/schema cache must not make the whole Offers list vanish.
     const {
-      data,
-      error
+      data: offerData,
+      error: offerError
     } = await supabaseCloud
       .from("offers")
-      .select("*, offer_products(menu_item_id)")
+      .select("*")
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false })
 
-    if (error) {
-      console.error(error)
+    if (offerError) {
+      console.error("Offers", offerError)
       setOffers([])
-    } else {
-      setOffers(data || [])
+      setLoading(false)
+      return
     }
 
+    const rows = offerData || []
+    const ids = rows.map((o) => o.id).filter(Boolean)
+    let productsByOffer = {}
+
+    if (ids.length) {
+      let productData
+      let productError
+
+      ;({ data: productData, error: productError } = await supabaseCloud
+        .from("offer_products")
+        .select("offer_id,menu_item_id,variant_id")
+        .in("offer_id", ids))
+
+      // Older databases may not have variant_id yet. Keep legacy offers
+      // readable instead of failing the entire Offers page.
+      if (productError) {
+        const fallback = await supabaseCloud
+          .from("offer_products")
+          .select("offer_id,menu_item_id")
+          .in("offer_id", ids)
+        productData = fallback.data
+        productError = fallback.error
+      }
+
+      if (productError) {
+        console.error("Offer products", productError)
+      } else {
+        ;(productData || []).forEach((row) => {
+          if (!productsByOffer[row.offer_id]) productsByOffer[row.offer_id] = []
+          productsByOffer[row.offer_id].push(row)
+        })
+      }
+    }
+
+    setOffers(
+      rows.map((offer) => ({
+        ...offer,
+        offer_products: productsByOffer[offer.id] || []
+      }))
+    )
     setLoading(false)
   }
 
@@ -133,7 +177,7 @@ export default function OffersPage() {
       error
     } = await supabaseCloud
       .from("menu_items")
-      .select("id,name,price,category,image")
+      .select("id,name,price,category,image,menu_variants(id,name,price_delta,active)")
       .eq("restaurant_id", restaurantId)
       .order("category")
       .order("name")
@@ -152,7 +196,21 @@ export default function OffersPage() {
       supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle(),
       supabaseCloud.from("plugin_settings").select("config").eq("restaurant_id",restaurantId).eq("plugin_code","offers").maybeSingle()
     ])
-    const master=plugin?.enabled===true
+
+    // Preserve legacy offers if the plugin row was never created. Do not read
+    // React state here because fetchOffers() and fetchOfferConfig() run in
+    // parallel and the offers state can still be the initial empty array.
+    let legacyOffersExist = false
+    if (plugin == null) {
+      const { count } = await supabaseCloud
+        .from("offers")
+        .select("id", { count: "exact", head: true })
+        .eq("restaurant_id", restaurantId)
+      legacyOffersExist = Number(count || 0) > 0
+    }
+
+    // An explicitly disabled plugin remains disabled.
+    const master=plugin?.enabled===true || (plugin == null && legacyOffersExist)
     const next={monthly_limit:10,offers_enabled:true,combos_enabled:true,...(settings?.config||{})}
     setOffersCombosMasterEnabled(master)
     setOfferConfig(next)
@@ -231,12 +289,25 @@ export default function OffersPage() {
         ? p.product_ids.filter((x) => x !== id)
         : [...p.product_ids, id]
     }))
+    setProductVariantIds((p) => {
+      if (form.product_ids.includes(id)) { const n={...p}; delete n[id]; return n }
+      return p
+    })
+  }
+
+  function toggleProductVariant(itemId, variantId) {
+    setProductVariantIds((p) => {
+      const current = Array.isArray(p[itemId]) ? p[itemId] : []
+      const next = current.includes(variantId) ? current.filter(id => id !== variantId) : [...current, variantId]
+      return { ...p, [itemId]: next }
+    })
   }
 
   function resetForm() {
     setForm(emptyForm())
     setEditId(null)
     setProductSearch("")
+    setProductVariantIds({})
   }
 
   async function saveOffer() {
@@ -414,7 +485,10 @@ export default function OffersPage() {
           ),
 
         get_product_id:
-          form.get_product_id || null
+          form.get_product_id || null,
+
+        get_product_variant_id:
+          form.get_product_variant_id || null
       }
 
       let offerId = editId
@@ -455,18 +529,13 @@ export default function OffersPage() {
         payload.target_type === "products" &&
         form.product_ids.length
       ) {
-        const {
-          error: e
-        } = await supabaseCloud
-          .from("offer_products")
-          .insert(
-            form.product_ids.map(
-              (menu_item_id) => ({
-                offer_id: offerId,
-                menu_item_id
-              })
-            )
-          )
+        const rows = []
+        form.product_ids.forEach((menu_item_id) => {
+          const chosen = Array.isArray(productVariantIds[menu_item_id]) ? productVariantIds[menu_item_id] : []
+          if (!chosen.length) rows.push({ offer_id: offerId, menu_item_id, variant_id: null })
+          else chosen.forEach((variant_id) => rows.push({ offer_id: offerId, menu_item_id, variant_id }))
+        })
+        const { error: e } = await supabaseCloud.from("offer_products").insert(rows)
 
         if (e) {
           throw e
@@ -527,9 +596,7 @@ export default function OffersPage() {
         o.target_category || "",
 
       product_ids:
-        (o.offer_products || []).map(
-          (x) => x.menu_item_id
-        ),
+        [...new Set((o.offer_products || []).map((x) => x.menu_item_id))],
 
       featured:
         !!o.featured,
@@ -572,9 +639,20 @@ export default function OffersPage() {
         o.get_quantity || 1,
 
       get_product_id:
-        o.get_product_id || ""
+        o.get_product_id || "",
+
+      get_product_variant_id:
+        o.get_product_variant_id || ""
     })
 
+    const variantMap = {}
+    ;(o.offer_products || []).forEach((x) => {
+      if (x.variant_id) {
+        if (!variantMap[x.menu_item_id]) variantMap[x.menu_item_id] = []
+        variantMap[x.menu_item_id].push(x.variant_id)
+      }
+    })
+    setProductVariantIds(variantMap)
     setEditId(o.id)
 
     window.scrollTo({
@@ -1521,22 +1599,21 @@ export default function OffersPage() {
                   <Field label="Free/get product (optional)">
                     <select
                       name="get_product_id"
-                      value={form.get_product_id}
-                      onChange={handleChange}
+                      value={form.get_product_variant_id ? `${form.get_product_id}|${form.get_product_variant_id}` : form.get_product_id}
+                      onChange={(e) => { const [itemId, variantId=""] = String(e.target.value).split("|"); setForm(p=>({...p,get_product_id:itemId,get_product_variant_id:variantId})) }}
                       style={input}
                     >
                       <option value="">
                         Same eligible product
                       </option>
 
-                      {menuItems.map((i) => (
-                        <option
-                          key={i.id}
-                          value={i.id}
-                        >
-                          {i.name} — ₹{i.price}
-                        </option>
-                      ))}
+                      {menuItems.flatMap((i) => {
+                        const vs=(i.menu_variants||[]).filter(v=>v.active!==false)
+                        return [
+                          <option key={i.id} value={i.id}>{i.name} — ₹{i.price} (all variants)</option>,
+                          ...vs.map(v=><option key={`${i.id}:${v.id}`} value={`${i.id}|${v.id}`}>{i.name} — {v.name} — ₹{(Number(i.price||0)+Number(v.price_delta||0)).toFixed(2)}</option>)
+                        ]
+                      })}
                     </select>
                   </Field>
                 </div>
@@ -1550,22 +1627,18 @@ export default function OffersPage() {
                 <Field label="Select free product">
                   <select
                     name="get_product_id"
-                    value={form.get_product_id}
-                    onChange={handleChange}
+                    value={form.get_product_variant_id ? `${form.get_product_id}|${form.get_product_variant_id}` : form.get_product_id}
+                    onChange={(e) => { const [itemId, variantId=""] = String(e.target.value).split("|"); setForm(p=>({...p,get_product_id:itemId,get_product_variant_id:variantId})) }}
                     style={input}
                   >
-                    <option value="">
-                      Select product
-                    </option>
-
-                    {menuItems.map((i) => (
-                      <option
-                        key={i.id}
-                        value={i.id}
-                      >
-                        {i.name} — ₹{i.price}
-                      </option>
-                    ))}
+                    <option value="">Select product</option>
+                    {menuItems.flatMap((i) => {
+                      const vs=(i.menu_variants||[]).filter(v=>v.active!==false)
+                      return [
+                        <option key={i.id} value={i.id}>{i.name} — ₹{i.price} (all variants)</option>,
+                        ...vs.map(v=><option key={`${i.id}:${v.id}`} value={`${i.id}|${v.id}`}>{i.name} — {v.name} — ₹{(Number(i.price||0)+Number(v.price_delta||0)).toFixed(2)}</option>)
+                      ]
+                    })}
                   </select>
                 </Field>
               </div>
@@ -1630,49 +1703,26 @@ export default function OffersPage() {
 
                 <div style={productGrid}>
                   {filteredProducts.map((item) => {
-                    const selected =
-                      form.product_ids.includes(
-                        item.id
-                      )
-
+                    const selected = form.product_ids.includes(item.id)
+                    const variants=(item.menu_variants||[]).filter(v=>v.active!==false)
                     return (
-                      <button
-                        type="button"
-                        key={item.id}
-                        onClick={() =>
-                          toggleProduct(item.id)
-                        }
-                        style={{
-                          ...productCard,
-                          ...(selected
-                            ? selectedProduct
-                            : {})
-                        }}
-                      >
-                        <div style={productIcon}>
-                          {selected
-                            ? "✓"
-                            : "🍽️"}
-                        </div>
-
-                        <div
-                          style={{
-                            textAlign: "left",
-                            minWidth: 0
-                          }}
-                        >
-                          <b>{item.name}</b>
-
-                          <small>
-                            {item.category ||
-                              "Other"}{" "}
-                            • ₹
-                            {Number(
-                              item.price || 0
-                            ).toFixed(0)}
-                          </small>
-                        </div>
-                      </button>
+                      <div key={item.id} style={{display:"grid",gap:6}}>
+                        <button type="button" onClick={() => toggleProduct(item.id)} style={{...productCard,...(selected ? selectedProduct : {})}}>
+                          <div style={productIcon}>{selected ? "✓" : "🍽️"}</div>
+                          <div style={{textAlign:"left",minWidth:0}}>
+                            <b>{item.name}</b>
+                            <small>{item.category || "Other"} • ₹{Number(item.price || 0).toFixed(0)}</small>
+                          </div>
+                        </button>
+                        {selected && variants.length > 0 && (
+                          <div style={{padding:"8px 10px",borderRadius:10,border:"1px solid rgba(var(--primary-rgb),.12)",background:"rgba(255,255,255,.02)"}}>
+                            <small style={{display:"block",marginBottom:5,color:"var(--muted)"}}>Variants — leave unchecked for all</small>
+                            <div style={{display:"grid",gap:5}}>
+                              {variants.map(v=>{const checked=(productVariantIds[item.id]||[]).includes(v.id);return <label key={v.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:11,cursor:"pointer"}}><input type="checkbox" checked={checked} onChange={()=>toggleProductVariant(item.id,v.id)} />{v.name} — ₹{(Number(item.price||0)+Number(v.price_delta||0)).toFixed(2)}</label>})}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )
                   })}
 
@@ -1873,13 +1923,12 @@ function OfferCard({
 
   const targetProducts =
     (offer.offer_products || [])
-      .map(
-        (x) =>
-          menuItems.find(
-            (m) =>
-              m.id === x.menu_item_id
-          )?.name
-      )
+      .map((x) => {
+        const item = menuItems.find(m => m.id === x.menu_item_id)
+        if (!item) return null
+        const variant = (item.menu_variants || []).find(v => v.id === x.variant_id)
+        return variant ? `${item.name} — ${variant.name}` : `${item.name} — All variants`
+      })
       .filter(Boolean)
 
   const target =

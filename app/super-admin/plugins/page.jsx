@@ -392,6 +392,20 @@ export default function PluginsPage(){
               </div>
             </section>
 
+            <section style={{...hubPanel,marginTop:0}}>
+              <div style={sectionHead}>
+                <div><div style={eyebrow}>MARKETING PLUGIN</div><h2 style={sectionTitle}>WhatsApp Marketing</h2><p style={sectionText}>Independent opt-in marketing channel. Separate from WhatsApp Invoice / transactional messaging.</p></div>
+              </div>
+              <div className="hub-cards">
+                {merged.filter(p=>p.code==="whatsapp-marketing").map(p=>{const on=p.plugin?.enabled===true;return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
+                  <div style={hubIcon}>📣</div><div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}><h3 style={{margin:0,fontSize:16}}>WhatsApp Marketing</h3><span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"OFF"}</span></div>
+                    <p style={pluginDesc}>Campaign broadcasts using approved templates and explicit customer opt-in.</p>
+                    <button className="plugin-btn" disabled={saving===p.code} onClick={()=>toggle(p)} style={on?hubDeactivate:hubActivate}>{saving===p.code?"Saving…":on?"Deactivate":"Activate"}</button>
+                  </div></article>})}
+              </div>
+            </section>
+
             <div className="plugin-grid">
               <aside style={side}>
                 <div style={sideTitle}>PLUGIN LIBRARY</div>
@@ -799,6 +813,20 @@ const PLUGIN_SETTINGS = {
         ["publish_offers","Publish offers","toggle",false],
         ["publish_manual","Allow manual publishing","toggle",true],
         ["default_hashtags","Default hashtags","text",""],
+      ]}
+    ]
+  },
+  "whatsapp-marketing": {
+    title:"WhatsApp Marketing Settings",
+    sections:[
+      {title:"Marketing WhatsApp Cloud API",fields:[
+        ["phone_number_id","WhatsApp Phone Number ID","text",""],
+        ["access_token","Marketing access token","password",""],
+        ["api_version","Graph API version","text","v24.0"],
+      ]},
+      {title:"Compliance",fields:[
+        ["require_opt_in","Require customer opt-in","toggle",true],
+        ["allow_broadcasts","Allow marketing broadcasts","toggle",true],
       ]}
     ]
   },

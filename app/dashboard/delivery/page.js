@@ -310,11 +310,12 @@ export default function DeliveryManagement() {
       : ["No item details available"]
     const financialLines = [
       `Subtotal: ${money(subtotal)}`,
-      ...(offer && discount > 0 ? [`Offer: ${offer.title || "Offer Applied"}`] : []),
+      ...(offer ? [`OFFER: ${offer.title || "Offer Applied"}`] : []),
       ...(discount > 0 ? [`Offer Discount: -${money(discount)}`] : []),
       ...(tax > 0 ? [`Tax / GST: ${money(tax)}`] : []),
       ...(deliveryCharge > 0 ? [`Delivery Charge: ${money(deliveryCharge)}`] : []),
-      `TOTAL: ${money(total)}`,
+      `TOTAL AFTER OFFER: ${money(total)}`,
+      ...(discount > 0 ? [`YOU SAVE: ${money(discount)}`] : []),
     ]
     const content = [
       "ANAIRA", title, delivery.slip_no || "", "------------------------------",
@@ -405,7 +406,7 @@ export default function DeliveryManagement() {
             .itemMain{display:flex;justify-content:space-between;gap:12px;font-weight:700;font-size:13px}
             .itemMeta,.modifier{color:#666;font-size:10px;margin-top:2px}
             .modifier{padding-left:12px}
-            .discount{font-weight:700}
+            .discount{font-weight:700}.offerRow{font-weight:800}.saved{margin-top:8px;padding:7px;border:1px dashed #777;text-align:center;font-weight:800}
             .total{font-size:18px;font-weight:800;border-top:2px solid #111;padding-top:8px;margin-top:8px}
             .box{border:1px solid #bbb;padding:9px;margin-top:10px}
             .hold{border:2px solid #111;padding:8px;margin-top:12px;font-weight:800;text-align:center}
@@ -436,11 +437,12 @@ export default function DeliveryManagement() {
 
             <div class="line"></div>
             <div class="row"><span>Subtotal</span><b>${money(subtotal)}</b></div>
-            <div class="row"><span>Offer Discount</span><b class="discount">-${money(discount)}</b></div>
-            ${offer ? `<div class="row"><span>Offer</span><b>${escapeHtml(offer.title || "Offer Applied")}</b></div>` : ""}
-            <div class="row"><span>Tax / GST</span><b>${money(tax)}</b></div>
-            <div class="row"><span>Delivery Charge</span><b>${money(deliveryCharge)}</b></div>
-            <div class="row total"><span>GRAND TOTAL</span><b>${money(total)}</b></div>
+            ${offer ? `<div class="row offerRow"><span>Offer</span><b>${escapeHtml(offer.title || "Offer Applied")}</b></div>` : ""}
+            ${discount > 0 ? `<div class="row"><span>Offer Discount</span><b class="discount">-${money(discount)}</b></div>` : ""}
+            ${tax > 0 ? `<div class="row"><span>Tax / GST</span><b>${money(tax)}</b></div>` : ""}
+            ${deliveryCharge > 0 ? `<div class="row"><span>Delivery Charge</span><b>${money(deliveryCharge)}</b></div>` : ""}
+            <div class="row total"><span>AMOUNT PAYABLE</span><b>${money(total)}</b></div>
+            ${discount > 0 ? `<div class="saved">Offer applied — You save ${money(discount)}</div>` : ""}
 
             <div class="box">
               <div class="row"><span>Payment Method</span><b>${safePayment}</b></div>

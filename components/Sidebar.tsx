@@ -129,7 +129,8 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         offers: ["offers"],
         analytics: ["analytics"],
         reservations: ["reservations-pro","reservations"],
-        whatsapp: ["whatsapp-invoice","whatsapp"],
+        whatsapp: ["whatsapp-invoice","whatsapp","whatsapp-marketing"],
+        marketing: ["facebook-integration","instagram-integration","whatsapp-marketing"],
       }
 
       const resolved: Record<string, boolean> = { ...pluginState }
@@ -140,9 +141,10 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       }
 
       // Restaurant Core is controlled by its Super Admin master switch.
-      // Operations Hub remains independent.
+      // Operations Hub is independent and must never be overwritten by Core.
       const coreOn = pluginState["restaurant-core"] === true
       for (const code of CORE_FEATURE_CODES) {
+        if (code === "operations-hub") continue
         resolved[code] = coreOn
       }
 
@@ -158,10 +160,12 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       resolved["loyalty"] = pluginState["loyalty"] === true
 
       // Appearance / branding is an independent Super Admin-controlled plugin.
+      resolved["marketing"] = ["facebook-integration","instagram-integration","whatsapp-marketing"].some(code => pluginState[code] === true)
+
       resolved["theme-branding"] = pluginState["theme-branding"] === true
       resolved["restaurant-settings"] = pluginState["restaurant-settings"] === true
 
-      // Operations Hub is the master. Cash Closing is one of the only
+      // Operations Hub is its own master. Cash Closing is one of the only
       // independently switchable children of that master.
       resolved["cash-closing"] =
         pluginState["operations-hub"] === true &&
@@ -206,6 +210,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
     { name: "QR Print Center", path: "/super-admin/qr", icon: "📱" },
     { name: "Platform Theme", path: "/super-admin/theme", icon: "🎨" },
     { name: "Platform Analytics", path: "/super-admin/analytics", icon: "📈" },
+    { name: "Marketing", path: "/super-admin/marketing", icon: "📣" },
     { name: "Subscriptions", path: "/super-admin/subscriptions", icon: "💳" },
     { name: "Offer Plan Limits", path: "/super-admin/offer-limits", icon: "🎁" },
     { name: "Audit Logs", path: "/super-admin/audit", icon: "🛡️" },
@@ -271,6 +276,23 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         { name: "Delivery", path: "/dashboard/restaurant-core?tab=delivery", feature: "delivery" },
         { name: "Customers", path: "/dashboard/restaurant-core?tab=crm", feature: "crm" },
         { name: "Analytics", path: "/dashboard/restaurant-core?tab=analytics", feature: "analytics" },
+      ]
+    },
+    {
+      name: "Marketing Hub",
+      icon: "📣",
+      path: "/dashboard/marketing",
+      feature: "marketing",
+      children: [
+        { name: "Overview", path: "/dashboard/marketing" },
+        { name: "Facebook", path: "/dashboard/marketing?tab=Facebook" },
+        { name: "Instagram", path: "/dashboard/marketing?tab=Instagram" },
+        { name: "WhatsApp", path: "/dashboard/marketing?tab=WhatsApp" },
+        { name: "Content Studio", path: "/dashboard/marketing?tab=Content%20Studio" },
+        { name: "Campaigns", path: "/dashboard/marketing?tab=Campaigns" },
+        { name: "Leads", path: "/dashboard/marketing?tab=Leads" },
+        { name: "Calendar", path: "/dashboard/marketing?tab=Calendar" },
+        { name: "Analytics", path: "/dashboard/marketing?tab=Analytics" },
       ]
     },
     {

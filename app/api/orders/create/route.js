@@ -26,9 +26,14 @@ function normalizeItems(items) {
 
     return {
       item_id: itemId,
+      variant_id: cleanText(item?.variant_id, 80),
       quantity,
       cooking_request: cleanText(item?.cooking_request, 500),
-      combo_selection: Array.isArray(item?.combo_selection) ? item.combo_selection.slice(0, 20).map(row => ({ item_id: cleanText(row?.item_id, 80) })).filter(row => row.item_id) : []
+      combo_selection: Array.isArray(item?.combo_selection) ? item.combo_selection.slice(0, 20).map(row => ({
+        item_id: cleanText(row?.item_id, 80),
+        variant_id: cleanText(row?.variant_id, 80),
+        variant_name: cleanText(row?.variant_name, 120)
+      })).filter(row => row.item_id) : []
     }
   })
 }
@@ -88,6 +93,14 @@ export async function POST(req) {
     }
 
     const orderId = orderResult?.order_id
+    if (orderId && (body?.marketing_campaign_id || body?.marketing_source || body?.marketing_medium || body?.marketing_content)) {
+      await supabaseCloudAdmin.from("orders").update({
+        marketing_source: cleanText(body?.marketing_source, 80) || null,
+        marketing_campaign: cleanText(body?.marketing_campaign_id || body?.marketing_campaign, 160) || null,
+        marketing_medium: cleanText(body?.marketing_medium, 80) || null,
+        marketing_content: cleanText(body?.marketing_content, 160) || null
+      }).eq("id", orderId).eq("restaurant_id", orderResult?.restaurant_id)
+    }
     let print = { attempted: false, printed: false, reason: "no_order" }
     if (orderId && orderResult?.restaurant_id) {
       // Printing is best-effort: an unavailable printer must never cancel a

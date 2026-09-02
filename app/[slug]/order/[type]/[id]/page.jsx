@@ -65,12 +65,25 @@ const [touchStart,setTouchStart]=useState(null)
 
 const [touchEnd,setTouchEnd]=useState(null)
 
-function getComboUnitPrice(item, selection = []) {
-  const base = Number(item?.comboBasePrice ?? item?.price ?? 0)
+function getUnitPrice(item, selection = [], variantId = null) {
+  const variant = (item?.variants || []).find(v => String(v.id) === String(variantId))
+  const base = Number(item?.price || 0) + Number(variant?.price_delta || 0)
   if (item?.item_type !== "combo") return base
+  return getComboUnitPrice(item, selection)
+}
+function getComboUnitPrice(item, selection = []) {
+  const variant = (item?.variants || []).find(v => String(v.id) === String(item?.variant_id))
+  const base = Number(item?.comboBasePrice ?? item?.price ?? 0)
+  if (item?.item_type !== "combo") return base + Number(variant?.price_delta || 0)
   const options = item?.combo_config?.groups?.[0]?.options || []
-  const selectedIds = new Set((selection || []).map(row => typeof row === "string" ? row : row?.item_id).filter(Boolean))
-  return base + options.reduce((sum, option) => selectedIds.has(option.item_id) ? sum + Number(option.price_delta || 0) : sum, 0)
+  return base + (selection || []).reduce((sum, row) => {
+    const itemId = typeof row === "string" ? row : row?.item_id
+    const option = options.find(o => String(o.item_id) === String(itemId))
+    const component = menu.find(m => String(m.id) === String(itemId))
+    const variantId = typeof row === "string" ? null : row?.variant_id
+    const variant = (component?.variants || []).find(v => String(v.id) === String(variantId))
+    return sum + Number(option?.price_delta || 0) + Number(variant?.price_delta || 0)
+  }, 0)
 }
 const [ratingSummary, setRatingSummary] = useState({ average: 0, count: 0 })
 const [feedbackEnabled, setFeedbackEnabled] = useState(false)
@@ -156,6 +169,8 @@ const [modalQty, setModalQty] = useState(1)
 
 const [modalRequest, setModalRequest] = useState("")
 const [comboSelection, setComboSelection] = useState([])
+const [variantSelection, setVariantSelection] = useState(null)
+const [variantQuantities, setVariantQuantities] = useState({})
 
 useEffect(() => {
   if (slug && type && id) init()
@@ -249,6 +264,10 @@ async function init() {
   const cfg = item?.combo_config || {}
   const firstGroup = cfg?.groups?.[0] || null
   setComboSelection(item?.item_type === "combo" && firstGroup?.min === 1 && firstGroup?.max === 1 ? [] : [])
+  setVariantSelection(null)
+  const initialVariantQty = {}
+  ;(item?.variants || []).forEach(v => { initialVariantQty[v.id] = 0 })
+  setVariantQuantities(initialVariantQty)
   setShowFoodModal(true)
 }
   
@@ -301,6 +320,7 @@ async function init() {
           items: cart.map(i => ({
             item_id: i.id,
             quantity: i.qty,
+            variant_id: i.variant_id || null,
             cooking_request: i.cooking_request || null,
             combo_selection: i.combo_selection || []
           }))
@@ -814,8 +834,9 @@ currentBanner===index
       <div style={grid} className="qr-menu-grid">
   {filteredMenu.map(item => {
 
-    const cartItem =
-      cart.find(i => i.id === item.id)
+    const cartItems = cart.filter(i => i.id === item.id)
+    const cartItem = cartItems[0]
+    const cartItemQty = cartItems.reduce((sum, i) => sum + Number(i.qty || 0), 0)
 
     return (
 
@@ -906,20 +927,20 @@ image.style.transform="scale(1)"
     style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
-      updateQty(item.id,-1)
+      updateQty(cartItem?.cartKey,-1)
     }}
   >
     −
   </button>
 
-  <span>{cartItem.qty}</span>
+  <span>{cartItemQty}</span>
 
   <button
     type="button"
     style={qtyBtn}
     onClick={(e)=>{
       e.stopPropagation()
-      updateQty(item.id,1)
+      updateQty(cartItem?.cartKey,1)
     }}
   >
     +
@@ -1134,7 +1155,7 @@ Items
       {cart.map(item => (
         <div
 
-key={item.id}
+key={item.cartKey || item.id}
 
 style={premiumCartItem}
 
@@ -1164,7 +1185,7 @@ style={premiumCartItem}
         onClick={()=>{
           setCart(prev =>
             prev.map(i =>
-              i.id === item.id
+              i.cartKey === item.cartKey
                 ? {
                     ...i,
                     cooking_request:req
@@ -1198,7 +1219,7 @@ Cooking Instructions
 
       setCart(prev =>
         prev.map(i =>
-          i.id === item.id
+          i.cartKey === item.cartKey
             ? {
                 ...i,
                 cooking_request:e.target.value
@@ -1245,7 +1266,7 @@ fontWeight:700
 }}
 >
 
-{item.name}
+{item.name}{item.variant_name ? ` — ${item.variant_name}` : ""}
 
 </div>
 
@@ -1528,8 +1549,22 @@ margin:"14px 0"
       </div>
 
       <div style={modalPrice}>
-        ₹{getComboUnitPrice(selectedFood, comboSelection).toFixed(2)}
+        ₹{selectedFood?.item_type !== "combo" && Array.isArray(selectedFood?.variants) && selectedFood.variants.length
+          ? (selectedFood.variants || []).reduce((sum,v)=>sum + (Number(selectedFood.price||0)+Number(v.price_delta||0))*Number(variantQuantities[v.id]||0),0).toFixed(2)
+          : getUnitPrice(selectedFood, comboSelection, variantSelection).toFixed(2)}
       </div>
+
+      {selectedFood.item_type !== "combo" && Array.isArray(selectedFood.variants) && selectedFood.variants.length > 0 && (
+        <div style={comboModalBox}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:10}}><b>📏 Choose variant quantities</b><small>Each variant has its own quantity</small></div>
+          <div style={{display:"grid",gap:8,marginTop:10}}>
+            {selectedFood.variants.map(v => { const q=Number(variantQuantities[v.id]||0); return <div key={v.id} style={{...comboChoice,...(q>0?comboChoiceActive:{})}}>
+              <span><b>{v.name}</b><small style={{display:"block",opacity:.72}}>₹{(Number(selectedFood.price||0)+Number(v.price_delta||0)).toFixed(2)} each</small></span>
+              <span style={{display:"flex",alignItems:"center",gap:8}}><button type="button" className="qr-qty-btn" style={qtyBtn} onClick={()=>setVariantQuantities(p=>({...p,[v.id]:Math.max(0,q-1)}))}>−</button><b style={{minWidth:24,textAlign:"center"}}>{q}</b><button type="button" className="qr-qty-btn" style={qtyBtn} onClick={()=>setVariantQuantities(p=>({...p,[v.id]:q+1}))}>+</button></span>
+            </div> })}
+          </div>
+        </div>
+      )}
 
       {selectedFood.item_type === "combo" && (selectedFood.combo_config?.mode === "fixed" ? (
         <div style={comboModalBox}>
@@ -1537,7 +1572,7 @@ margin:"14px 0"
           <div style={{display:"grid",gap:7,marginTop:10}}>
             {(selectedFood.combo_config?.items || []).map(row => {
               const component = menu.find(m => m.id === row.item_id)
-              return <div key={row.item_id} style={comboLine}>✓ {row.quantity || 1} × {component?.name || "Item"}</div>
+              const variant=(component?.variants||[]).find(v=>String(v.id)===String(row.variant_id)); return <div key={`${row.item_id}:${row.variant_id||"base"}`} style={comboLine}>✓ {row.quantity || 1} × {component?.name || "Item"}{variant ? ` — ${variant.name}` : ""}</div>
             })}
           </div>
         </div>
@@ -1546,53 +1581,27 @@ margin:"14px 0"
           <div style={{display:"flex",justifyContent:"space-between",gap:10}}><b>🍱 {selectedFood.combo_config?.groups?.[0]?.name || "Choose your option"}</b><small>{selectedFood.combo_config?.groups?.[0]?.min || 1}-{selectedFood.combo_config?.groups?.[0]?.max || 1}</small></div>
           <div style={{display:"grid",gap:8,marginTop:10}}>
             {(selectedFood.combo_config?.groups?.[0]?.options || []).map(option => {
-              const component = menu.find(m => m.id === option.item_id)
-              const chosen = comboSelection.includes(option.item_id)
-              return <button type="button" key={option.item_id} onClick={() => { const max=Number(selectedFood.combo_config?.groups?.[0]?.max || 1); setComboSelection(prev => prev.includes(option.item_id) ? prev.filter(id=>id!==option.item_id) : (prev.length>=max ? prev : [...prev,option.item_id])) }} style={{...comboChoice, ...(chosen ? comboChoiceActive : {})}}><span>{chosen ? "✓" : "○"} {component?.name || "Item"}</span><span>{Number(option.price_delta || 0) > 0 ? `+₹${Number(option.price_delta).toFixed(2)}` : Number(option.price_delta || 0) < 0 ? `−₹${Math.abs(Number(option.price_delta)).toFixed(2)}` : "Included"}</span></button>
+                            const component = menu.find(m => m.id === option.item_id)
+              const chosenRow = comboSelection.find(x => String(typeof x === "string" ? x : x?.item_id) === String(option.item_id))
+              const chosen = !!chosenRow
+              const variants = (component?.variants || []).filter(v => v.active !== false)
+              const chosenVariantId = typeof chosenRow === "string" ? "" : chosenRow?.variant_id || ""
+              return <div key={option.item_id} style={{...comboChoice, ...(chosen ? comboChoiceActive : {})}}>
+                <button type="button" style={{border:0,background:"transparent",color:"inherit",padding:0,display:"flex",justifyContent:"space-between",width:"100%",cursor:"pointer",textAlign:"left"}} onClick={() => { const max=Number(selectedFood.combo_config?.groups?.[0]?.max || 1); setComboSelection(prev => { const exists=prev.some(x=>String(typeof x === "string" ? x : x?.item_id)===String(option.item_id)); return exists ? prev.filter(x=>String(typeof x === "string" ? x : x?.item_id)!==String(option.item_id)) : (prev.length>=max ? prev : [...prev,{item_id:option.item_id,variant_id:null}]) }) }}><span>{chosen ? "✓" : "○"} {component?.name || "Item"}</span><span>{Number(option.price_delta || 0) > 0 ? `+₹${Number(option.price_delta).toFixed(2)}` : Number(option.price_delta || 0) < 0 ? `−₹${Math.abs(Number(option.price_delta)).toFixed(2)}` : "Included"}</span></button>
+                {chosen && variants.length > 0 && <select value={chosenVariantId} onChange={e => setComboSelection(prev => prev.map(x => String(typeof x === "string" ? x : x?.item_id)===String(option.item_id) ? {item_id:option.item_id,variant_id:e.target.value||null} : x))} style={{marginTop:7,width:"100%",padding:8,borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}><option value="">Base item</option>{variants.map(v=><option key={v.id} value={v.id}>{v.name} · +₹{Number(v.price_delta||0).toFixed(2)}</option>)}</select>}
+              </div>
             })}
           </div>
         </div>
       ))}
 
-      <div style={modalQtyBox}>
-
-  <button
-    type="button"
-    className="qr-qty-btn qr-modal-qty-btn"
-    style={qtyBtn}
-    onClick={()=>{
-      if(modalQty>1){
-        setModalQty(modalQty-1)
-      }
-    }}
-  >
-    −
-  </button>
-
-  <div
-    style={{
-      fontSize:20,
-      fontWeight:700,
-      minWidth:40,
-      textAlign:"center"
-    }}
-  >
-    {modalQty}
-  </div>
-
-  <button
-    type="button"
-    className="qr-qty-btn qr-modal-qty-btn"
-    style={qtyBtn}
-    onClick={()=>setModalQty(modalQty+1)}
-  >
-    +
-  </button>
-
-</div>
-
-      
-
+      {!(selectedFood?.item_type !== "combo" && Array.isArray(selectedFood?.variants) && selectedFood.variants.length > 0) && (
+        <div style={modalQtyBox}>
+          <button type="button" className="qr-qty-btn qr-modal-qty-btn" style={qtyBtn} onClick={()=>{if(modalQty>1)setModalQty(modalQty-1)}}>−</button>
+          <div style={{fontSize:20,fontWeight:700,minWidth:40,textAlign:"center"}}>{modalQty}</div>
+          <button type="button" className="qr-qty-btn qr-modal-qty-btn" style={qtyBtn} onClick={()=>setModalQty(modalQty+1)}>+</button>
+        </div>
+      )}
 
       <h3
   style={{
@@ -1636,27 +1645,52 @@ margin:"14px 0"
         return
       }
     }
-    const comboSelectionRows = comboSelection.map(id => ({ item_id: id }))
-    const configuredPrice = getComboUnitPrice(selectedFood, comboSelectionRows)
-    addToCart({
-      ...selectedFood,
-      qty:modalQty,
-      price: configuredPrice,
-      comboBasePrice: Number(selectedFood.price || 0),
-      cooking_request:modalRequest,
-      combo_selection:comboSelectionRows,
-      cartKey: `${selectedFood.id}:combo:${comboSelection.slice().sort().join(",") || "base"}`
-    })
+    const comboSelectionRows = comboSelection.map(row => typeof row === "string" ? ({ item_id: row }) : ({ item_id: row.item_id, variant_id: row.variant_id || null }))
+    const hasVariants = selectedFood?.item_type !== "combo" && Array.isArray(selectedFood?.variants) && selectedFood.variants.length
+    if (hasVariants) {
+      const chosenVariants = (selectedFood.variants || []).map(v => ({ v, qty: Number(variantQuantities[v.id] || 0) })).filter(x => x.qty > 0)
+      if (!chosenVariants.length) { alert("Please select at least one variant quantity."); return }
+      chosenVariants.forEach(({v,qty}) => {
+        addToCart({
+          ...selectedFood,
+          qty: qty,
+          price: Number(selectedFood.price || 0) + Number(v.price_delta || 0),
+          comboBasePrice: Number(selectedFood.price || 0),
+          cooking_request:modalRequest,
+          combo_selection:[],
+          variant_id: v.id,
+          variant_name: v.name,
+          cartKey: `${selectedFood.id}:variant:${v.id}`
+        })
+      })
+    } else {
+      const configuredPrice = getUnitPrice(selectedFood, comboSelectionRows, null)
+      addToCart({
+        ...selectedFood,
+        qty:modalQty,
+        price: configuredPrice,
+        comboBasePrice: Number(selectedFood.price || 0),
+        cooking_request:modalRequest,
+        combo_selection:comboSelectionRows,
+        variant_id: null,
+        variant_name: null,
+        cartKey: `${selectedFood.id}:base`
+      })
+    }
     setShowFoodModal(false)
     setModalQty(1)
     setModalRequest("")
     setComboSelection([])
+    setVariantSelection(null)
+    setVariantQuantities({})
     setSelectedFood(null)
 
   }}
 >
 
-  Add To Cart • ₹{(getComboUnitPrice(selectedFood, comboSelection) * modalQty).toFixed(2)}
+  Add To Cart • ₹{(selectedFood?.item_type !== "combo" && Array.isArray(selectedFood?.variants) && selectedFood.variants.length
+    ? (selectedFood.variants || []).reduce((sum,v)=>sum + (Number(selectedFood.price||0)+Number(v.price_delta||0))*Number(variantQuantities[v.id]||0),0)
+    : getUnitPrice(selectedFood, comboSelection, variantSelection) * modalQty).toFixed(2)}
 
 </button>
 

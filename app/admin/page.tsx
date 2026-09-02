@@ -23,6 +23,7 @@ export default function AdminPage(){
   const [categoryMode,setCategoryMode] = useState<"select" | "new">("select")
   const [description,setDescription] = useState("")
   const [editingId,setEditingId] = useState<string | null>(null)
+  const [itemVariants,setItemVariants] = useState<Array<{id?:string,name:string,price_delta:string,active?:boolean}>>([])
 
 const [openingTime,setOpeningTime]=useState("")
 
@@ -140,52 +141,39 @@ setRestaurantDescription(rest.description || "")
     setBanners(bannerData || [])
   }
 
+  async function saveItemVariants(itemId: string){
+    const cleaned = itemVariants.map(v=>({id:v.id,name:String(v.name||"").trim(),price_delta:Number(v.price_delta||0),active:v.active!==false})).filter(v=>v.name)
+    const { data: existing } = await supabaseCloud.from("menu_variants").select("id").eq("menu_item_id",itemId).eq("restaurant_id",restaurantId)
+    const keepIds = cleaned.filter(v=>v.id).map(v=>v.id)
+    const removeIds = (existing||[]).map(v=>v.id).filter(id=>!keepIds.includes(id))
+    if(removeIds.length){ const {error}=await supabaseCloud.from("menu_variants").delete().in("id",removeIds); if(error) throw error }
+    const inserts = cleaned.filter(v=>!v.id).map(v=>({restaurant_id:restaurantId,menu_item_id:itemId,name:v.name,price_delta:v.price_delta,active:v.active}))
+    if(inserts.length){ const {error}=await supabaseCloud.from("menu_variants").insert(inserts); if(error) throw error }
+    for(const v of cleaned.filter(v=>v.id)){
+      const {error}=await supabaseCloud.from("menu_variants").update({name:v.name,price_delta:v.price_delta,active:v.active}).eq("id",v.id).eq("menu_item_id",itemId).eq("restaurant_id",restaurantId)
+      if(error) throw error
+    }
+  }
+
   async function addItem(){
-
-    if(!itemName || !price || !effectiveCategory || !restaurantId){
-      alert("Fill all fields")
-      return
-    }
-
+    if(!itemName || !price || !effectiveCategory || !restaurantId){ alert("Fill all fields"); return }
     let imageUrl: string | null = null
-
     if(itemImageFile){
-      const ext = itemImageFile.name.split(".").pop()
-      const fileName = `item-${Date.now()}.${ext}`
-
-      const { error } = await supabaseCloud.storage
-        .from("menu-images")
-        .upload(fileName, itemImageFile)
-
-      if(error){
-        alert("Image Upload Error: " + error.message)
-        return
-      }
-
-      const { data } = supabaseCloud.storage
-        .from("menu-images")
-        .getPublicUrl(fileName)
-
-      imageUrl = data.publicUrl
+      const ext=itemImageFile.name.split(".").pop(); const fileName=`item-${Date.now()}.${ext}`
+      const {error}=await supabaseCloud.storage.from("menu-images").upload(fileName,itemImageFile)
+      if(error){alert("Image Upload Error: "+error.message);return}
+      const {data}=supabaseCloud.storage.from("menu-images").getPublicUrl(fileName); imageUrl=data.publicUrl
     }
-
+    let itemId=editingId
     if(editingId){
-      const { error } = await supabaseCloud.from("menu_items").update({name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl || undefined}).eq("id",editingId).eq("restaurant_id",restaurantId)
-      if(error){ alert(error.message); return }
+      const {error}=await supabaseCloud.from("menu_items").update({name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl || undefined}).eq("id",editingId).eq("restaurant_id",restaurantId)
+      if(error){alert(error.message);return}
     }else{
-      const { error } = await supabaseCloud.from("menu_items").insert([{name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl,restaurant_id:restaurantId}])
-      if(error){ alert(error.message); return }
+      const {data,error}=await supabaseCloud.from("menu_items").insert([{name:itemName,price:Number(price),category:effectiveCategory,description,image:imageUrl,restaurant_id:restaurantId}]).select("id").single()
+      if(error){alert(error.message);return}; itemId=data.id
     }
-
-    setItemName("")
-    setPrice("")
-    setCategory("")
-    setNewCategory("")
-    setCategoryMode("select")
-    setDescription("")
-    setEditingId(null)
-    setItemImageFile(null)
-
+    try{ if(itemId) await saveItemVariants(itemId) }catch(error){ alert(error instanceof Error ? error.message : "Unable to save variants"); return }
+    setItemName("");setPrice("");setCategory("");setNewCategory("");setCategoryMode("select");setDescription("");setEditingId(null);setItemImageFile(null);setItemVariants([])
     loadData(restaurantId)
   }
   async function editItem(item: MenuItem){
@@ -199,6 +187,8 @@ setPrice(String(item.price))
 setCategory(item.category)
 
 setDescription((item as any).description || "")
+    const { data: variantData } = await supabaseCloud.from("menu_variants").select("id,name,price_delta,active").eq("menu_item_id",item.id).eq("restaurant_id",restaurantId).order("created_at")
+    setItemVariants((variantData || []).map(v=>({id:v.id,name:v.name,price_delta:String(v.price_delta ?? 0),active:v.active!==false})))
 }
 
   async function deleteItem(id: string){
@@ -532,6 +522,12 @@ borderRadius:12,
 marginBottom:12
 }}
 />
+
+          <div style={{marginBottom:12,padding:14,border:"1px solid rgba(var(--primary-rgb),.16)",borderRadius:14,background:"rgba(var(--surface-2-rgb),.65)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><b style={{fontSize:12}}>Variants (optional)</b><button type="button" onClick={()=>setItemVariants(v=>[...v,{name:"",price_delta:"0",active:true}])} style={{...uploadBtn,width:"auto",marginTop:0,padding:"8px 12px"}}>＋ Add Variant</button></div>
+            {itemVariants.map((v,index)=><div key={v.id||index} style={{display:"grid",gridTemplateColumns:"1fr 130px auto",gap:8,marginBottom:8}}><input value={v.name} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,name:e.target.value}:x))} placeholder="Variant name" style={{...fileInput,marginTop:0}}/><input type="number" step="0.01" value={v.price_delta} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,price_delta:e.target.value}:x))} placeholder="+ / −" style={{...fileInput,marginTop:0}}/><button type="button" onClick={()=>setItemVariants(prev=>prev.filter((_,i)=>i!==index))} style={deleteBtn}>✕</button></div>)}
+            <small style={{color:"var(--muted)"}}>Final variant price = base price + adjustment. Existing items remain unchanged when no variants are added.</small>
+          </div>
 
           <input type="file" onChange={handleItemImage} style={fileInput}/>
 

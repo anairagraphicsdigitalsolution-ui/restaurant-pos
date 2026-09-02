@@ -1,0 +1,9 @@
+import {NextResponse} from "next/server"
+import {supabaseCloudAdmin} from "@/lib/supabaseCloudServer"
+import {requireApiUser} from "@/lib/serverAuth"
+import {requireSuperAdmin} from "@/lib/serverStaffPermissions"
+export const runtime="nodejs"
+async function sa(req){const u=await requireApiUser(req);await requireSuperAdmin(u);return u}
+export async function GET(req){try{await sa(req);const {data,error}=await supabaseCloudAdmin.from("platform_marketing_audience").select("*").order("created_at",{ascending:false});if(error)throw error;return NextResponse.json({success:true,members:data||[]})}catch(e){return NextResponse.json({success:false,error:e.message},{status:400})}}
+export async function POST(req){try{await sa(req);const b=await req.json();const phone=String(b.phone||"").trim();if(!phone)throw new Error("Phone is required");const {data,error}=await supabaseCloudAdmin.from("platform_marketing_audience").upsert({name:String(b.name||""),phone,email:b.email||null,consent:b.consent===true,consent_at:b.consent===true?new Date().toISOString():null,source:b.source||"manual",campaign_id:b.campaign_id||null},{onConflict:"phone"}).select("*").single();if(error)throw error;return NextResponse.json({success:true,member:data})}catch(e){return NextResponse.json({success:false,error:e.message},{status:400})}}
+export async function PATCH(req){try{await sa(req);const b=await req.json();if(!b.id)throw new Error("Audience id is required");const patch={};if(b.consent!==undefined){patch.consent=b.consent===true;patch.consent_at=patch.consent?new Date().toISOString():null}if(b.unsubscribed!==undefined)patch.unsubscribed_at=b.unsubscribed?new Date().toISOString():null;const {data,error}=await supabaseCloudAdmin.from("platform_marketing_audience").update(patch).eq("id",b.id).select("*").single();if(error)throw error;return NextResponse.json({success:true,member:data})}catch(e){return NextResponse.json({success:false,error:e.message},{status:400})}}

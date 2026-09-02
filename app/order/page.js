@@ -22,6 +22,11 @@ export default function OrderPage() {
   const [operationsHubEnabled, setOperationsHubEnabled] = useState(true)
   const [modifierLinks, setModifierLinks] = useState([])
   const [modifierItem, setModifierItem] = useState(null)
+  const [variantItem, setVariantItem] = useState(null)
+  const [variantSelection, setVariantSelection] = useState(null)
+  const [variantQuantities, setVariantQuantities] = useState({})
+  const [variantBatch, setVariantBatch] = useState([])
+  const [modifierItemQty, setModifierItemQty] = useState(1)
   const [modifierSelection, setModifierSelection] = useState({})
 
   const [type, setType] = useState("table")
@@ -136,8 +141,9 @@ export default function OrderPage() {
     setOperationsHubEnabled(hubOn)
 
     const emptyModifierResult = { data: [], error: null }
-    const [menuResult,tablesResult,roomsResult,groupsResult,modifiersResult,linksResult,zonesResult] = await Promise.all([
+    const [menuResult,variantResult,tablesResult,roomsResult,groupsResult,modifiersResult,linksResult,zonesResult] = await Promise.all([
       supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid),
+      supabaseCloud.from("menu_variants").select("id,menu_item_id,name,price_delta,active").eq("restaurant_id", rid).eq("active", true).order("created_at"),
       supabaseCloud.from("tables").select("*").eq("restaurant_id", rid),
       supabaseCloud.from("rooms").select("*").eq("restaurant_id", rid),
       hubOn ? supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(emptyModifierResult),
@@ -152,7 +158,9 @@ export default function OrderPage() {
     if (modifiersResult.error) console.error("MODIFIER ERROR:", modifiersResult.error)
     if (linksResult.error) console.error("MODIFIER LINK ERROR:", linksResult.error)
     if (zonesResult.error) console.error("DELIVERY ZONE ERROR:", zonesResult.error)
-    setMenu(menuResult.data || [])
+    const variantMap = {}
+    ;(variantResult.data || []).forEach(v => { if (!variantMap[v.menu_item_id]) variantMap[v.menu_item_id] = []; variantMap[v.menu_item_id].push(v) })
+    setMenu((menuResult.data || []).map(item => ({ ...item, variants: variantMap[item.id] || [] })))
     setTables(tablesResult.data || [])
     setRooms(roomsResult.data || [])
     setModifierGroups(groupsResult.data || [])
@@ -246,7 +254,68 @@ export default function OrderPage() {
 
   function addToCart(item) {
     if (!item) return
+    const variants = Array.isArray(item.variants) ? item.variants.filter(v => v.active !== false) : []
+    if (item.item_type !== "combo" && variants.length) {
+      const initial = {}
+      variants.forEach(v => { initial[v.id] = 0 })
+      setVariantItem(item)
+      setVariantSelection(null)
+      setVariantQuantities(initial)
+      return
+    }
+    addToCartWithConfig(item)
+  }
 
+  function setVariantQty(variantId, change) {
+    setVariantQuantities(previous => ({
+      ...previous,
+      [variantId]: Math.max(0, Number(previous[variantId] || 0) + change)
+    }))
+  }
+
+  function closeVariantPicker() {
+    setVariantItem(null)
+    setVariantSelection(null)
+    setVariantQuantities({})
+    setVariantBatch([])
+  }
+
+  function continueVariant() {
+    if (!variantItem) return
+    const selected = (variantItem.variants || []).filter(v => v.active !== false).map(v => ({
+      ...variantItem,
+      price: Number(variantItem.price || 0) + Number(v.price_delta || 0),
+      variant_id: v.id,
+      variant_name: v.name,
+      variantQty: Number(variantQuantities[v.id] || 0)
+    })).filter(item => item.variantQty > 0)
+    if (!selected.length) { alert("Please select at least one variant quantity"); return }
+    setVariantItem(null)
+    setVariantSelection(null)
+    setVariantQuantities({})
+    processVariantBatch(selected)
+  }
+
+  function processVariantBatch(queue) {
+    const remaining = Array.isArray(queue) ? queue.slice() : []
+    while (remaining.length) {
+      const current = remaining.shift()
+      const groups = itemGroups(current)
+      if (groups.length) {
+        setVariantBatch(remaining)
+        setModifierItem(current)
+        setModifierItemQty(current.variantQty || 1)
+        const initial = {}
+        groups.forEach(group => { initial[group.id] = [] })
+        setModifierSelection(initial)
+        return
+      }
+      addConfiguredItem(current, [], current.variantQty || 1)
+    }
+    setVariantBatch([])
+  }
+
+  function addToCartWithConfig(item) {
     const groups = itemGroups(item)
 
     if (groups.length) {
@@ -267,7 +336,8 @@ export default function OrderPage() {
 
   function addConfiguredItem(
     item,
-    selectedModifiers
+    selectedModifiers,
+    quantity = 1
   ) {
     const modifierTotal =
       selectedModifiers.reduce(
@@ -285,7 +355,7 @@ export default function OrderPage() {
         .join(",")
 
     const key =
-      `${item.id}:${modifierKey || "base"}`
+      `${item.id}:${item.variant_id || "base"}:${modifierKey || "base"}`
 
     setCart((previous) => {
       const existing = previous.find(
@@ -301,7 +371,7 @@ export default function OrderPage() {
                 qty:
                   Number(
                     cartItem.qty || 0
-                  ) + 1,
+                  ) + Number(quantity || 1),
               }
             : cartItem
         )
@@ -311,7 +381,7 @@ export default function OrderPage() {
         ...previous,
         {
           ...item,
-          qty: 1,
+          qty: Number(quantity || 1),
           cartKey: key,
           selectedModifiers,
           modifierTotal,
@@ -322,48 +392,22 @@ export default function OrderPage() {
 
   function confirmModifiers() {
     if (!modifierItem) return
-
-    const groups =
-      itemGroups(modifierItem)
-
+    const groups = itemGroups(modifierItem)
     for (const group of groups) {
-      const chosen =
-        modifierSelection[group.id] || []
-      const minSelect = Math.max(
-        Number(group.min_select || 0),
-        group.required ? 1 : 0
-      )
-      const maxSelect = group.max_select == null
-        ? null
-        : Number(group.max_select)
-
-      if (chosen.length < minSelect) {
-        alert(
-          `Please choose at least ${minSelect} option${minSelect === 1 ? "" : "s"} from ${group.name}`
-        )
-        return
-      }
-
-      if (maxSelect !== null && chosen.length > maxSelect) {
-        alert(
-          `Please choose no more than ${maxSelect} option${maxSelect === 1 ? "" : "s"} from ${group.name}`
-        )
-        return
-      }
+      const chosen = modifierSelection[group.id] || []
+      const minSelect = Math.max(Number(group.min_select || 0), group.required ? 1 : 0)
+      const maxSelect = group.max_select == null ? null : Number(group.max_select)
+      if (chosen.length < minSelect) { alert(`Please choose at least ${minSelect} option${minSelect === 1 ? "" : "s"} from ${group.name}`); return }
+      if (maxSelect !== null && chosen.length > maxSelect) { alert(`Please choose no more than ${maxSelect} option${maxSelect === 1 ? "" : "s"} from ${group.name}`); return }
     }
-
-    const chosen =
-      Object.values(
-        modifierSelection
-      ).flat()
-
-    addConfiguredItem(
-      modifierItem,
-      chosen
-    )
-
+    const chosen = Object.values(modifierSelection).flat()
+    addConfiguredItem(modifierItem, chosen, modifierItemQty)
+    const remaining = variantBatch.slice()
     setModifierItem(null)
     setModifierSelection({})
+    setModifierItemQty(1)
+    setVariantBatch([])
+    if (remaining.length) processVariantBatch(remaining)
   }
 
   function toggleModifier(
@@ -646,9 +690,16 @@ export default function OrderPage() {
           customer_phone: type === "delivery" ? customerPhone.trim() : null,
           delivery_address: type === "delivery" ? deliveryAddress.trim() : null,
           customer_notes: type === "delivery" ? customerNotes.trim() : null,
+          marketing_campaign_id: params.get("utm_campaign") || params.get("campaign_id") || null,
+          marketing_source: params.get("utm_source") || null,
+          marketing_medium: params.get("utm_medium") || null,
+          marketing_content: params.get("utm_content") || null,
+          marketing_campaign: params.get("utm_campaign") || null,
           items: cart.map(cartItem => ({
             item_id: cartItem.id, quantity: Number(cartItem.qty || 0),
             item_name: comboDisplayName(cartItem), name: comboDisplayName(cartItem),
+            variant_id: cartItem.variant_id || null,
+            variant_name: cartItem.variant_name || null,
             unit_price: Number(cartItem.price || 0),
             line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
             cooking_request: cartItem.cooking_request || null,
@@ -1566,6 +1617,34 @@ export default function OrderPage() {
 
       </div>
 
+      {variantItem && (
+        <div className="modal-backdrop" onClick={closeVariantPicker}>
+          <div className="modifier-modal" onClick={e => e.stopPropagation()}>
+            <div className="modifier-modal-header">
+              <div><div className="modal-eyebrow">SELECT VARIANT</div><h2>{variantItem.name}</h2><p>Choose the size or variant before adding this item.</p></div>
+              <button type="button" className="close-btn" onClick={closeVariantPicker}>✕</button>
+            </div>
+            <div className="modifier-options">
+              {(variantItem.variants || []).map(v => {
+                const qty = Number(variantQuantities[v.id] || 0)
+                const unitPrice = Number(variantItem.price || 0) + Number(v.price_delta || 0)
+                return (
+                  <div key={v.id} className={qty > 0 ? "modifier-choice active variant-qty-row" : "modifier-choice variant-qty-row"}>
+                    <span><strong>{v.name}</strong><small style={{display:"block",opacity:.72}}>₹{unitPrice.toFixed(2)} each</small></span>
+                    <span className="variant-qty-controls">
+                      <button type="button" className="qty-btn" onClick={() => setVariantQty(v.id,-1)}>−</button>
+                      <strong className="qty-value">{qty}</strong>
+                      <button type="button" className="qty-btn" onClick={() => setVariantQty(v.id,1)}>+</button>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <button type="button" className="place-order-btn modal-add-btn" onClick={continueVariant} disabled={!Object.values(variantQuantities).some(q => Number(q) > 0)}>Continue</button>
+          </div>
+        </div>
+      )}
+
       {/* =====================================================
           MODIFIER MODAL
           ===================================================== */}
@@ -1573,11 +1652,12 @@ export default function OrderPage() {
       {modifierItem && (
         <div
           className="modal-backdrop"
-          onClick={() =>
-            setModifierItem(
-              null
-            )
-          }
+          onClick={() => {
+            setModifierItem(null)
+            setModifierSelection({})
+            setModifierItemQty(1)
+            setVariantBatch([])
+          }}
         >
 
           <div
@@ -1745,6 +1825,13 @@ export default function OrderPage() {
           </div>
         </div>
       )}
+
+      <style jsx global>{`
+        .variant-qty-row { cursor: default; }
+        .variant-qty-controls { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+        .variant-qty-controls .qty-btn { width:32px; height:32px; }
+        .variant-qty-controls .qty-value { min-width:22px; text-align:center; }
+      `}</style>
 
       {/* =====================================================
           PAGE CSS

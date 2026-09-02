@@ -13,6 +13,8 @@ export default function StaffPage() {
   const [captainEnabled, setCaptainEnabled] = useState(false)
   const [showAllOrders, setShowAllOrders] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [variantItem, setVariantItem] = useState(null)
+  const [variantQuantities, setVariantQuantities] = useState({})
 
   useEffect(() => {
     let channel = null
@@ -552,6 +554,15 @@ function POS({
           .order("room_number")
       ])
 
+      const { data: variantData, error: variantError } = await supabaseCloud
+        .from("menu_variants")
+        .select("id,menu_item_id,name,price_delta,active")
+        .eq("restaurant_id", restaurantId)
+        .eq("active", true)
+        .order("created_at")
+
+      if (variantError) console.error("VARIANT ERROR:", variantError)
+
       if (menuError) {
         console.error("MENU ERROR:", menuError)
       }
@@ -564,7 +575,9 @@ function POS({
         console.error("ROOM ERROR:", roomError)
       }
 
-      setMenu(menuData || [])
+      const variantMap = {}
+      ;(variantData || []).forEach(v => { if (!variantMap[v.menu_item_id]) variantMap[v.menu_item_id] = []; variantMap[v.menu_item_id].push(v) })
+      setMenu((menuData || []).map(item => ({ ...item, variants: variantMap[item.id] || [] })))
       setTables(tableData || [])
       setRooms(roomData || [])
 
@@ -576,55 +589,45 @@ function POS({
   }
 
   function add(item) {
-    setCart((previous) => {
+    const variants = Array.isArray(item?.variants) ? item.variants.filter(v => v.active !== false) : []
+    if (item?.item_type !== "combo" && variants.length) {
+      const initial = {}
+      variants.forEach(v => { initial[v.id] = 0 })
+      setVariantItem(item)
+      setVariantQuantities(initial)
+      return
+    }
+    addConfigured(item, 1)
+  }
 
-      const existing = previous.find(
-        (cartItem) =>
-          cartItem.id === item.id
-      )
-
-      if (existing) {
-        return previous.map((cartItem) =>
-          cartItem.id === item.id
-            ? {
-                ...cartItem,
-                qty: cartItem.qty + 1
-              }
-            : cartItem
-        )
-      }
-
-      return [
-        ...previous,
-        {
-          ...item,
-          qty: 1
-        }
-      ]
+  function addConfigured(item, quantity=1) {
+    const cartKey = `${item.id}:${item.variant_id || "base"}`
+    setCart(previous => {
+      const existing = previous.find(cartItem => cartItem.cartKey === cartKey)
+      if (existing) return previous.map(cartItem => cartItem.cartKey === cartKey ? { ...cartItem, qty: cartItem.qty + Number(quantity || 1) } : cartItem)
+      return [...previous, { ...item, qty: Number(quantity || 1), cartKey }]
     })
   }
 
-  function qty(id, value) {
-    setCart((previous) =>
-      previous
-        .map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                qty: item.qty + value
-              }
-            : item
-        )
-        .filter((item) => item.qty > 0)
-    )
+  function setVariantQty(variantId, change) {
+    setVariantQuantities(previous => ({ ...previous, [variantId]: Math.max(0, Number(previous[variantId] || 0) + change) }))
   }
 
-  function removeItem(id) {
-    setCart((previous) =>
-      previous.filter(
-        (item) => item.id !== id
-      )
-    )
+  function addSelectedVariants() {
+    if (!variantItem) return
+    const selected = (variantItem.variants || []).map(v => ({ v, qty: Number(variantQuantities[v.id] || 0) })).filter(x => x.qty > 0)
+    if (!selected.length) { alert("Please select at least one variant quantity"); return }
+    selected.forEach(({v,qty}) => addConfigured({ ...variantItem, price: Number(variantItem.price || 0) + Number(v.price_delta || 0), variant_id: v.id, variant_name: v.name }, qty))
+    setVariantItem(null)
+    setVariantQuantities({})
+  }
+
+  function qty(cartKey, value) {
+    setCart(previous => previous.map(item => item.cartKey === cartKey ? { ...item, qty: item.qty + value } : item).filter(item => item.qty > 0))
+  }
+
+  function removeItem(cartKey) {
+    setCart(previous => previous.filter(item => item.cartKey !== cartKey))
   }
 
   function changeType(nextType) {
@@ -682,7 +685,9 @@ function POS({
 
             items: cart.map((item) => ({
               item_id: item.id,
-              quantity: item.qty
+              quantity: item.qty,
+              variant_id: item.variant_id || null,
+              variant_name: item.variant_name || null
             }))
           })
         }
@@ -963,7 +968,7 @@ function POS({
                       fontSize: 15
                     }}
                   >
-                    {item.name}
+                    {item.name}{item.variant_name ? ` — ${item.variant_name}` : ""}
                   </div>
 
                   <div style={menuPrice}>
@@ -1031,7 +1036,7 @@ function POS({
 
             {cart.map((item) => (
               <div
-                key={item.id}
+                key={item.cartKey}
                 style={cartItem}
               >
 
@@ -1042,7 +1047,7 @@ function POS({
                       fontWeight: 700
                     }}
                   >
-                    {item.name}
+                    {item.name}{item.variant_name ? ` — ${item.variant_name}` : ""}
                   </div>
 
                   <div style={cartItemPrice}>
@@ -1059,7 +1064,7 @@ function POS({
                   <button
                     type="button"
                     onClick={() =>
-                      qty(item.id, -1)
+                      qty(item.cartKey, -1)
                     }
                     style={qtyBtn}
                   >
@@ -1073,7 +1078,7 @@ function POS({
                   <button
                     type="button"
                     onClick={() =>
-                      qty(item.id, 1)
+                      qty(item.cartKey, 1)
                     }
                     style={qtyBtn}
                   >
@@ -1083,7 +1088,7 @@ function POS({
                   <button
                     type="button"
                     onClick={() =>
-                      removeItem(item.id)
+                      removeItem(item.cartKey)
                     }
                     style={removeBtn}
                   >
@@ -1131,7 +1136,22 @@ function POS({
           </div>
         )}
 
-      </div>
+
+
+      {variantItem && (
+        <div style={{position:"fixed",inset:0,zIndex:1000,display:"grid",placeItems:"center",padding:20,background:"rgba(0,0,0,.62)"}}>
+          <div style={{width:"min(560px,100%)",padding:22,borderRadius:18,background:"var(--surface)",border:"1px solid var(--border)",color:"var(--text)",boxShadow:"0 24px 80px rgba(0,0,0,.35)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:15}}>
+              <div><div style={{fontSize:11,fontWeight:900,letterSpacing:1.5,color:"var(--primary)"}}>SELECT VARIANT QUANTITY</div><h2 style={{margin:"5px 0 4px"}}>{variantItem.name}</h2><p style={{margin:0,color:"var(--muted)"}}>Choose quantity for each variant.</p></div>
+              <button type="button" onClick={()=>{setVariantItem(null);setVariantQuantities({})}} style={{border:"1px solid var(--border)",background:"transparent",color:"var(--text)",borderRadius:10,padding:"8px 11px",cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{display:"grid",gap:9,marginTop:18}}>
+              {(variantItem.variants || []).map(v=>{const q=Number(variantQuantities[v.id]||0);const price=Number(variantItem.price||0)+Number(v.price_delta||0);return <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:12,borderRadius:12,border:"1px solid var(--border)",background:q>0?"var(--surface-muted, rgba(255,255,255,.04))":"transparent"}}><div><b>{v.name}</b><small style={{display:"block",color:"var(--muted)"}}>₹{price.toFixed(2)} each</small></div><div style={{display:"flex",alignItems:"center",gap:10}}><button type="button" onClick={()=>setVariantQty(v.id,-1)} style={qtyBtn}>−</button><b style={{minWidth:24,textAlign:"center"}}>{q}</b><button type="button" onClick={()=>setVariantQty(v.id,1)} style={qtyBtn}>+</button></div></div>})}
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}><button type="button" onClick={()=>{setVariantItem(null);setVariantQuantities({})}} style={clearBtn}>Cancel</button><button type="button" onClick={addSelectedVariants} style={modalPrimaryBtn}>Add Selected</button></div>
+          </div>
+        </div>
+      )}      </div>
 
     </div>
   )
@@ -1672,6 +1692,16 @@ const quantityControls = {
   gap: 6
 }
 
+
+const modalPrimaryBtn = {
+  padding: "9px 14px",
+  borderRadius: 10,
+  border: "1px solid var(--primary)",
+  background: "var(--primary)",
+  color: "#111",
+  cursor: "pointer",
+  fontWeight: 900
+}
 const qtyBtn = {
   width: 30,
   height: 30,
