@@ -2534,3 +2534,12 @@ html[data-theme] tbody,
 html[data-theme] tr {
   border-color: rgba(var(--primary-rgb), .16);
 }
+
+/* Public marketing pages: responsive, touch-friendly and layout-safe. */
+.amSite *, .amSite *::before, .amSite *::after { box-sizing: border-box; }
+.amSite img { max-width: 100%; }
+.amSite button, .amSite a { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 520px) {
+  .amSite { min-width: 0; }
+  .amSite h1, .amSite h2, .amSite h3, .amSite p { overflow-wrap: anywhere; }
+}

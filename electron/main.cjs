@@ -5,9 +5,34 @@ const http = require("http");
 
 let mainWindow = null;
 let nextProcess = null;
+let serverWatchdog = null;
+let shuttingDown = false;
+let restartTimer = null;
+let restartAttempts = 0;
+
+// Prevent two Electron instances from fighting over the same embedded Next.js
+// port. A second launch now focuses the already-running POS instead.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 const PORT = 3180;
 const HOST = "127.0.0.1";
+
+process.on("uncaughtException", error => {
+  console.error("Anaira Electron uncaught exception:", error);
+});
+process.on("unhandledRejection", reason => {
+  console.error("Anaira Electron unhandled rejection:", reason);
+});
 
 function getAppRoot() {
   return app.isPackaged
@@ -149,9 +174,29 @@ function startNextServer() {
     nextProcess.once("error", reject);
 
     nextProcess.once("exit", (code, signal) => {
-      if (code !== 0 && code !== null) {
-        console.error(`Next.js exited before startup. code=${code} signal=${signal}`);
+      const unexpected = !shuttingDown && code !== 0 && code !== null;
+      console.error(`Next.js process exited. code=${code} signal=${signal} unexpected=${unexpected}`);
+      if (!unexpected) return;
+
+      nextProcess = null;
+      if (restartTimer || shuttingDown) return;
+      if (restartAttempts >= 3) {
+        console.error("Next.js restart limit reached; leaving the renderer available for diagnostics.");
+        return;
       }
+      restartAttempts += 1;
+      restartTimer = setTimeout(async () => {
+        restartTimer = null;
+        try {
+          await startNextServer();
+          restartAttempts = 0;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            await mainWindow.loadURL(`http://${HOST}:${PORT}`);
+          }
+        } catch (error) {
+          console.error("Automatic Next.js restart failed:", error);
+        }
+      }, 1500);
     });
 
     const startedAt = Date.now();
@@ -194,6 +239,21 @@ function getAdaptiveZoomFactor(display) {
   if (width <= 1366 || height <= 768) return 0.80;
   if (width <= 1440 || height <= 900) return 0.92;
   return 1;
+}
+
+function startServerWatchdog() {
+  if (serverWatchdog) clearInterval(serverWatchdog);
+  serverWatchdog = setInterval(() => {
+    if (!nextProcess || nextProcess.exitCode !== null) {
+      console.error("Anaira Next.js process is not running.");
+      return;
+    }
+    const req = http.get(`http://${HOST}:${PORT}`, res => {
+      res.resume();
+    });
+    req.setTimeout(3000, () => req.destroy());
+    req.on("error", error => console.error("Anaira Next.js health check failed:", error.message));
+  }, 15000);
 }
 
 function createWindow() {
@@ -321,13 +381,35 @@ function createWindow() {
     console.error(`Electron failed to load app: ${code} - ${description}`);
   });
 
+  mainWindow.webContents.on("unresponsive", () => {
+    console.error("Anaira renderer became unresponsive.");
+  });
+
+  mainWindow.webContents.on("responsive", () => {
+    console.log("Anaira renderer became responsive again.");
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Anaira renderer process exited:", details);
+  });
+
   mainWindow.on("maximize", () => mainWindow.webContents.send("anaira-window-maximized", true));
   mainWindow.on("unmaximize", () => mainWindow.webContents.send("anaira-window-maximized", false));
+  mainWindow.on("closed", () => { mainWindow = null; });
 
   return mainWindow.loadURL(`http://${HOST}:${PORT}`);
 }
 
 async function shutdownNext() {
+  shuttingDown = true;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+  if (serverWatchdog) {
+    clearInterval(serverWatchdog);
+    serverWatchdog = null;
+  }
   if (!nextProcess) return;
 
   const child = nextProcess;
@@ -340,25 +422,30 @@ async function shutdownNext() {
   await new Promise(resolve => setTimeout(resolve, 300));
 }
 
-app.whenReady().then(async () => {
-  loadCloudEnv();
-  forceCloudOnlyEnvironment();
-  validateCloudEnvironment();
-  try {
-    await startNextServer();
-    await createWindow();
-  } catch (error) {
-    console.error("Anaira Restaurant POS startup failed:", error);
-    await shutdownNext();
-    app.quit();
-  }
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (gotSingleInstanceLock) {
+  app.whenReady().then(async () => {
+    shuttingDown = false;
+    restartAttempts = 0;
+    loadCloudEnv();
+    forceCloudOnlyEnvironment();
+    validateCloudEnvironment();
+    try {
+      await startNextServer();
+      startServerWatchdog();
+      await createWindow();
+    } catch (error) {
+      console.error("Anaira Restaurant POS startup failed:", error);
+      await shutdownNext();
+      app.quit();
     }
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
   });
-});
+}
 
 app.on("window-all-closed", async () => {
   await shutdownNext();

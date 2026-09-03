@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { useAuth } from "@/components/AuthProvider"
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
 type Notice = {
@@ -72,6 +73,8 @@ export default function CallingRuntimeProvider() {
     window.dispatchEvent(new CustomEvent("anaira:calling", { detail: row }))
   }, [])
 
+  const { user, restaurantId, role } = useAuth()
+
   useEffect(() => {
     let cancelled = false
     let retry: ReturnType<typeof setTimeout> | null = null
@@ -90,37 +93,19 @@ export default function CallingRuntimeProvider() {
     }
 
     const start = async () => {
-      if (cancelled) return
-      const { data: session } = await supabaseCloud.auth.getSession()
-      const user = session?.session?.user
-      if (!user) {
-        retry = setTimeout(start, 1200)
-        return
-      }
+      if (cancelled || !user || !restaurantId || role === "super_admin") return
 
-      const { data: profile } = await supabaseCloud
-        .from("profiles")
-        .select("restaurant_id,role")
-        .eq("id", user.id)
-        .maybeSingle()
-
-      const restaurantId = profile?.restaurant_id
-      if (!restaurantId || profile?.role === "super_admin") {
-        retry = setTimeout(start, 1800)
-        return
-      }
-
-      const { data: plugin } = await supabaseCloud
+      const { data: plugin, error: pluginError } = await supabaseCloud
         .from("restaurant_plugins")
         .select("enabled")
         .eq("restaurant_id", restaurantId)
         .eq("plugin_code", "calling-device")
         .maybeSingle()
-
-      if (plugin?.enabled !== true) {
-        retry = setTimeout(start, 3000)
+      if (pluginError) {
+        retry = setTimeout(start, 5000)
         return
       }
+      if (plugin?.enabled !== true) return
 
       const { data: settings } = await supabaseCloud
         .from("plugin_settings")
@@ -137,43 +122,30 @@ export default function CallingRuntimeProvider() {
       configRef.current = runtimeConfig
       restaurantRef.current = restaurantId
 
-      // A real pointer/keyboard gesture unlocks browser audio. This is
-      // intentionally installed globally so a restaurant operator can use
-      // Dashboard/Kitchen/Billing without having to keep the Calling page open.
       window.addEventListener("pointerdown", unlockCallingAudio, { once: true, passive: true })
       window.addEventListener("keydown", unlockCallingAudio, { once: true })
-
       fallbackHandler = event => consume((event as CustomEvent<Notice>).detail)
       window.addEventListener("anaira:notification", fallbackHandler)
 
       channel = supabaseCloud
         .channel(`anaira-calling-runtime-${restaurantId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "notifications",
-            filter: `restaurant_id=eq.${restaurantId}`,
-          },
-          payload => consume(payload.new as Notice)
-        )
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` }, payload => consume(payload.new as Notice))
         .subscribe(status => {
           if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            retry = setTimeout(start, 2500)
+            if (retry) clearTimeout(retry)
+            retry = setTimeout(start, 5000)
           }
         })
     }
 
     void start()
-
     return () => {
       cancelled = true
       void cleanup()
       window.removeEventListener("pointerdown", unlockCallingAudio)
       window.removeEventListener("keydown", unlockCallingAudio)
     }
-  }, [consume])
+  }, [consume, user, restaurantId, role])
 
   return null
 }

@@ -49,12 +49,23 @@ export default function Dashboard() {
     let channel
     let refreshTimer
     let cancelled = false
+    let loadingRefresh = false
+    let refreshQueued = false
 
     const scheduleRefresh = (rid) => {
       clearTimeout(refreshTimer)
-      refreshTimer = setTimeout(() => {
-        if (!cancelled) loadData(rid, false)
-      }, 350)
+      refreshTimer = setTimeout(async () => {
+        if (cancelled) return
+        if (loadingRefresh) { refreshQueued = true; return }
+        loadingRefresh = true
+        try { await loadData(rid, false) } finally {
+          loadingRefresh = false
+          if (refreshQueued && !cancelled) {
+            refreshQueued = false
+            scheduleRefresh(rid)
+          }
+        }
+      }, 1000)
     }
 
     async function init() {

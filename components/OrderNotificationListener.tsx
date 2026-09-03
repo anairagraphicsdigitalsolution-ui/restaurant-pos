@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { useAuth } from "@/components/AuthProvider"
 
 type Notice = {
   id: string
@@ -46,12 +47,10 @@ function playOrderTone() {
 }
 
 export default function OrderNotificationListener({ user: propUser, restaurantId: propRestaurantId, role: propRole }: { user?: any, restaurantId?: string | null, role?: string } = {}) {
-  const [selfUser, setSelfUser] = useState<any>(propUser || null)
-  const [selfRestaurantId, setSelfRestaurantId] = useState<string | null>(propRestaurantId || null)
-  const [selfRole, setSelfRole] = useState<string>(propRole || "")
-  const user = propUser ?? selfUser
-  const restaurantId = propRestaurantId ?? selfRestaurantId
-  const role = propRole ?? selfRole
+  const auth = useAuth()
+  const user = propUser ?? auth.user
+  const restaurantId = propRestaurantId ?? auth.restaurantId
+  const role = propRole ?? auth.role
   const [notice, setNotice] = useState<Notice | null>(null)
   const [permission, setPermission] = useState<string>(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
@@ -71,20 +70,7 @@ export default function OrderNotificationListener({ user: propUser, restaurantId
     } catch {}
   }, [])
 
-  useEffect(() => {
-    if (propUser && propRestaurantId && propRole) return
-    let active = true
-    ;(async () => {
-      const { data: auth } = await supabaseCloud.auth.getUser()
-      if (!active || !auth?.user) return
-      const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id", auth.user.id).maybeSingle()
-      if (!active) return
-      setSelfUser(auth.user)
-      setSelfRestaurantId(profile?.restaurant_id || null)
-      setSelfRole(profile?.role || "")
-    })()
-    return () => { active = false }
-  }, [propUser, propRestaurantId, propRole])
+
 
   const showNotice = useCallback((row: Notice) => {
     if (!row?.id || seenIds.current.has(row.id)) return

@@ -2,6 +2,8 @@ import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
 
+export const dynamic = "force-dynamic"
+
 export const runtime = "nodejs"
 
 function dateKeyInIndia(value) {
@@ -49,7 +51,7 @@ export async function GET(req) {
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false})
-        .limit(1000),
+        .limit(250),
       supabaseCloudAdmin.from("menu_items")
         .select("id,name,price,image,category")
         .eq("restaurant_id",rid),
@@ -58,13 +60,13 @@ export async function GET(req) {
         .eq("restaurant_id",rid)
         .order("created_at",{ascending:false}),
       supabaseCloudAdmin.from("customers")
-        .select("id,name,phone,email,total_orders,total_spend,loyalty_points,last_visit_at")
-        .eq("restaurant_id",rid)
-        .order("updated_at", { ascending: false }),
+        .select("id", { count: "exact", head: true })
+        .eq("restaurant_id",rid),
       supabaseCloudAdmin.from("reservations")
         .select("id,name,phone,guests,date,time,status,table_id,created_at")
         .eq("restaurant_id",rid)
-        .order("created_at",{ascending:false})
+        .eq("date", todayIndiaKey())
+        .order("time",{ascending:true})
         .limit(100),
       supabaseCloudAdmin.from("tables")
         .select("id,table_number,seats")
@@ -95,32 +97,16 @@ export async function GET(req) {
       if (error) errors.order_items = error.message
       orderItems = data || []
 
-      const { data: modifierRows, error: modifierError } = await supabaseCloudAdmin
-        .from("order_item_modifiers")
-        .select("order_item_id,price,quantity")
-        .in("order_item_id", orderItems.map(item => item.id))
-
-      if (modifierError) {
-        errors.order_item_modifiers = modifierError.message
-      }
-
-      const modifierTotals = {}
-      for (const row of modifierRows || []) {
-        modifierTotals[row.order_item_id] =
-          (modifierTotals[row.order_item_id] || 0) +
-          Number(row.price || 0) * Number(row.quantity || 1)
-      }
-
+      // Dashboard totals use the stored order total whenever available.
+      // Do not load modifier rows here: they add a second potentially large
+      // query and are not needed for the dashboard cards/top-selling list.
       const calculatedTotals = {}
       for (const item of orderItems) {
         const base =
           Number(item.line_total ?? 0) ||
           Number(item.unit_price || 0) * Number(item.quantity || 0)
-        const modifierTotal =
-          Number(modifierTotals[item.id] || 0) * Number(item.quantity || 0)
-
         calculatedTotals[item.order_id] =
-          (calculatedTotals[item.order_id] || 0) + base + modifierTotal
+          (calculatedTotals[item.order_id] || 0) + base
       }
 
       orders = orders.map(order => {
@@ -152,10 +138,11 @@ export async function GET(req) {
     const customerIds = new Set(
       orders.map(order => order.customer_id).filter(Boolean).map(String)
     )
-    const customerRows = customersRes.data || []
+    // Dashboard only needs the count; never ship the entire customer table to the browser.
+    const customerRows = []
     const customerCount = customersRes.error
       ? customerIds.size
-      : Math.max(customerRows.length, customerIds.size)
+      : Math.max(Number(customersRes.count || 0), customerIds.size)
 
     const todayReservations = (reservationsRes.data || []).filter(
       reservation => String(reservation.date || "").slice(0, 10) === todayKey

@@ -48,6 +48,12 @@ function canAccess(role: Role, pathname: string, staffPermissions: Record<string
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function isInvalidAuthSessionError(error:any) {
+  const status=Number(error?.status||0)
+  const message=String(error?.message||error?.name||"").toLowerCase()
+  return status===401 || /invalid.*refresh token|refresh token.*not found|refresh token.*expired|jwt.*expired|session.*not found|auth session missing/.test(message)
+}
+
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -57,27 +63,32 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const profileCacheRef=useRef<{userId:string;profile:any}|null>(null), redirectingRef=useRef(false)
 
   const getProfile=useCallback(async(userId:string,authUser:any=null)=>{
-    const {data}=await supabaseCloud.from("profiles").select("role,restaurant_id").eq("id",userId).maybeSingle()
+    const {data,error}=await supabaseCloud.from("profiles").select("role,restaurant_id").eq("id",userId).maybeSingle()
+    if(error) throw error
     const allowedRoles:Role[]=["staff","admin","super_admin"]
     let resolvedRole:Role=allowedRoles.includes(data?.role as Role)?data?.role as Role:""
     let resolvedRestaurantId:string|null=data?.restaurant_id||null
     if(!resolvedRestaurantId && resolvedRole!=="super_admin"){
       const metadataRestaurantId=authUser?.user_metadata?.restaurant_id||authUser?.app_metadata?.restaurant_id||null
       if(metadataRestaurantId){
-        const {data:restaurant}=await supabaseCloud.from("restaurants").select("id").eq("id",metadataRestaurantId).maybeSingle()
+        const {data:restaurant,error:restaurantError}=await supabaseCloud.from("restaurants").select("id").eq("id",metadataRestaurantId).maybeSingle()
+        if(restaurantError) throw restaurantError
         if(restaurant?.id) resolvedRestaurantId=restaurant.id
       }
     }
     if(!resolvedRestaurantId && resolvedRole!=="super_admin"){
-      const {data:ownedRestaurant}=await supabaseCloud.from("restaurants").select("id").eq("owner_id",userId).order("created_at",{ascending:true}).limit(1).maybeSingle()
+      const {data:ownedRestaurant,error:ownedRestaurantError}=await supabaseCloud.from("restaurants").select("id").eq("owner_id",userId).order("created_at",{ascending:true}).limit(1).maybeSingle()
+      if(ownedRestaurantError) throw ownedRestaurantError
       if(ownedRestaurant?.id){ resolvedRestaurantId=ownedRestaurant.id; if(!resolvedRole) resolvedRole="admin" }
     }
     if(!resolvedRole) return null
     if(resolvedRole!=="super_admin" && resolvedRestaurantId){
-      const [{data:restaurant},{data:planData}]=await Promise.all([
+      const [{data:restaurant,error:restaurantError},{data:planData,error:planError}]=await Promise.all([
         supabaseCloud.from("restaurants").select("status").eq("id",resolvedRestaurantId).maybeSingle(),
         supabaseCloud.rpc("get_restaurant_plan",{p_restaurant_id:resolvedRestaurantId})
       ])
+      if(restaurantError) throw restaurantError
+      if(planError) throw planError
       if(restaurant?.status!=="active") return {role:resolvedRole,restaurantId:resolvedRestaurantId,blocked:true,reason:"Restaurant subscription is pending or inactive. Please contact the platform administrator.",planFeatures:{}} as any
       const plan=planData?.plan||null
       const planFeatures={qr_ordering:plan?.qr_ordering===true,loyalty:plan?.loyalty===true,offers:plan?.offers===true,analytics:plan?.analytics===true,reservations:plan?.reservations===true,whatsapp:plan?.whatsapp===true}
@@ -93,35 +104,52 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     if(syncInFlight.current)return
     syncInFlight.current=true
     if(!bootstrapped.current)setLoading(true)
+    const hadAuthenticatedUser=Boolean(currentUserRef.current)
     try{
       let currentUser=knownUser
       if(currentUser===undefined){
-        const {data:{user:authUser}}=await supabaseCloud.auth.getUser()
-        currentUser=authUser
+        // Prefer the persisted Supabase session. getUser() performs a network
+        // request and a temporary network failure must never log a POS user out.
+        const {data:sessionData,error:sessionError}=await supabaseCloud.auth.getSession()
+        if(sessionError){
+          if(hadAuthenticatedUser && !isInvalidAuthSessionError(sessionError)){
+            console.warn("AUTH SESSION CHECK FAILED; KEEPING CURRENT SESSION:",sessionError)
+            return
+          }
+          throw sessionError
+        }
+        currentUser=sessionData?.session?.user||null
       }
       currentUserRef.current=currentUser||null
       setUser(currentUser)
       if(!currentUser){
-        setRole("");setRestaurantId(null)
+        setRole("");setRestaurantId(null);setStaffPermissions({})
         if(isInternalPath(pathname)){redirectingRef.current=true;router.replace("/login")}
         return
       }
       const cachedProfile = profileCacheRef.current
       let profile = cachedProfile && cachedProfile.userId === currentUser.id ? cachedProfile.profile : null
-      if(!profile){profile=await getProfile(currentUser.id,currentUser);if(profile)profileCacheRef.current={userId:currentUser.id,profile}}
       if(!profile){
-        await supabaseCloud.auth.signOut();setUser(null);setRole("");setRestaurantId(null);profileCacheRef.current=null
+        profile=await getProfile(currentUser.id,currentUser)
+        if(profile)profileCacheRef.current={userId:currentUser.id,profile}
+      }
+      if(!profile){
+        // A real account/profile mismatch is different from a network error.
+        // Only this confirmed-invalid state is allowed to sign the user out.
+        await supabaseCloud.auth.signOut()
+        setUser(null);setRole("");setRestaurantId(null);setStaffPermissions({});profileCacheRef.current=null
         if(isInternalPath(pathname))router.replace("/login")
         return
       }
       if(profile.blocked){
-        await supabaseCloud.auth.signOut();setUser(null);setRole("");setRestaurantId(null);profileCacheRef.current=null
+        await supabaseCloud.auth.signOut();setUser(null);setRole("");setRestaurantId(null);setStaffPermissions({});profileCacheRef.current=null
         router.replace(`/login?reason=${encodeURIComponent(profile.reason||"Restaurant access is inactive")}`);return
       }
       setRole(profile.role);setRestaurantId(profile.restaurantId)
       let permissions:Record<string,boolean>={}
       if(profile.role==="staff"&&profile.restaurantId){
-        const {data:rows}=await supabaseCloud.from("staff_permissions").select("permission_key,enabled").eq("restaurant_id",profile.restaurantId).eq("staff_id",currentUser.id)
+        const {data:rows,error:permissionError}=await supabaseCloud.from("staff_permissions").select("permission_key,enabled").eq("restaurant_id",profile.restaurantId).eq("staff_id",currentUser.id)
+        if(permissionError)throw permissionError
         for(const row of rows||[])permissions[row.permission_key]=row.enabled===true
       }
       setStaffPermissions(permissions)
@@ -129,14 +157,23 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       let pluginFeatureEnabled=false
       if(profile.role==="admin"&&requiredFeature){
         const codes=requiredFeature==="reservations-pro"?["reservations-pro","reservations"]:requiredFeature==="qr-print-center"?["qr-print-center"]:requiredFeature==="analytics"?["analytics"]:[requiredFeature]
-        const {data:pluginRow}=await supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",profile.restaurantId).in("plugin_code",codes).eq("enabled",true).limit(1).maybeSingle()
+        const {data:pluginRow,error:pluginError}=await supabaseCloud.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",profile.restaurantId).in("plugin_code",codes).eq("enabled",true).limit(1).maybeSingle()
+        if(pluginError)throw pluginError
         pluginFeatureEnabled=!!pluginRow?.enabled
       }
       if(profile.role==="admin"&&requiredFeature&&(profile.planFeatures?.[requiredFeature]!==true)&&!pluginFeatureEnabled){router.replace("/dashboard");return}
       if(!canAccess(profile.role,pathname,permissions)){router.replace(HOME_BY_ROLE[profile.role as Exclude<Role,"">]);return}
       if(pathname==="/login"){redirectingRef.current=true;router.replace(HOME_BY_ROLE[profile.role as Exclude<Role,"">]);return}
     }catch(error){
-      console.error("AUTH SYNC ERROR:",error);setUser(null);setRole("");setRestaurantId(null)
+      // Never destroy a valid local Supabase session because Cloud/DB/network
+      // temporarily failed. This was the main cause of intermittent auto
+      // sign-outs in the installed Electron POS.
+      console.error("AUTH SYNC ERROR (session preserved):",error)
+      if(hadAuthenticatedUser && !isInvalidAuthSessionError(error)){
+        return
+      }
+      currentUserRef.current=null
+      setUser(null);setRole("");setRestaurantId(null);setStaffPermissions({})
       if(isInternalPath(pathname))router.replace("/login")
     }finally{
       bootstrapped.current=true;syncInFlight.current=false
@@ -147,8 +184,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   useEffect(()=>{
     syncAuth()
     const {data:listener}=supabaseCloud.auth.onAuthStateChange((event,session)=>{
-      if(event==="SIGNED_OUT"){bootstrapped.current=false;currentUserRef.current=null;profileCacheRef.current=null;window.setTimeout(()=>syncAuth(null),0);return}
+      if(event==="SIGNED_OUT"){bootstrapped.current=false;currentUserRef.current=null;profileCacheRef.current=null;setUser(null);setRole("");setRestaurantId(null);setStaffPermissions({});window.setTimeout(()=>syncAuth(null),0);return}
       if(event==="SIGNED_IN"&&session?.user){bootstrapped.current=false;window.setTimeout(()=>syncAuth(session.user),0)}
+      // TOKEN_REFRESHED is intentionally not routed through the full profile
+      // sync. Supabase handles refresh internally; reloading the whole auth
+      // graph on every refresh creates unnecessary contention in Electron.
     })
     return()=>listener.subscription.unsubscribe()
   },[syncAuth])

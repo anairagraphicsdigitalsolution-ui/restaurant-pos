@@ -10,6 +10,7 @@ import React, {
 } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import { CORE_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
+import { useAuth } from "@/components/AuthProvider"
 
 
 /* ✅ ADD PROPS TYPE */
@@ -21,6 +22,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { user, restaurantId: authRestaurantId, role: authRole } = useAuth()
 
   const [logo, setLogo] = useState<string>("")
   const [restaurantName, setRestaurantName] = useState("")
@@ -41,8 +43,8 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    if (user || authRestaurantId || authRole === "super_admin") fetchData()
+  }, [user, authRestaurantId, authRole])
 
   useEffect(() => {
     if (propRole) setRole(propRole)
@@ -53,66 +55,61 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   }, [pathname])
 
   async function fetchData() {
-    const { data: userData } = await supabaseCloud.auth.getUser()
-    if (!userData?.user) return
-
-    const user = userData.user
+    if (!user) return
     setUserEmail(user.email || "")
+    const resolvedRole = authRole || propRole || ""
+    const resolvedRestaurantId = authRestaurantId || null
+    setRole(resolvedRole)
 
-    const { data: profile } = await supabaseCloud
-      .from("profiles")
-      .select("role, restaurant_id")
-      .eq("id", user.id)
-      .single()
-
-    if (!profile) return
-
-    setRole(profile.role || propRole || "")
-
-    if (profile.role === "super_admin") {
+    if (resolvedRole === "super_admin") {
       setRestaurantName("Anaira Graphics")
       return
     }
 
-    if (profile.restaurant_id) {
-      setRestaurantId(profile.restaurant_id)
+    if (resolvedRestaurantId) {
+      setRestaurantId(resolvedRestaurantId)
 
-      const { count: unreadCount } = await supabaseCloud
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("restaurant_id", profile.restaurant_id)
-        .is("read_at", null)
+      const [
+        { count: unreadCount },
+        { data: rest },
+        { data: planData },
+        { data: pluginRows },
+        { data: operationsSettingRows }
+      ] = await Promise.all([
+        supabaseCloud
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("restaurant_id", resolvedRestaurantId)
+          .is("read_at", null),
+        supabaseCloud
+          .from("restaurants")
+          .select("id,name,logo,status")
+          .eq("id", resolvedRestaurantId)
+          .single(),
+        supabaseCloud.rpc("get_restaurant_plan", { p_restaurant_id: resolvedRestaurantId }),
+        supabaseCloud
+          .from("restaurant_plugins")
+          .select("plugin_code,enabled")
+          .eq("restaurant_id", resolvedRestaurantId),
+        supabaseCloud
+          .from("plugin_settings")
+          .select("plugin_code,config")
+          .eq("restaurant_id", resolvedRestaurantId)
+          .eq("plugin_code", "operations-hub")
+      ])
 
       setUnreadNotifications(unreadCount || 0)
-
-      const { data: rest } = await supabaseCloud
-        .from("restaurants")
-        .select("id,name,logo,status")
-        .eq("id", profile.restaurant_id)
-        .single()
 
       if (rest) {
         setRestaurantName(rest.name)
         setLogo(rest.logo || "")
       }
 
-      const { data: planData } = await supabaseCloud.rpc("get_restaurant_plan", { p_restaurant_id: profile.restaurant_id })
       const plan = planData?.plan || null
       const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
       const live = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
       setPlanName(plan?.name || "")
       setPlanEndsAt(planData?.subscription?.ends_at || "")
-      const [{ data: pluginRows }, { data: operationsSettingRows }] = await Promise.all([
-        supabaseCloud
-          .from("restaurant_plugins")
-          .select("plugin_code,enabled")
-          .eq("restaurant_id", profile.restaurant_id),
-        supabaseCloud
-          .from("plugin_settings")
-          .select("plugin_code,config")
-          .eq("restaurant_id", profile.restaurant_id)
-          .eq("plugin_code", "operations-hub")
-      ])
 
       const opsConfig = operationsSettingRows?.[0]?.config || {}
       setOperationsSettings(opsConfig)
