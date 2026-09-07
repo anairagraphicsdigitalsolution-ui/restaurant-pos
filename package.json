@@ -28,14 +28,14 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "next": "^15.5.23",
-    "nodemailer": "^7.0.13",
     "openai": "^5.12.2",
     "react": "^19.1.1",
     "react-barcode": "^1.5.3",
     "react-dom": "^19.1.1",
     "react-qr-code": "^2.0.15",
     "recharts": "^3.1.2",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "nodemailer": "^7.0.6"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -43,13 +43,13 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "electron": "^38.2.0",
-    "electron-builder": "^26.0.12",
     "eslint": "^9.35.0",
     "eslint-config-next": "^15.5.23",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
   },
   "main": "electron/main.cjs",
   "description": "Cloud-based Anaira Restaurant POS",

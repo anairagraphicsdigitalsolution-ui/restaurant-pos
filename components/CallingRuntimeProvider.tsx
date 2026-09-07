@@ -58,7 +58,6 @@ function announcementFor(row: Notice, config: ReturnType<typeof normaliseConfig>
 export default function CallingRuntimeProvider() {
   const seen = useRef(new Set<string>())
   const configRef = useRef(normaliseConfig(defaults))
-  const restaurantRef = useRef<string | null>(null)
 
   const consume = useCallback((row: Notice) => {
     if (!row?.id || seen.current.has(row.id)) return
@@ -78,19 +77,7 @@ export default function CallingRuntimeProvider() {
   useEffect(() => {
     let cancelled = false
     let retry: ReturnType<typeof setTimeout> | null = null
-    let channel: any = null
     let fallbackHandler: ((event: Event) => void) | null = null
-
-    const cleanup = async () => {
-      if (retry) clearTimeout(retry)
-      if (fallbackHandler) window.removeEventListener("anaira:notification", fallbackHandler)
-      fallbackHandler = null
-      if (channel) {
-        await supabaseCloud.removeChannel(channel)
-        channel = null
-      }
-      restaurantRef.current = null
-    }
 
     const start = async () => {
       if (cancelled || !user || !restaurantId || role === "super_admin") return
@@ -120,32 +107,24 @@ export default function CallingRuntimeProvider() {
         if (localVoice) runtimeConfig.voiceName = localVoice
       } catch {}
       configRef.current = runtimeConfig
-      restaurantRef.current = restaurantId
 
       window.addEventListener("pointerdown", unlockCallingAudio, { once: true, passive: true })
       window.addEventListener("keydown", unlockCallingAudio, { once: true })
-      fallbackHandler = event => consume((event as CustomEvent<Notice>).detail)
+      fallbackHandler = event => {
+        if (!cancelled) consume((event as CustomEvent<Notice>).detail)
+      }
       window.addEventListener("anaira:notification", fallbackHandler)
-
-      channel = supabaseCloud
-        .channel(`anaira-calling-runtime-${restaurantId}`)
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` }, payload => consume(payload.new as Notice))
-        .subscribe(status => {
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            if (retry) clearTimeout(retry)
-            retry = setTimeout(start, 5000)
-          }
-        })
     }
 
     void start()
     return () => {
       cancelled = true
-      void cleanup()
+      if (retry) clearTimeout(retry)
+      if (fallbackHandler) window.removeEventListener("anaira:notification", fallbackHandler)
       window.removeEventListener("pointerdown", unlockCallingAudio)
       window.removeEventListener("keydown", unlockCallingAudio)
     }
-  }, [consume, user, restaurantId, role])
+  }, [consume, user, restaurantId, role, unlockCallingAudio])
 
   return null
 }

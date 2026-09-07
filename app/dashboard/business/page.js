@@ -1,7 +1,7 @@
 "use client"
 import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
@@ -60,6 +60,7 @@ export default function BusinessOperations() {
   const [rewardForm, setRewardForm] = useState({ name: "", description: "", points_cost: "", reward_type: "discount", reward_value: "", min_order_amount: "", usage_limit: "", expires_days: "" })
   const [tierForm, setTierForm] = useState({ name: "", min_points: "", multiplier: "1", benefits: "" })
   const [campaignForm, setCampaignForm] = useState({ name: "", description: "", bonus_points: "", starts_at: "", ends_at: "" })
+  const initRequestRef = useRef(0)
 
   const [cf, setCf] = useState({ name: "", phone: "", email: "" })
   const [gf, setGf] = useState({ name: "", selection_type: "single", required: false, min_select: 0, max_select: "" })
@@ -87,24 +88,51 @@ export default function BusinessOperations() {
   }, [tab])
 
   useEffect(() => {
-    init()
+    let disposed = false
+    let refreshTimer = null
+
+    const safeInit = async () => {
+      if (disposed) return
+      await init({ background: true })
+    }
+
+    // Initial load is allowed to show the loading state. Subsequent refreshes
+    // are non-destructive: a transient Cloud/print-dialog hiccup must never
+    // replace already visible Operations data with empty arrays.
+    init({ background: false })
+    refreshTimer = window.setInterval(safeInit, 30000)
+
     const handlePageShow = (event) => {
-      // Browser print-preview/back and bfcache restores can resume this page
-      // without a normal React remount. Re-sync Cloud data when that happens.
-      if (event.persisted) init()
+      // Browser/Electron print-preview/back and bfcache restores can resume this
+      // page without a normal React remount. Re-sync Cloud data in the
+      // background, while retaining the current screen until valid data arrives.
+      if (event.persisted) safeInit()
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") safeInit()
     }
     window.addEventListener("pageshow", handlePageShow)
+    document.addEventListener("visibilitychange", handleVisibility)
     return () => {
+      disposed = true
       window.removeEventListener("pageshow", handlePageShow)
+      document.removeEventListener("visibilitychange", handleVisibility)
+      if (refreshTimer) window.clearInterval(refreshTimer)
       window.clearTimeout(window.__anairaOpsToast)
     }
   }, [])
 
-  async function init() {
+
+  async function init({ background = false } = {}) {
+    const requestId = ++initRequestRef.current
     try {
+      if (!background) setLoading(true)
       const { data: u } = await supabaseCloud.auth.getSession()
       const token = u?.session?.access_token
-      if (!token) return setLoading(false)
+      if (!token) {
+        if (!background) setLoading(false)
+        return
+      }
 
       const response = await fetch("/api/restaurant-operations", {
         method: "GET",
@@ -114,13 +142,20 @@ export default function BusinessOperations() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.success) {
         console.error("Operations Hub load failed", payload)
-        return setLoading(false)
+        if (!background) setLoading(false)
+        return
       }
+      // Ignore stale responses from an older refresh. This prevents a slow
+      // print-preview/background request from overwriting newer Cloud data.
+      if (requestId !== initRequestRef.current) return
 
       setRid(payload.restaurant_id || null)
       setName(payload.name || "Restaurant")
       setPluginEnabled(payload.enabled === true)
-      if (payload.enabled !== true) return setLoading(false)
+      if (payload.enabled !== true) {
+        if (!background) setLoading(false)
+        return
+      }
 
       const d = payload.data || {}
       // A single failed Cloud query must never wipe an already loaded module.
@@ -152,34 +187,41 @@ export default function BusinessOperations() {
     } catch (e) {
       console.error("Operations Hub init error", e)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }
 
   const loadCustomers = async (r) => {
-    const { data } = await supabaseCloud.from("customers").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false })
+    const { data, error } = await supabaseCloud.from("customers").select("*").eq("restaurant_id", r).order("updated_at", { ascending: false })
+    if (error) { console.warn("Customers refresh failed; keeping current data", error); return }
     setCustomers(data || [])
   }
   const loadMods = async (r) => {
-    const [{ data: g }, { data: m }] = await Promise.all([
+    const [groupsRes, modsRes, menuRes] = await Promise.all([
       supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", r).order("created_at"),
       supabaseCloud.from("modifiers").select("*").eq("restaurant_id", r).order("created_at"),
+      supabaseCloud.from("menu_items").select("id,name,category,price").eq("restaurant_id", r).order("name"),
     ])
-    setGroups(g || [])
-    setMods(m || [])
-    const { data: menu } = await supabaseCloud.from("menu_items").select("id,name,category,price").eq("restaurant_id", r).order("name")
-    setMenuItems(menu || [])
+    if (!groupsRes.error) setGroups(groupsRes.data || [])
+    else console.warn("Modifier groups refresh failed; keeping current data", groupsRes.error)
+    if (!modsRes.error) setMods(modsRes.data || [])
+    else console.warn("Modifiers refresh failed; keeping current data", modsRes.error)
+    if (!menuRes.error) setMenuItems(menuRes.data || [])
+    else console.warn("Menu refresh failed; keeping current data", menuRes.error)
   }
   const loadExpenses = async (r) => {
-    const { data } = await supabaseCloud.from("expenses").select("*").eq("restaurant_id", r).order("expense_date", { ascending: false }).limit(100)
+    const { data, error } = await supabaseCloud.from("expenses").select("*").eq("restaurant_id", r).order("expense_date", { ascending: false }).limit(100)
+    if (error) { console.warn("Expenses refresh failed; keeping current data", error); return }
     setExpenses(data || [])
   }
   const loadAttendance = async (r) => {
-    const { data } = await supabaseCloud.from("staff_attendance").select("*").eq("restaurant_id", r).order("clock_in", { ascending: false }).limit(100)
+    const { data, error } = await supabaseCloud.from("staff_attendance").select("*").eq("restaurant_id", r).order("clock_in", { ascending: false }).limit(100)
+    if (error) { console.warn("Attendance refresh failed; keeping current data", error); return }
     setAttendance(data || [])
   }
   const loadFeedback = async (r) => {
-    const { data } = await supabaseCloud.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    const { data, error } = await supabaseCloud.from("customer_feedback").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    if (error) { console.warn("Feedback refresh failed; keeping current data", error); return }
     setFeedback(data || [])
   }
   const loadLoyaltyTransactions = async (r) => {
@@ -193,7 +235,6 @@ export default function BusinessOperations() {
 
     if (error) {
       console.error("Loyalty transactions:", error)
-      setLoyaltyTransactions([])
       setLoyaltyError(error.message || "Loyalty history could not be loaded.")
       return
     }
@@ -222,15 +263,22 @@ export default function BusinessOperations() {
   }
 
   const loadStaff = async (r) => {
-    const { data } = await supabaseCloud.from("profiles").select("id,email,role").eq("restaurant_id", r).order("email")
+    const { data, error } = await supabaseCloud.from("profiles").select("id,email,role").eq("restaurant_id", r).order("email")
+    if (error) { console.warn("Staff refresh failed; keeping current data", error); return }
     setStaff(data || [])
   }
   const loadKots = async (r) => {
-    const { data } = await supabaseCloud.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50)
+    const { data, error } = await supabaseCloud.from("kot_tickets").select("*").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(50)
+    // Never blank a working KOT screen because a refresh temporarily failed.
+    if (error) {
+      console.warn("KOT refresh failed; keeping current data", error)
+      return
+    }
     setKots(data || [])
   }
   const loadOrders = async (r) => {
-    const { data } = await supabaseCloud.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    const { data, error } = await supabaseCloud.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", r).order("created_at", { ascending: false }).limit(100)
+    if (error) { console.warn("Orders refresh failed; keeping current data", error); return }
     setOrders(data || [])
   }
 

@@ -81,9 +81,10 @@ export async function GET(req) {
     let orderMap = {}
     let itemMap = {}
     let offerMap = {}
+    const enrichmentErrors = []
 
     if (orderIds.length) {
-      const [{ data: orders }, { data: items }] = await Promise.all([
+      const [ordersRes, itemsRes] = await Promise.all([
         supabaseCloudAdmin
           .from("orders")
           .select("id,subtotal,discount_amount,tax_amount,total_amount,delivery_charge,offer_id,payment_method,overall_note")
@@ -95,6 +96,10 @@ export async function GET(req) {
           .in("order_id", orderIds)
           .order("id")
       ])
+      const orders = ordersRes.data || []
+      const items = itemsRes.data || []
+      if (ordersRes.error) enrichmentErrors.push(`orders: ${ordersRes.error.message}`)
+      if (itemsRes.error) enrichmentErrors.push(`order_items: ${itemsRes.error.message}`)
 
       ;(orders || []).forEach(order => { orderMap[order.id] = order })
       ;(items || []).forEach(item => {
@@ -103,11 +108,13 @@ export async function GET(req) {
 
       // Include all item modifiers/add-ons on the customer-facing delivery bill.
       const itemIds = (items || []).map(item => item.id).filter(Boolean)
+      let modifierError = null
       if (itemIds.length) {
-        const { data: modifiers } = await supabaseCloudAdmin
+        const { data: modifiers, error: modifiersError } = await supabaseCloudAdmin
           .from("order_item_modifiers")
           .select("order_item_id,modifier_name,price,quantity")
           .in("order_item_id", itemIds)
+        modifierError = modifiersError || null
         const modifierMap = {}
         ;(modifiers || []).forEach(modifier => {
           ;(modifierMap[modifier.order_item_id] ||= []).push(modifier)
@@ -121,14 +128,18 @@ export async function GET(req) {
       }
 
       const offerIds = [...new Set((orders || []).map(o => o.offer_id).filter(Boolean))]
+      let offerError = null
       if (offerIds.length) {
-        const { data: offers } = await supabaseCloudAdmin
+        const { data: offers, error: offersError } = await supabaseCloudAdmin
           .from("offers")
           .select("id,title,discount,discount_type")
           .in("id", offerIds)
           .eq("restaurant_id", restaurantId)
+        offerError = offersError || null
         ;(offers || []).forEach(offer => { offerMap[offer.id] = offer })
       }
+      if (modifierError) enrichmentErrors.push(`order_item_modifiers: ${modifierError.message}`)
+      if (offerError) enrichmentErrors.push(`offers: ${offerError.message}`)
     }
 
     const enrichedDeliveries = deliveries.map(delivery => {
@@ -181,7 +192,8 @@ export async function GET(req) {
       errors:{
         deliveries:deliveryRes.error?.message || null,
         riders:riderRes.error?.message || null,
-        zones:zoneRes.error?.message || null
+        zones:zoneRes.error?.message || null,
+        enrichment: enrichmentErrors.length ? enrichmentErrors.join(" | ") : null
       }
     })
   } catch (error) {

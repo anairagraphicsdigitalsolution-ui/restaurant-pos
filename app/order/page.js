@@ -1,748 +1,633 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useSearchParams, useParams } from "next/navigation"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { connectBluetoothThermalPrinter, disconnectBluetoothThermalPrinter, disconnectNativeBluetoothThermalPrinter, getBluetoothThermalName, isBluetoothThermalConnected, isBluetoothThermalSupported, isNativeBluetoothPrinterAvailable, listNativeBluetoothPrinters, connectNativeBluetoothThermalPrinter, openNativeBluetoothSettings, makeEscPosReceipt, printBluetoothThermal, sendThermalPrint, connectLocalPrinter, listLocalPrinters, testLocalPrinter, getLocalBridgeStatus, startLocalPrintBridge, printLocalBridge } from "@/lib/thermalPrintClient"
+
+const money = (value) => `₹${Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export default function OrderPage() {
+  const router = useRouter()
   const params = useSearchParams()
   const route = useParams()
-
   const slug = route?.slug
-  const typeParam = route?.type
-  const idParam = route?.id
 
+  const [restaurantId, setRestaurantId] = useState(null)
+  const [restaurantName, setRestaurantName] = useState("")
+  const [restaurant, setRestaurant] = useState(null)
   const [menu, setMenu] = useState([])
   const [tables, setTables] = useState([])
   const [rooms, setRooms] = useState([])
-  const [cart, setCart] = useState([])
-
+  const [deliveryZones, setDeliveryZones] = useState([])
+  const [offers, setOffers] = useState([])
+  const [selectedOfferId, setSelectedOfferId] = useState("")
+  const [printerName, setPrinterName] = useState("")
+  const [printerConnecting, setPrinterConnecting] = useState(false)
+  const [printerPrompt, setPrinterPrompt] = useState(null)
+  const [localPrinters, setLocalPrinters] = useState([])
+  const [localPrinterLoading, setLocalPrinterLoading] = useState(false)
+  const [selectedLocalPort, setSelectedLocalPort] = useState("")
   const [modifierGroups, setModifierGroups] = useState([])
   const [modifiers, setModifiers] = useState([])
-  const [operationsHubEnabled, setOperationsHubEnabled] = useState(true)
   const [modifierLinks, setModifierLinks] = useState([])
-  const [modifierItem, setModifierItem] = useState(null)
-  const [variantItem, setVariantItem] = useState(null)
-  const [variantSelection, setVariantSelection] = useState(null)
-  const [variantQuantities, setVariantQuantities] = useState({})
-  const [variantBatch, setVariantBatch] = useState([])
-  const [modifierItemQty, setModifierItemQty] = useState(1)
-  const [modifierSelection, setModifierSelection] = useState({})
+  const [operationsHubEnabled, setOperationsHubEnabled] = useState(false)
 
   const [type, setType] = useState("table")
   const [selected, setSelected] = useState(null)
-
+  const [cart, setCart] = useState([])
   const [activeCategory, setActiveCategory] = useState("All")
-  const [restaurantId, setRestaurantId] = useState(null)
-  const [restaurantName, setRestaurantName] = useState("")
-
-  const [deliveryZones, setDeliveryZones] = useState([])
+  const [search, setSearch] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [placing, setPlacing] = useState(false)
+  const [screen, setScreen] = useState("order")
+  const [currentOrder, setCurrentOrder] = useState(null)
+  const [finalizedBill, setFinalizedBill] = useState(null)
+  const [paymentMethod, setPaymentMethod] = useState("cash")
+  const [paymentReference, setPaymentReference] = useState("")
+  const [discountMode, setDiscountMode] = useState("amount")
+  const [discountValue, setDiscountValue] = useState("")
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
   const [deliveryAddress, setDeliveryAddress] = useState("")
   const [deliveryZone, setDeliveryZone] = useState("")
   const [deliveryCharge, setDeliveryCharge] = useState(0)
   const [customerNotes, setCustomerNotes] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("cash")
+  const [orderNote, setOrderNote] = useState("")
+  const [variantItem, setVariantItem] = useState(null)
+  const [variantQuantities, setVariantQuantities] = useState({})
+  const [modifierItem, setModifierItem] = useState(null)
+  const [modifierItemQty, setModifierItemQty] = useState(1)
+  const [modifierSelection, setModifierSelection] = useState({})
+  const [variantBatch, setVariantBatch] = useState([])
+  const [finalizing, setFinalizing] = useState(false)
+  const [error, setError] = useState("")
+  const [kitchenOrders, setKitchenOrders] = useState([])
+  const [kitchenOpen, setKitchenOpen] = useState(true)
+  const [kitchenLoading, setKitchenLoading] = useState(false)
+  const [kitchenUpdating, setKitchenUpdating] = useState("")
+  const [newKitchenOrder, setNewKitchenOrder] = useState(null)
+  const kitchenInitialized = useRef(false)
+  const kitchenSeen = useRef(new Set())
+  const finalizeLock = useRef(false)
 
-  const [openSelect, setOpenSelect] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
-  const [placingOrder, setPlacingOrder] = useState(false)
-
-  /* =========================================================
-     RESPONSIVE
-     ========================================================= */
-
-  useEffect(() => {
-    const check = () => {
-      setIsMobile(window.innerWidth < 768)
-    }
-
-    check()
-
-    window.addEventListener("resize", check)
-
-    return () => {
-      window.removeEventListener("resize", check)
-    }
-  }, [])
-
-  /* =========================================================
-     INITIAL LOAD
-     ========================================================= */
+  useEffect(() => { init() }, [slug])
 
   useEffect(() => {
-    init()
-  }, [slug])
-
-  useEffect(() => {
-    if (tables.length || rooms.length) {
-      autoQR()
-    }
-  }, [tables, rooms, typeParam, idParam])
+    const initialType = route?.type || params.get("type")
+    const initialId = route?.id || params.get("id")
+    if (!initialId || !["table", "room"].includes(initialType)) return
+    const list = initialType === "table" ? tables : rooms
+    const found = list.find(x => String(x.id) === String(initialId) || String(x.table_number ?? x.room_number) === String(initialId))
+    if (found) { setType(initialType); setSelected(found) }
+  }, [tables, rooms, route?.type, route?.id])
 
   async function init() {
+    setLoading(true)
+    setError("")
     try {
+      let rid = params.get("rid")
       if (slug) {
-        const { data: rest, error } = await supabaseCloud
-          .from("restaurants")
-          .select("*")
-          .eq("slug", slug)
-          .maybeSingle()
-        if (error || !rest) {
-          console.error("RESTAURANT ERROR:", error)
-          alert("Restaurant not found.")
-          return
-        }
-        setRestaurantId(rest.id)
-        setRestaurantName(rest.name || "")
-        await fetchAll(rest.id)
-        return
+        const { data, error: restError } = await supabaseCloud.from("restaurants").select("*").eq("slug", slug).maybeSingle()
+        if (restError || !data) throw new Error(restError?.message || "Restaurant not found")
+        rid = data.id
+        setRestaurant(data)
+        setRestaurantName(data.name || "")
+      } else if (!rid) {
+        const { data: auth, error: authError } = await supabaseCloud.auth.getUser()
+        if (authError || !auth?.user) throw new Error("Please sign in first.")
+        const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", auth.user.id).single()
+        rid = profile?.restaurant_id
       }
-
-      const rid = params.get("rid")
-      if (rid) {
-        setRestaurantId(rid)
-        await fetchAll(rid)
-        return
-      }
-
-      const { data: userData, error: userError } = await supabaseCloud.auth.getUser()
-      if (userError || !userData?.user) {
-        alert("Please sign in first.")
-        return
-      }
-      const { data: profile, error: profileError } = await supabaseCloud
-        .from("profiles").select("restaurant_id").eq("id", userData.user.id).single()
-      if (profileError || !profile?.restaurant_id) {
-        console.error("PROFILE ERROR:", profileError)
-        alert("Restaurant profile not found.")
-        return
-      }
-      setRestaurantId(profile.restaurant_id)
-      await fetchAll(profile.restaurant_id)
-    } catch (error) {
-      console.error("INIT ERROR:", error)
-      alert("Unable to load restaurant.")
-    }
+      if (!rid) throw new Error("Restaurant profile not found")
+      setRestaurantId(rid)
+      await fetchAll(rid)
+      const initialType = route?.type || params.get("type") || "table"
+      const initialId = route?.id || params.get("id")
+      if (["table", "room", "delivery", "takeaway"].includes(initialType)) setType(initialType)
+    } catch (e) {
+      console.error(e)
+      setError(e.message || "Unable to load order screen")
+    } finally { setLoading(false) }
   }
-
-  /* =========================================================
-     LOAD ALL POS DATA
-     ========================================================= */
 
   async function fetchAll(rid) {
-    if (!rid) return
-
-    const { data: hubRow } = await supabaseCloud
-      .from("restaurant_plugins").select("enabled").eq("restaurant_id", rid)
-      .eq("plugin_code", "operations-hub").maybeSingle()
-    const hubOn = hubRow?.enabled === true
+    const { data: rest } = await supabaseCloud.from("restaurants").select("*").eq("id", rid).maybeSingle()
+    if (rest) { setRestaurant(rest); setRestaurantName(rest.name || "") }
+    const { data: plugin } = await supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id", rid).eq("plugin_code", "operations-hub").maybeSingle()
+    const hubOn = plugin?.enabled === true
     setOperationsHubEnabled(hubOn)
-
-    const emptyModifierResult = { data: [], error: null }
-    const [menuResult,variantResult,tablesResult,roomsResult,groupsResult,modifiersResult,linksResult,zonesResult] = await Promise.all([
-      supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid),
+    const empty = { data: [], error: null }
+    const [menuResult, variantResult, tableResult, roomResult, zoneResult, offerResult, groupResult, modifierResult, linkResult] = await Promise.all([
+      supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid).order("name"),
       supabaseCloud.from("menu_variants").select("id,menu_item_id,name,price_delta,active").eq("restaurant_id", rid).eq("active", true).order("created_at"),
-      supabaseCloud.from("tables").select("*").eq("restaurant_id", rid),
-      supabaseCloud.from("rooms").select("*").eq("restaurant_id", rid),
-      hubOn ? supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(emptyModifierResult),
-      hubOn ? supabaseCloud.from("modifiers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(emptyModifierResult),
-      hubOn ? supabaseCloud.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid) : Promise.resolve(emptyModifierResult),
+      supabaseCloud.from("tables").select("*").eq("restaurant_id", rid).order("table_number"),
+      supabaseCloud.from("rooms").select("*").eq("restaurant_id", rid).order("room_number"),
       supabaseCloud.from("delivery_zones").select("*").eq("restaurant_id", rid).eq("active", true).order("name"),
+      supabaseCloud.from("offers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at", { ascending: false }),
+      hubOn ? supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(empty),
+      hubOn ? supabaseCloud.from("modifiers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(empty),
+      hubOn ? supabaseCloud.from("menu_item_modifier_groups").select("menu_item_id,modifier_group_id").eq("restaurant_id", rid) : Promise.resolve(empty),
     ])
-    if (menuResult.error) console.error("MENU ERROR:", menuResult.error)
-    if (tablesResult.error) console.error("TABLE ERROR:", tablesResult.error)
-    if (roomsResult.error) console.error("ROOM ERROR:", roomsResult.error)
-    if (groupsResult.error) console.error("MODIFIER GROUP ERROR:", groupsResult.error)
-    if (modifiersResult.error) console.error("MODIFIER ERROR:", modifiersResult.error)
-    if (linksResult.error) console.error("MODIFIER LINK ERROR:", linksResult.error)
-    if (zonesResult.error) console.error("DELIVERY ZONE ERROR:", zonesResult.error)
     const variantMap = {}
-    ;(variantResult.data || []).forEach(v => { if (!variantMap[v.menu_item_id]) variantMap[v.menu_item_id] = []; variantMap[v.menu_item_id].push(v) })
-    setMenu((menuResult.data || []).map(item => ({ ...item, variants: variantMap[item.id] || [] })))
-    setTables(tablesResult.data || [])
-    setRooms(roomsResult.data || [])
-    setModifierGroups(groupsResult.data || [])
-    setModifiers(modifiersResult.data || [])
-    setModifierLinks(linksResult.data || [])
-    setDeliveryZones(zonesResult.data || [])
+    ;(variantResult.data || []).forEach(v => { (variantMap[v.menu_item_id] ||= []).push(v) })
+    setMenu((menuResult.data || []).map(i => ({ ...i, variants: variantMap[i.id] || [] })))
+    setTables(tableResult.data || [])
+    setRooms(roomResult.data || [])
+    setDeliveryZones(zoneResult.data || [])
+    let loadedOffers = offerResult.data || []
+    if (loadedOffers.length) {
+      const ids = loadedOffers.map(o => o.id).filter(Boolean)
+      const { data: offerProducts } = await supabaseCloud.from("offer_products").select("offer_id,menu_item_id,variant_id").in("offer_id", ids)
+      const byOffer = {}
+      ;(offerProducts || []).forEach(row => { (byOffer[row.offer_id] ||= []).push(row) })
+      loadedOffers = loadedOffers.map(o => ({ ...o, offer_products: byOffer[o.id] || [] }))
+    }
+    setOffers(loadedOffers)
+    setModifierGroups(groupResult.data || [])
+    setModifiers(modifierResult.data || [])
+    setModifierLinks(linkResult.data || [])
   }
 
-  /* =========================================================
-     QR AUTO SELECT
-     ========================================================= */
+  const categories = useMemo(() => ["All", ...new Set(menu.map(i => String(i.category || "Other").trim() || "Other"))], [menu])
+  const visibleItems = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return menu.filter(item => {
+      const catOk = activeCategory === "All" || String(item.category || "Other").trim() === activeCategory
+      const searchOk = !q || String(item.name || "").toLowerCase().includes(q)
+      return catOk && searchOk
+    })
+  }, [menu, activeCategory, search])
 
-  function autoQR() {
-    if (
-      typeParam &&
-      idParam &&
-      (typeParam === "table" || typeParam === "room")
-    ) {
-      setType(typeParam)
-
-      const list =
-        typeParam === "table"
-          ? tables
-          : rooms
-
-      const found = list.find((item) =>
-        typeParam === "table"
-          ? String(item.table_number) === String(idParam) ||
-            String(item.id) === String(idParam)
-          : String(item.room_number) === String(idParam) ||
-            String(item.id) === String(idParam)
-      )
-
-      if (found) {
-        setSelected(found)
-      }
-
-      return
-    }
-
-    const qrType = params.get("type")
-    const qrId = params.get("id")
-
-    if (!qrType || !qrId) return
-
-    if (qrType !== "table" && qrType !== "room") {
-      return
-    }
-
-    setType(qrType)
-
-    const list =
-      qrType === "table"
-        ? tables
-        : rooms
-
-    const found = list.find((item) =>
-      qrType === "table"
-        ? String(item.table_number) === String(qrId) ||
-          String(item.id) === String(qrId)
-        : String(item.room_number) === String(qrId) ||
-          String(item.id) === String(qrId)
-    )
-
-    if (found) {
-      setSelected(found)
-    }
-  }
-
-  /* =========================================================
-     MODIFIERS
-     ========================================================= */
+  const subtotal = useMemo(() => cart.reduce((s, i) => s + (Number(i.price || 0) + Number(i.modifierTotal || 0)) * Number(i.qty || 0), 0), [cart])
+  const manualDiscount = useMemo(() => {
+    const v = Math.max(0, Number(discountValue || 0))
+    return discountMode === "percent" ? Math.min(subtotal, Number((subtotal * Math.min(v, 100) / 100).toFixed(2))) : Math.min(subtotal, v)
+  }, [subtotal, discountMode, discountValue])
+  const eligibleOffers = useMemo(() => offers.filter(o => {
+    if (o.active === false) return false
+    const start = o.start_time ? new Date(o.start_time).getTime() : 0
+    const end = o.end_time ? new Date(o.end_time).getTime() : Infinity
+    if (start && Date.now() < start) return false
+    if (end !== Infinity && Date.now() > end) return false
+    return true
+  }), [offers])
+  const offerDiscounts = useMemo(() => eligibleOffers.map(o => {
+    const target = String(o.target_type || "all").toLowerCase()
+    const ids = new Set((o.offer_products || []).map(x => String(x.menu_item_id || x.item_id || "")))
+    const eligible = cart.filter(i => String(i.item_type || "").toLowerCase() !== "combo").reduce((sum, i) => {
+      const ok = target === "all" || (target === "products" && ids.has(String(i.id))) || (target === "category" && String(i.category || "") === String(o.target_category || ""))
+      return ok ? sum + (Number(i.price || 0) + Number(i.modifierTotal || 0)) * Number(i.qty || 0) : sum
+    }, 0)
+    const value = Math.max(0, Number(o.discount || 0))
+    let d = String(o.discount_type || "percent").toLowerCase() === "flat" ? Math.min(eligible, value) : Math.min(eligible, eligible * Math.min(value, 100) / 100)
+    if (o.max_discount != null) d = Math.min(d, Number(o.max_discount || 0))
+    return { ...o, calculated_discount: Number(d.toFixed(2)) }
+  }).filter(o => o.calculated_discount > 0), [eligibleOffers, cart])
+  const activeOffer = offerDiscounts.find(o => String(o.id) === String(selectedOfferId)) || offerDiscounts[0] || null
+  const offerDiscount = Number(activeOffer?.calculated_discount || 0)
+  const discount = Math.min(subtotal, Number((offerDiscount + manualDiscount).toFixed(2)))
+  const gst = restaurant?.gst_enabled ? Number(((Math.max(0, subtotal - discount) * Number(restaurant?.gst_rate || 0)) / 100).toFixed(2)) : 0
+  const total = Number((Math.max(0, subtotal - discount) + gst + Number(deliveryCharge || 0)).toFixed(2))
+  const cartCount = cart.reduce((s, i) => s + Number(i.qty || 0), 0)
 
   function itemGroups(item) {
     if (!operationsHubEnabled || !item) return []
-
-    const ids = modifierLinks
-      .filter(
-        (link) =>
-          String(link.menu_item_id) ===
-          String(item.id)
-      )
-      .map(
-        (link) => link.modifier_group_id
-      )
-
-    return modifierGroups.filter((group) =>
-      ids.includes(group.id)
-    )
+    const ids = modifierLinks.filter(x => String(x.menu_item_id) === String(item.id)).map(x => x.modifier_group_id)
+    return modifierGroups.filter(g => ids.includes(g.id))
   }
 
   function addToCart(item) {
-    if (!item) return
-    const variants = Array.isArray(item.variants) ? item.variants.filter(v => v.active !== false) : []
+    const variants = (item.variants || []).filter(v => v.active !== false)
     if (item.item_type !== "combo" && variants.length) {
       const initial = {}
       variants.forEach(v => { initial[v.id] = 0 })
-      setVariantItem(item)
-      setVariantSelection(null)
-      setVariantQuantities(initial)
-      return
+      setVariantItem(item); setVariantQuantities(initial); return
     }
     addToCartWithConfig(item)
   }
 
-  function setVariantQty(variantId, change) {
-    setVariantQuantities(previous => ({
-      ...previous,
-      [variantId]: Math.max(0, Number(previous[variantId] || 0) + change)
-    }))
+  function addToCartWithConfig(item) {
+    const groups = itemGroups(item)
+    if (groups.length) {
+      const initial = {}
+      groups.forEach(g => { initial[g.id] = [] })
+      setModifierItem(item); setModifierItemQty(1); setModifierSelection(initial); return
+    }
+    addConfiguredItem(item, [], 1)
   }
 
-  function closeVariantPicker() {
-    setVariantItem(null)
-    setVariantSelection(null)
-    setVariantQuantities({})
-    setVariantBatch([])
+  function addConfiguredItem(item, selectedModifiers = [], quantity = 1) {
+    const modifierTotal = selectedModifiers.reduce((s, m) => s + Number(m.price || 0) * Number(m.quantity || 1), 0)
+    const modifierKey = selectedModifiers.map(m => m.id).sort().join(",") || "base"
+    const key = `${item.id}:${item.variant_id || "base"}:${modifierKey}`
+    setCart(prev => {
+      const existing = prev.find(x => x.cartKey === key)
+      if (existing) return prev.map(x => x.cartKey === key ? { ...x, qty: Number(x.qty || 0) + Number(quantity || 1) } : x)
+      return [...prev, { ...item, qty: Number(quantity || 1), cartKey: key, selectedModifiers, modifierTotal }]
+    })
   }
 
-  function continueVariant() {
+  function continueVariants() {
     if (!variantItem) return
-    const selected = (variantItem.variants || []).filter(v => v.active !== false).map(v => ({
+    const selectedVariants = (variantItem.variants || []).filter(v => Number(variantQuantities[v.id] || 0) > 0).map(v => ({
       ...variantItem,
       price: Number(variantItem.price || 0) + Number(v.price_delta || 0),
       variant_id: v.id,
       variant_name: v.name,
-      variantQty: Number(variantQuantities[v.id] || 0)
-    })).filter(item => item.variantQty > 0)
-    if (!selected.length) { alert("Please select at least one variant quantity"); return }
-    setVariantItem(null)
-    setVariantSelection(null)
-    setVariantQuantities({})
-    processVariantBatch(selected)
+      variantQty: Number(variantQuantities[v.id] || 0),
+    }))
+    if (!selectedVariants.length) return alert("Select at least one variant quantity.")
+    setVariantItem(null); setVariantQuantities({}); processVariantBatch(selectedVariants)
   }
 
   function processVariantBatch(queue) {
-    const remaining = Array.isArray(queue) ? queue.slice() : []
-    while (remaining.length) {
-      const current = remaining.shift()
-      const groups = itemGroups(current)
+    const rest = queue.slice()
+    while (rest.length) {
+      const item = rest.shift()
+      const groups = itemGroups(item)
       if (groups.length) {
-        setVariantBatch(remaining)
-        setModifierItem(current)
-        setModifierItemQty(current.variantQty || 1)
-        const initial = {}
-        groups.forEach(group => { initial[group.id] = [] })
-        setModifierSelection(initial)
-        return
+        const initial = {}; groups.forEach(g => { initial[g.id] = [] })
+        setVariantBatch(rest); setModifierItem(item); setModifierItemQty(item.variantQty || 1); setModifierSelection(initial); return
       }
-      addConfiguredItem(current, [], current.variantQty || 1)
+      addConfiguredItem(item, [], item.variantQty || 1)
     }
     setVariantBatch([])
   }
 
-  function addToCartWithConfig(item) {
-    const groups = itemGroups(item)
-
-    if (groups.length) {
-      setModifierItem(item)
-
-      const initial = {}
-
-      groups.forEach((group) => {
-        initial[group.id] = []
-      })
-
-      setModifierSelection(initial)
-      return
-    }
-
-    addConfiguredItem(item, [])
-  }
-
-  function addConfiguredItem(
-    item,
-    selectedModifiers,
-    quantity = 1
-  ) {
-    const modifierTotal =
-      selectedModifiers.reduce(
-        (sum, modifier) =>
-          sum +
-          Number(modifier.price || 0) *
-            Number(modifier.quantity || 1),
-        0
-      )
-
-    const modifierKey =
-      selectedModifiers
-        .map((modifier) => modifier.id)
-        .sort()
-        .join(",")
-
-    const key =
-      `${item.id}:${item.variant_id || "base"}:${modifierKey || "base"}`
-
-    setCart((previous) => {
-      const existing = previous.find(
-        (cartItem) =>
-          cartItem.cartKey === key
-      )
-
-      if (existing) {
-        return previous.map((cartItem) =>
-          cartItem.cartKey === key
-            ? {
-                ...cartItem,
-                qty:
-                  Number(
-                    cartItem.qty || 0
-                  ) + Number(quantity || 1),
-              }
-            : cartItem
-        )
-      }
-
-      return [
-        ...previous,
-        {
-          ...item,
-          qty: Number(quantity || 1),
-          cartKey: key,
-          selectedModifiers,
-          modifierTotal,
-        },
-      ]
+  function toggleModifier(group, modifier) {
+    setModifierSelection(prev => {
+      const current = prev[group.id] || []
+      if (group.selection_type === "single") return { ...prev, [group.id]: [modifier] }
+      const exists = current.some(x => x.id === modifier.id)
+      const max = group.max_select == null ? null : Number(group.max_select)
+      if (!exists && max !== null && current.length >= max) return prev
+      return { ...prev, [group.id]: exists ? current.filter(x => x.id !== modifier.id) : [...current, modifier] }
     })
   }
 
   function confirmModifiers() {
     if (!modifierItem) return
-    const groups = itemGroups(modifierItem)
-    for (const group of groups) {
+    for (const group of itemGroups(modifierItem)) {
       const chosen = modifierSelection[group.id] || []
-      const minSelect = Math.max(Number(group.min_select || 0), group.required ? 1 : 0)
-      const maxSelect = group.max_select == null ? null : Number(group.max_select)
-      if (chosen.length < minSelect) { alert(`Please choose at least ${minSelect} option${minSelect === 1 ? "" : "s"} from ${group.name}`); return }
-      if (maxSelect !== null && chosen.length > maxSelect) { alert(`Please choose no more than ${maxSelect} option${maxSelect === 1 ? "" : "s"} from ${group.name}`); return }
+      const min = Math.max(Number(group.min_select || 0), group.required ? 1 : 0)
+      const max = group.max_select == null ? null : Number(group.max_select)
+      if (chosen.length < min) return alert(`Choose at least ${min} option${min === 1 ? "" : "s"} from ${group.name}.`)
+      if (max !== null && chosen.length > max) return alert(`Choose no more than ${max} option${max === 1 ? "" : "s"} from ${group.name}.`)
     }
     const chosen = Object.values(modifierSelection).flat()
     addConfiguredItem(modifierItem, chosen, modifierItemQty)
-    const remaining = variantBatch.slice()
-    setModifierItem(null)
-    setModifierSelection({})
-    setModifierItemQty(1)
-    setVariantBatch([])
-    if (remaining.length) processVariantBatch(remaining)
+    const rest = variantBatch.slice()
+    setModifierItem(null); setModifierSelection({}); setModifierItemQty(1); setVariantBatch([])
+    if (rest.length) processVariantBatch(rest)
   }
 
-  function toggleModifier(
-    group,
-    modifier
-  ) {
-    setModifierSelection(
-      (previous) => {
-        const current =
-          previous[group.id] || []
+  function updateQty(key, delta) {
+    setCart(prev => prev.flatMap(i => i.cartKey !== key ? [i] : (Number(i.qty || 0) + delta <= 0 ? [] : [{ ...i, qty: Number(i.qty || 0) + delta }])))
+  }
+  function removeItem(key) { setCart(prev => prev.filter(i => i.cartKey !== key)) }
 
-        if (
-          group.selection_type ===
-          "single"
-        ) {
-          return {
-            ...previous,
-            [group.id]: [modifier],
-          }
-        }
-
-        const exists =
-          current.some(
-            (item) =>
-              item.id === modifier.id
-          )
-
-        const maxSelect = group.max_select == null
-          ? null
-          : Number(group.max_select)
-
-        if (!exists && maxSelect !== null && current.length >= maxSelect) {
-          alert(`Maximum ${maxSelect} option${maxSelect === 1 ? "" : "s"} allowed in ${group.name}`)
-          return previous
-        }
-
-        return {
-          ...previous,
-          [group.id]: exists
-            ? current.filter(
-                (item) =>
-                  item.id !==
-                  modifier.id
-              )
-            : [
-                ...current,
-                modifier,
-              ],
-        }
-      }
-    )
+  function changeType(next) {
+    setType(next); setSelected(null); setDeliveryCharge(0); setDeliveryZone("")
+    if (next !== "delivery") { setCustomerName(""); setCustomerPhone(""); setDeliveryAddress(""); setCustomerNotes("") }
   }
 
-  /* =========================================================
-     CART
-     ========================================================= */
-
-  function updateQty(
-    cartKey,
-    change
-  ) {
-    setCart((previous) =>
-      previous.flatMap((item) => {
-        if (
-          item.cartKey !== cartKey
-        ) {
-          return [item]
-        }
-
-        const qty =
-          Number(item.qty || 0) +
-          change
-
-        if (qty <= 0) {
-          return []
-        }
-
-        return [
-          {
-            ...item,
-            qty,
-          },
-        ]
-      })
-    )
+  async function authToken() {
+    const { data, error: sessionError } = await supabaseCloud.auth.getSession()
+    if (sessionError || !data?.session?.access_token) throw new Error("Login session expired. Please login again.")
+    return data.session.access_token
   }
 
-  function removeItem(cartKey) {
-    setCart((previous) =>
-      previous.filter(
-        (item) =>
-          item.cartKey !== cartKey
-      )
-    )
-  }
-
-  /* =========================================================
-     COMBO
-     ========================================================= */
-
-  function comboDisplayName(item) {
-    if (
-      item?.item_type !== "combo"
-    ) {
-      return item?.name || "Item"
-    }
-
-    const config =
-      item?.combo_config || {}
-
-    const ids =
-      config.mode === "fixed"
-        ? (config.items || []).map(
-            (comboItem) =>
-              comboItem.item_id
-          )
-        : []
-
-    const names = ids
-      .map(
-        (id) =>
-          menu.find(
-            (menuItem) =>
-              menuItem.id === id
-          )?.name
-      )
-      .filter(Boolean)
-
-    return names.length
-      ? `${item.name} [${names.join(
-          ", "
-        )}]`
-      : item.name
-  }
-
-  /* =========================================================
-     ORDER TYPE
-     ========================================================= */
-
-  function changeOrderType(
-    nextType
-  ) {
-    setType(nextType)
-    setSelected(null)
-    setOpenSelect(false)
-
-    if (
-      nextType !== "delivery"
-    ) {
-      setDeliveryCharge(0)
-      setDeliveryZone("")
-    }
-
-    if (
-      nextType === "takeaway"
-    ) {
-      setCustomerNotes("")
-    }
-  }
-
-  function applyZone(zone) {
-    setDeliveryZone(
-      zone?.name || ""
-    )
-
-    setDeliveryCharge(
-      Number(zone?.charge || 0)
-    )
-  }
-
-  /* =========================================================
-     PLACE ORDER
-     ========================================================= */
-
-  async function placeOrder() {
-    if (placingOrder) return
-
-    if (!restaurantId) {
-      alert("Restaurant missing")
-      return
-    }
-
-    if (!cart.length) {
-      alert("Cart empty")
-      return
-    }
-
-    if (
-      (type === "table" ||
-        type === "room") &&
-      !selected
-    ) {
-      alert("Select table/room")
-      return
-    }
-
-    if (type === "delivery") {
-      if (!customerName.trim()) {
-        alert(
-          "Customer name is required"
-        )
-        return
-      }
-
-      if (!customerPhone.trim()) {
-        alert(
-          "Customer phone is required"
-        )
-        return
-      }
-
-      if (!deliveryAddress.trim()) {
-        alert(
-          "Delivery address is required"
-        )
-        return
-      }
-    }
-
+  async function refreshKitchenOrders({ silent = false } = {}) {
+    if (!restaurantId) return
+    if (!silent) setKitchenLoading(true)
     try {
-      setPlacingOrder(true)
+      const token = await authToken()
+      const response = await fetch("/api/kitchen/orders", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to load kitchen orders")
+      const live = (result.orders || []).filter(o => !["done", "completed", "complete", "cancelled", "canceled"].includes(String(o.status || "").toLowerCase()))
+      setKitchenOrders(live)
 
-      const foodTotal =
-        cart.reduce(
-          (sum, item) =>
-            sum +
-            (
-              Number(
-                item.price || 0
-              ) +
-              Number(
-                item.modifierTotal ||
-                  0
-              )
-            ) *
-              Number(
-                item.qty || 0
-              ),
-          0
-        )
+      if (!kitchenInitialized.current) {
+        ;(live || []).forEach(o => kitchenSeen.current.add(String(o.id)))
+        kitchenInitialized.current = true
+      } else {
+        const fresh = live.find(o => !kitchenSeen.current.has(String(o.id)) && ["pending", "new", "received", "confirmed", "accepted", "queued"].includes(String(o.status || "pending").toLowerCase()))
+        live.forEach(o => kitchenSeen.current.add(String(o.id)))
+        if (fresh) setNewKitchenOrder(fresh)
+      }
+    } catch (e) {
+      if (!silent) console.warn("KITCHEN ORDERS:", e)
+    } finally {
+      if (!silent) setKitchenLoading(false)
+    }
+  }
 
-      const orderTotal =
-        foodTotal +
-        (type === "delivery"
-          ? Number(
-              deliveryCharge || 0
-            )
-          : 0)
+  useEffect(() => {
+    if (!restaurantId) return
+    refreshKitchenOrders()
+    const timer = setInterval(() => refreshKitchenOrders({ silent: true }), 10000)
+    return () => clearInterval(timer)
+  }, [restaurantId])
 
-      const sourceLabel =
-        type === "table"
-          ? `Table ${selected.table_number}`
-          : type === "room"
-          ? `Room ${selected.room_number}`
-          : type === "takeaway"
-          ? "Takeaway"
-          : `Delivery - ${customerName.trim()}`
+  function kitchenItemToCart(item) {
+    const menuItem = menu.find(m => String(m.id) === String(item.item_id)) || {}
+    let selectedModifiers = item.selected_modifiers || item.modifiers || []
+    if (typeof selectedModifiers === "string") {
+      try { selectedModifiers = JSON.parse(selectedModifiers) } catch { selectedModifiers = [] }
+    }
+    if (!Array.isArray(selectedModifiers)) selectedModifiers = []
+    const qty = Number(item.quantity || item.qty || 1)
+    const unitPrice = Number(item.unit_price ?? item.price ?? menuItem.price ?? 0)
+    const modifierTotal = selectedModifiers.reduce((sum, m) => sum + Number(m.price || 0) * Number(m.quantity || 1), 0)
+    return {
+      ...menuItem,
+      id: item.item_id || menuItem.id,
+      name: item.item_name || item.name || menuItem.name || "Item",
+      image: menuItem.image || item.image || null,
+      price: unitPrice,
+      qty,
+      variant_id: item.variant_id || null,
+      variant_name: item.variant_name || null,
+      selectedModifiers,
+      modifierTotal,
+      cartKey: `kitchen:${item.id || item.item_id}:${item.variant_id || "base"}:${selectedModifiers.map(m => m.id).sort().join(",") || "base"}`
+    }
+  }
 
-      const { data: authData, error: authError } = await supabaseCloud.auth.getSession()
-      const token = authData?.session?.access_token
-      if (authError || !token) {
-        alert("Login session expired. Please login again.")
-        return
+  function openKitchenOrder(order) {
+    const orderType = String(order.source_type || order.order_type || "takeaway").toLowerCase()
+    setType(["table", "room", "delivery", "takeaway"].includes(orderType) ? orderType : "takeaway")
+    const sourceId = order.source_id
+    if (orderType === "table") setSelected(tables.find(t => String(t.id) === String(sourceId)) || null)
+    else if (orderType === "room") setSelected(rooms.find(r => String(r.id) === String(sourceId)) || null)
+    else setSelected(null)
+    setCustomerName(order.customer_name || "")
+    setCustomerPhone(order.customer_phone || "")
+    setDeliveryAddress(order.delivery_address || "")
+    setCustomerNotes(order.customer_notes || "")
+    setDeliveryCharge(Number(order.delivery_charge || 0))
+    setCurrentOrder(order)
+    setFinalizedBill(null)
+    setScreen("order")
+    setCart((order.items || []).map(kitchenItemToCart))
+    setNewKitchenOrder(null)
+  }
+
+  async function updateKitchenStatus(order, status) {
+    if (!order?.id || kitchenUpdating) return
+    setKitchenUpdating(`${order.id}:${status}`)
+    try {
+      const token = await authToken()
+      const response = await fetch("/api/kitchen/order-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ order_id: order.id, status })
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to update kitchen status")
+      const updated = { ...order, ...(result.order || {}), status }
+      setKitchenOrders(prev => status === "done" || status === "cancelled" ? prev.filter(o => o.id !== order.id) : prev.map(o => o.id === order.id ? updated : o))
+      if (currentOrder?.id === order.id) setCurrentOrder(prev => ({ ...prev, ...updated, status }))
+    } catch (e) {
+      alert(e.message || "Kitchen status update failed")
+    } finally {
+      setKitchenUpdating("")
+    }
+  }
+
+  async function connectWebBluetoothFromUserGesture() {
+    setPrinterConnecting(true)
+    try {
+      if (!isBluetoothThermalSupported() || typeof navigator === "undefined" || !navigator.bluetooth) {
+        throw new Error("Chrome Web Bluetooth is not available in this browser. Use the Anaira Windows bridge for MPT-III classic Bluetooth.")
+      }
+      const result = await connectBluetoothThermalPrinter()
+      setPrinterName(result.name || getBluetoothThermalName())
+      setPrinterPrompt(null)
+      alert(`Bluetooth printer connected: ${result.name || "Bluetooth Thermal Printer"}`)
+      return true
+    } catch (e) {
+      if (e?.name === "NotFoundError" || e?.name === "AbortError") return false
+      alert(e?.message || "Bluetooth printer connection failed")
+      return false
+    } finally { setPrinterConnecting(false) }
+  }
+
+  async function refreshLocalPrinters() {
+    if (typeof window === "undefined" || !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) return []
+    setLocalPrinterLoading(true)
+    try {
+      const printers = await listLocalPrinters()
+      setLocalPrinters(printers)
+      if (!selectedLocalPort && printers[0]?.port) setSelectedLocalPort(printers[0].port)
+      return printers
+    } catch (e) {
+      setLocalPrinters([])
+      throw e
+    } finally { setLocalPrinterLoading(false) }
+  }
+
+  async function openPrinterChooser() {
+    const local = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+    setPrinterPrompt({
+      title: "CONNECT PRINTER",
+      message: local
+        ? "MPT-III uses classic Bluetooth/COM on Windows. Select the MPT-III COM port below and connect it. The browser Bluetooth button is only for BLE ESC/POS printers."
+        : "CONNECT BLUETOOTH opens the browser Bluetooth chooser for a supported BLE ESC/POS printer."
+    })
+    if (local) {
+      try { await refreshLocalPrinters() } catch (e) {
+        setPrinterPrompt(prev => ({ ...prev, message: `Windows print bridge: ${e?.message || "not running"}. Pair MPT-III in Windows Bluetooth and make sure a COM port exists.` }))
+      }
+    }
+  }
+
+  async function connectSelectedLocalPrinter() {
+    setPrinterConnecting(true)
+    try {
+      const result = await connectLocalPrinter(selectedLocalPort || null)
+      setPrinterName(result.printer || result.port || "MPT-III")
+      setPrinterPrompt(null)
+      alert(`MPT-III connected on ${result.port || result.printer || "COM port"}`)
+      return true
+    } catch (e) {
+      setPrinterPrompt(prev => ({ ...(prev || {}), title: "MPT-III NOT CONNECTED", message: e?.message || "Unable to connect the selected Windows COM port." }))
+      return false
+    } finally { setPrinterConnecting(false) }
+  }
+
+  async function testSelectedLocalPrinter() {
+    setPrinterConnecting(true)
+    try {
+      const result = await testLocalPrinter(selectedLocalPort || null)
+      alert(`Test print sent to ${result.port || selectedLocalPort || "MPT-III"}.`)
+    } catch (e) {
+      alert(e?.message || "MPT-III test print failed")
+    } finally { setPrinterConnecting(false) }
+  }
+
+  async function connectPrinter({ silent = false } = {}) {
+    setPrinterConnecting(true)
+    try {
+      if (isNativeBluetoothPrinterAvailable()) {
+        const paired = await listNativeBluetoothPrinters()
+        if (!paired.length) {
+          setPrinterPrompt({ title: "CONNECT PRINTER", message: "No paired Bluetooth printer was found. Pair your MPT-III / thermal printer first, then print again.", native: true })
+          if (!silent && confirm("No paired Bluetooth printer found. Open Android Bluetooth settings to pair the printer now?")) await openNativeBluetoothSettings()
+          return false
+        }
+        const preferred = paired.find(p => /MPT|MTP|thermal|printer|pos/i.test(p.name || "")) || paired[0]
+        const result = await connectNativeBluetoothThermalPrinter(preferred.address)
+        setPrinterName(result.name || preferred.name || "Bluetooth Thermal Printer")
+        if (!silent) alert(`Printer connected: ${result.name || preferred.name}`)
+        return true
       }
 
+      // On Windows localhost, MPT-III classic Bluetooth is exposed as a COM port.
+      // Prefer the local Anaira bridge over Chrome Web Bluetooth.
+      if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+        try {
+          const result = await connectLocalPrinter()
+          setPrinterName(result.printer || result.port || "MPT-III")
+          if (!silent) alert(`Printer connected: ${result.printer || result.port || "MPT-III"}`)
+          return true
+        } catch (localError) {
+          if (!silent) setPrinterPrompt({ title: "PRINTER NOT CONNECTED", message: `${localError?.message || "Windows local printer bridge could not connect to MPT-III."} You can also use CONNECT BLUETOOTH for a supported BLE ESC/POS printer.`, showBluetooth: true })
+          return false
+        }
+      }
+
+      if (!isBluetoothThermalSupported()) {
+        setPrinterPrompt({ title: "CONNECT BLUETOOTH PRINTER", message: "Chrome Web Bluetooth needs a supported BLE ESC/POS printer and HTTPS. Classic MPT-III Bluetooth uses the Anaira Windows local bridge or Android app." })
+        return false
+      }
+      const result = await connectBluetoothThermalPrinter()
+      setPrinterName(result.name || getBluetoothThermalName())
+      if (!silent) alert(`Printer connected: ${result.name || "Bluetooth Thermal Printer"}`)
+      return true
+    } catch (e) {
+      if (e?.name === "NotFoundError" || e?.name === "AbortError") {
+        if (!silent) setPrinterPrompt({ title: "PRINTER NOT CONNECTED", message: "Select your Bluetooth printer from the Chrome chooser to continue printing." })
+        return false
+      }
+      if (!silent) setPrinterPrompt({ title: "PRINTER CONNECTION FAILED", message: e?.message || "Unable to connect printer." })
+      return false
+    } finally { setPrinterConnecting(false) }
+  }
+
+  async function printThermal(kind, order = currentOrder, bill = finalizedBill) {
+    if (!order?.id) throw new Error("Create or select an order first.")
+    const printItems = Array.isArray(order?.items) && order.items.length ? order.items.map(i => ({ ...i, name: i.name || i.item_name, qty: i.qty ?? i.quantity, price: i.price ?? i.unit_price })) : cart
+    const lines = [`Order: ${String(order.id).slice(0, 8).toUpperCase()}`, `Type: ${sourceLabel}`, "--------------------------------"]
+    printItems.forEach(i => {
+      const qty = Number(i.qty || 0); const unit = Number(i.price || 0) + Number(i.modifierTotal || 0)
+      lines.push(`${qty} x ${i.name || "Item"}`, `  ${money(unit)}    ${money(unit * qty)}`)
+      if (i.variant_name) lines.push(`  Variant: ${i.variant_name}`)
+      if (i.selectedModifiers?.length) lines.push(`  Add: ${i.selectedModifiers.map(m => m.name).join(", ")}`)
+    })
+    if (kind === "kot") {
+      const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - KOT`, lines, footer: "KITCHEN COPY" })
+      if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+        try { return await printLocalBridge({ bytes, type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } }) }
+        catch (_) {}
+      }
+      if (!isBluetoothThermalConnected()) {
+        const connected = await connectPrinter({ silent: true })
+        if (!connected) {
+          setPrinterPrompt({ title: "CONNECT PRINTER", message: "Printer is not connected. Connect the Windows MPT-III local printer or choose a supported BLE ESC/POS printer from the Bluetooth chooser, then print again.", showBluetooth: true })
+          return { success: false, requiresConnection: true }
+        }
+      }
+      if (isBluetoothThermalConnected()) return printBluetoothThermal(bytes)
+      return sendThermalPrint({ type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } })
+    }
+    lines.push("--------------------------------", `Subtotal: ${money(subtotal)}`)
+    if (activeOffer) lines.push(`Offer ${activeOffer.title || activeOffer.name || "Discount"}: -${money(offerDiscount)}`)
+    if (manualDiscount > 0) lines.push(`Manual Discount: -${money(manualDiscount)}`)
+    lines.push(`GST: ${money(gst)}`)
+    if (type === "delivery") lines.push(`Delivery: ${money(deliveryCharge)}`)
+    lines.push(`TOTAL: ${money(bill?.total_amount ?? total)}`)
+    if (bill?.invoice_no) lines.push(`Invoice: ${bill.invoice_no}`)
+    lines.push(`Payment: ${bill?.payment_method || paymentMethod}`)
+    const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - BILL`, lines, footer: bill?.payment_status === "paid" ? "PAID - THANK YOU" : "THANK YOU" })
+    if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+      try { return await printLocalBridge({ bytes, type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } }) }
+      catch (_) {}
+    }
+    if (!isBluetoothThermalConnected()) {
+      const connected = await connectPrinter({ silent: true })
+      if (!connected) throw new Error("Printer connection required. Open Connect Printer and pair/select the thermal printer.")
+    }
+    if (isBluetoothThermalConnected()) return printBluetoothThermal(bytes)
+    return sendThermalPrint({ type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } })
+  }
+
+  async function printKot(orderId = currentOrder?.id) {
+    if (!orderId) return alert("Create or select an order first.")
+    try {
+      const order = currentOrder?.id === orderId ? currentOrder : kitchenOrders.find(o => String(o.id) === String(orderId))
+      const result = await printThermal("kot", order || { id: orderId })
+      if (result?.requiresConnection) return
+      alert("KOT printed successfully.")
+    } catch (e) { console.error("KOT PRINT:", e); alert(e.message || "KOT print failed") }
+  }
+
+  async function createOrder({ forBilling = false } = {}) {
+    if (placing) return null
+    if (!restaurantId) throw new Error("Restaurant missing")
+    if (!cart.length) throw new Error("Cart is empty")
+    if ((type === "table" || type === "room") && !selected) throw new Error(`Select a ${type}.`)
+    if (type === "delivery" && (!customerName.trim() || !customerPhone.trim() || !deliveryAddress.trim())) throw new Error("Customer name, phone and delivery address are required.")
+    const token = await authToken()
+    setPlacing(true)
+    try {
       const response = await fetch("/api/pos/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           restaurant_id: restaurantId,
           source_type: type,
           source_id: selected?.id || null,
-          subtotal: foodTotal,
-          discount_amount: 0,
-          tax_amount: 0,
+          subtotal,
+          discount_amount: discount,
+          tax_amount: gst,
           delivery_charge: type === "delivery" ? Number(deliveryCharge || 0) : 0,
-          total_amount: orderTotal,
-          payment_method: type === "delivery" ? paymentMethod : null,
-          customer_name: type === "delivery" ? customerName.trim() : null,
-          customer_phone: type === "delivery" ? customerPhone.trim() : null,
+          total_amount: total,
+          payment_method: forBilling ? paymentMethod : null,
+          customer_name: customerName.trim() || null,
+          customer_phone: customerPhone.trim() || null,
           delivery_address: type === "delivery" ? deliveryAddress.trim() : null,
-          customer_notes: type === "delivery" ? customerNotes.trim() : null,
-          marketing_campaign_id: params.get("utm_campaign") || params.get("campaign_id") || null,
-          marketing_source: params.get("utm_source") || null,
-          marketing_medium: params.get("utm_medium") || null,
-          marketing_content: params.get("utm_content") || null,
-          marketing_campaign: params.get("utm_campaign") || null,
-          items: cart.map(cartItem => ({
-            item_id: cartItem.id, quantity: Number(cartItem.qty || 0),
-            item_name: comboDisplayName(cartItem), name: comboDisplayName(cartItem),
-            variant_id: cartItem.variant_id || null,
-            variant_name: cartItem.variant_name || null,
-            unit_price: Number(cartItem.price || 0),
-            line_total: (Number(cartItem.price || 0) + Number(cartItem.modifierTotal || 0)) * Number(cartItem.qty || 0),
-            cooking_request: cartItem.cooking_request || null,
-            selected_modifiers: Array.isArray(cartItem.selectedModifiers) ? cartItem.selectedModifiers : []
+          customer_notes: customerNotes.trim() || orderNote.trim() || null,
+          items: cart.map(i => ({
+            item_id: i.id,
+            quantity: Number(i.qty || 0),
+            item_name: i.name,
+            name: i.name,
+            variant_id: i.variant_id || null,
+            variant_name: i.variant_name || null,
+            unit_price: Number(i.price || 0),
+            line_total: (Number(i.price || 0) + Number(i.modifierTotal || 0)) * Number(i.qty || 0),
+            cooking_request: i.cooking_request || null,
+            selected_modifiers: Array.isArray(i.selectedModifiers) ? i.selectedModifiers : [],
           }))
         })
       })
       const result = await response.json().catch(() => ({}))
-      if (!response.ok || !result.success || !result.order) {
-        console.error("ORDER ERROR:", result)
-        alert(result.error || "Order could not be created.")
-        return
-      }
+      if (!response.ok || !result.success || !result.order) throw new Error(result.error || "Order could not be created.")
       const order = result.order
-
-
-      // Every POS source (table, room, takeaway and delivery) gets the same
-      // KOT/order-slip runtime. Delivery still continues into the Kitchen flow.
-      try {
-        await fetch("/api/printing/order-slip", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ order_id: order.id }),
-        })
-      } catch (printError) {
-        console.warn("ORDER SLIP PRINT:", printError)
-      }
-
-      /* =====================================================
-         DELIVERY SLIP
-         ===================================================== */
+      kitchenSeen.current.add(String(order.id))
+      setTimeout(() => refreshKitchenOrders({ silent: true }), 0)
 
       if (type === "delivery") {
         try {
           const deliveryResponse = await fetch("/api/delivery", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-            },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               action: "create", order_id: order.id, order_mode: "delivery",
               customer_name: customerName.trim(), phone: customerPhone.trim(),
@@ -752,3974 +637,235 @@ export default function OrderPage() {
             })
           })
           const deliveryResult = await deliveryResponse.json().catch(() => ({}))
-          if (!deliveryResponse.ok || !deliveryResult.success) {
-            console.error("DELIVERY CREATE ERROR:", deliveryResult)
-            alert(`Order created, but delivery slip could not be saved: ${deliveryResult.error || "Unknown error"}`)
-            return
-          }
-          alert(`Delivery order created. Slip ${deliveryResult.delivery?.slip_no || "generated"}`)
-          window.location.href = `/kitchen?order_id=${encodeURIComponent(order.id)}&next=delivery`
-          return
-        } catch (deliveryError) {
-          console.error("DELIVERY CREATE ERROR:", deliveryError)
-          alert(`Order created, but delivery slip could not be saved: ${deliveryError.message || "Unknown error"}`)
-          return
-        }
+          if (!deliveryResponse.ok || !deliveryResult.success) console.warn("DELIVERY CREATE:", deliveryResult.error || "Unable to save delivery details")
+        } catch (e) { console.warn("DELIVERY CREATE:", e) }
       }
 
-      // Takeaway/table/room must be prepared in Kitchen before Billing.
-      // Delivery flow below is intentionally unchanged.
-      window.location.href =
-        `/kitchen?order_id=${encodeURIComponent(order.id)}&next=billing`
-      return
-
-      /* =====================================================
-         RESET
-         ===================================================== */
-
-      setCart([])
-      setSelected(null)
-
-      setCustomerName("")
-      setCustomerPhone("")
-      setDeliveryAddress("")
-      setDeliveryZone("")
-      setDeliveryCharge(0)
-      setCustomerNotes("")
-    } catch (error) {
-      console.error(
-        "PLACE ORDER ERROR:",
-        error
-      )
-
-      alert(
-        error?.message ||
-          "Something went wrong while placing the order."
-      )
-    } finally {
-      setPlacingOrder(false)
-    }
+      setCurrentOrder(order)
+      setScreen(forBilling ? "bill" : "order")
+      return { order, token }
+    } finally { setPlacing(false) }
   }
 
-  /* =========================================================
-     MENU GROUPING
-     ========================================================= */
+  async function saveOrder() {
+    try {
+      const result = await createOrder({ forBilling: false })
+      await printKot(result.order.id)
+      alert("Order saved and KOT printed.")
+    } catch (e) { alert(e.message) }
+  }
 
-  const groupedMenu =
-    menu.reduce(
-      (accumulator, item) => {
-        const category =
-          String(
-            item.category ||
-              "Other"
-          ).trim() ||
-          "Other"
-
-        if (
-          !accumulator[category]
-        ) {
-          accumulator[category] =
-            []
+  async function finalizeBill() {
+    if (finalizing || finalizeLock.current) return
+    if (!currentOrder?.id) return alert("Save/create the order first.")
+    setFinalizing(true); finalizeLock.current = true
+    try {
+      const token = await authToken()
+      // Kitchen is the source of truth: billing is finalized only after the
+      // cashier explicitly marks this order Done from this same POS page.
+      if (String(currentOrder.status || "").toLowerCase() !== "done") {
+        throw new Error("Please PREPARE the order and then MARK DONE before finalizing the bill.")
+      }
+      const response = await fetch("/api/billing/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          order_id: currentOrder.id,
+          idempotency_key: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `billing:${currentOrder.id}:${Date.now()}`,
+          payment_method: paymentMethod,
+          paid_amount: total,
+          payment_reference: paymentReference.trim() || null,
+          customer_name: customerName.trim() || null,
+          customer_phone: customerPhone.trim() || null,
+          discount_amount: discount,
+          manual_discount_amount: discount,
+          manual_discount_mode: discountMode,
+          final_total: total,
+        })
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to finalize bill")
+      setFinalizedBill(result.bill || { ...currentOrder, invoice_no: currentOrder.id.slice(0, 8).toUpperCase(), total_amount: total, payment_status: "paid", paid_amount: total })
+      const completedBill = result.bill || { ...currentOrder, invoice_no: currentOrder.id.slice(0, 8).toUpperCase(), total_amount: total, payment_status: "paid", paid_amount: total }
+      setCurrentOrder(prev => ({ ...prev, ...completedBill, status: "done", payment_status: completedBill.payment_status || "paid", paid_amount: Number(completedBill.paid_amount ?? total) }))
+      try {
+        const printResult = await printThermal("bill", { ...currentOrder, ...completedBill, items: cart }, completedBill)
+        if (printResult?.requiresConnection) {
+          alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Connect the printer from the popup, then print the bill.`)
+          return
         }
+      } catch (printError) {
+        console.warn("AUTO BILL PRINT:", printError)
+        alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Bill print needs attention: ${printError.message}`)
+        return
+      }
+      alert(`Invoice ${completedBill.invoice_no || "generated"} finalized and printed.`)
+    } catch (e) {
+      console.error(e); alert(e.message || "Billing failed")
+      finalizeLock.current = false
+    } finally { setFinalizing(false) }
+  }
 
-        accumulator[
-          category
-        ].push(item)
+  async function printBill() {
+    if (!currentOrder && !finalizedBill) return
+    try {
+      const result = await printThermal("bill", currentOrder, finalizedBill)
+      if (result?.requiresConnection) return
+      alert("Bill printed successfully.")
+    } catch (e) { console.error(e); alert(e.message || "Bill print failed") }
+  }
 
-        return accumulator
-      },
-      {}
-    )
+  const sourceLabel = type === "table" ? (selected ? `Table ${selected.table_number}` : "Select Table") : type === "room" ? (selected ? `Room ${selected.room_number}` : "Select Room") : type === "delivery" ? "Delivery" : "Takeaway"
 
-  const categories =
-    Object.keys(
-      groupedMenu
-    )
-
-  useEffect(() => {
-    if (
-      categories.length &&
-      activeCategory !==
-        "All" &&
-      !categories.includes(
-        activeCategory
-      )
-    ) {
-      setActiveCategory(
-        categories[0]
-      )
-    }
-  }, [
-    menu.length,
-    activeCategory,
-    categories.length,
-  ])
-
-  const visibleItems =
-    activeCategory === "All"
-      ? menu
-      : groupedMenu[
-          activeCategory
-        ] || []
-
-  const cartCount =
-    cart.reduce(
-      (total, item) =>
-        total +
-        Number(
-          item.qty || 0
-        ),
-      0
-    )
-
-  const cartTotal =
-    cart.reduce(
-      (total, item) =>
-        total +
-        (
-          Number(
-            item.price || 0
-          ) +
-          Number(
-            item.modifierTotal ||
-              0
-          )
-        ) *
-          Number(
-            item.qty || 0
-          ),
-      0
-    )
-
-  /* =========================================================
-     UI
-     ========================================================= */
+  if (loading) return <div className="pos-loading">Loading Anaira POS…</div>
+  if (error) return <div className="pos-error"><strong>{error}</strong><button onClick={() => router.back()}>← Back</button></div>
 
   return (
-    <div className="order-page">
+    <div className="anaira-pos">
+      <header className="pos-topbar">
+        <button className="back-btn" onClick={() => router.back()}>← <span>Back</span></button>
+        <div className="brand-block"><strong>{restaurantName || "Anaira POS"}</strong><span>{currentOrder?.invoice_no ? `Invoice ${currentOrder.invoice_no}` : currentOrder?.id ? `Order ${String(currentOrder.id).slice(0, 8).toUpperCase()}` : "New Order"}</span></div>
+        <div className="top-actions"><button className="printer-btn" onClick={printerName ? async () => { await disconnectNativeBluetoothThermalPrinter(); disconnectBluetoothThermalPrinter(); setPrinterName("") } : openPrinterChooser} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : printerName ? `🖨 ${printerName}` : "🖨 PRINTER"}</button><button onClick={() => { setCart([]); setCurrentOrder(null); setFinalizedBill(null); setScreen("order"); setDiscountValue("") }}>NEW ORDER</button><span className="live-pill">● POS ONLINE</span></div>
+      </header>
 
-      {/* =====================================================
-          HEADER
-          ===================================================== */}
-
-      <div className="order-page-header">
-        <div>
-          <h1>
-            {restaurantName}
-          </h1>
-
-          <div className="order-page-subtitle">
-            Premium Dining Experience
-          </div>
-        </div>
+      <div className="order-mode-bar">
+        {[['table', 'TABLE'], ['room', 'ROOM'], ['delivery', 'DELIVERY'], ['takeaway', 'TAKEAWAY']].map(([key, label]) => <button key={key} className={type === key ? "mode active" : "mode"} onClick={() => { changeType(key); setScreen("order") }}>{label}</button>)}
+        <button className={kitchenOpen ? "kitchen-toggle active" : "kitchen-toggle"} onClick={() => setKitchenOpen(v => !v)}>KITCHEN {kitchenOrders.length ? `(${kitchenOrders.length})` : ""}</button>
+        {screen === "bill" && <span className="bill-mode-label">BILL / FINALIZE</span>}
       </div>
 
-      {/* =====================================================
-          LEFT - ORDER TYPE
-          ===================================================== */}
-
-      <div className="order-type-panel">
-        <h3>
-          🔘 Select
-        </h3>
-
-        <div className="order-type-grid">
-
-          <button
-            type="button"
-            className={
-              type === "table"
-                ? "order-type-btn active-info"
-                : "order-type-btn"
-            }
-            onClick={() =>
-              changeOrderType(
-                "table"
-              )
-            }
-          >
-            🍽️ Dine-in
-          </button>
-
-          <button
-            type="button"
-            className={
-              type === "takeaway"
-                ? "order-type-btn active-warning"
-                : "order-type-btn"
-            }
-            onClick={() =>
-              changeOrderType(
-                "takeaway"
-              )
-            }
-          >
-            🥡 Takeaway
-          </button>
-
-          <button
-            type="button"
-            className={
-              type === "delivery"
-                ? "order-type-btn active-success"
-                : "order-type-btn"
-            }
-            onClick={() =>
-              changeOrderType(
-                "delivery"
-              )
-            }
-          >
-            🛵 Delivery
-          </button>
-
-          <button
-            type="button"
-            className={
-              type === "room"
-                ? "order-type-btn active-purple"
-                : "order-type-btn"
-            }
-            onClick={() =>
-              changeOrderType(
-                "room"
-              )
-            }
-          >
-            🛏️ Room
-          </button>
-        </div>
-
-        {/* ===================================================
-            TABLE / ROOM
-            =================================================== */}
-
-        {(type === "table" ||
-          type === "room") && (
-          <>
-            <button
-              type="button"
-              className="select-table-btn"
-              onClick={() =>
-                setOpenSelect(
-                  !openSelect
-                )
-              }
-            >
-              {selected
-                ? type === "table"
-                  ? `🍽️ Table ${selected.table_number}`
-                  : `🛏️ Room ${selected.room_number}`
-                : "Select Table / Room"}
-            </button>
-
-            {openSelect && (
-              <div className="selection-dropdown">
-                {(type === "table"
-                  ? tables
-                  : rooms
-                ).map(
-                  (item) => (
-                    <button
-                      type="button"
-                      className="selection-dropdown-item"
-                      key={
-                        item.id
-                      }
-                      onClick={() => {
-                        setSelected(
-                          item
-                        )
-                        setOpenSelect(
-                          false
-                        )
-                      }}
-                    >
-                      {type ===
-                      "table"
-                        ? `🍽️ Table ${item.table_number}`
-                        : `🛏️ Room ${item.room_number}`}
-                    </button>
-                  )
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ===================================================
-            TAKEAWAY
-            =================================================== */}
-
-        {type ===
-          "takeaway" && (
-          <div className="mode-info-box">
-            🥡 Quick takeaway —
-            no table required.
-            Print the bill/KOT
-            after placing the
-            order.
-          </div>
-        )}
-
-        {/* ===================================================
-            DELIVERY
-            =================================================== */}
-
-        {type ===
-          "delivery" && (
-          <div className="delivery-fields">
-
-            <input
-              value={
-                customerName
-              }
-              onChange={(
-                event
-              ) =>
-                setCustomerName(
-                  event.target
-                    .value
-                )
-              }
-              placeholder="Customer name *"
-              className="field-input"
-            />
-
-            <input
-              value={
-                customerPhone
-              }
-              onChange={(
-                event
-              ) =>
-                setCustomerPhone(
-                  event.target
-                    .value
-                )
-              }
-              placeholder="Phone number *"
-              inputMode="tel"
-              className="field-input"
-            />
-
-            <textarea
-              value={
-                deliveryAddress
-              }
-              onChange={(
-                event
-              ) =>
-                setDeliveryAddress(
-                  event.target
-                    .value
-                )
-              }
-              placeholder="Delivery address *"
-              rows={3}
-              className="field-input textarea-input"
-            />
-
-            <select
-              value={
-                deliveryZone
-              }
-              onChange={(
-                event
-              ) =>
-                applyZone(
-                  deliveryZones.find(
-                    (
-                      zone
-                    ) =>
-                      zone.name ===
-                      event.target
-                        .value
-                  )
-                )
-              }
-              className="field-input"
-            >
-              <option value="">
-                Select delivery
-                zone
-              </option>
-
-              {deliveryZones.map(
-                (zone) => (
-                  <option
-                    key={
-                      zone.id
-                    }
-                    value={
-                      zone.name
-                    }
-                  >
-                    {zone.name} — ₹
-                    {Number(
-                      zone.charge ||
-                        0
-                    ).toLocaleString(
-                      "en-IN"
-                    )}
-                  </option>
-                )
-              )}
-            </select>
-
-            <select
-              value={
-                paymentMethod
-              }
-              onChange={(
-                event
-              ) =>
-                setPaymentMethod(
-                  event.target
-                    .value
-                )
-              }
-              className="field-input"
-            >
-              <option value="cash">
-                COD — Cash
-              </option>
-
-              <option value="upi">
-                UPI
-              </option>
-
-              <option value="card">
-                Card
-              </option>
-
-              <option value="online">
-                Online
-              </option>
-            </select>
-
-            <textarea
-              value={
-                customerNotes
-              }
-              onChange={(
-                event
-              ) =>
-                setCustomerNotes(
-                  event.target
-                    .value
-                )
-              }
-              placeholder="Delivery note (optional)"
-              rows={2}
-              className="field-input textarea-input"
-            />
-
-            <div className="delivery-charge-box">
-              <span>
-                Delivery charge
-              </span>
-
-              <strong>
-                ₹
-                {Number(
-                  deliveryCharge ||
-                    0
-                ).toLocaleString(
-                  "en-IN"
-                )}
-              </strong>
-            </div>
-
-          </div>
-        )}
-      </div>
-
-      {/* =====================================================
-          CENTER - MENU
-          ===================================================== */}
-
-      <div className="menu-panel">
-
-        <div className="category-header">
-          <div>
-            <div className="category-eyebrow">
-              MENU
-            </div>
-
-            <h2>
-              Choose your food
-            </h2>
-          </div>
-
-          <span className="category-count">
-            {visibleItems.length}{" "}
-            items
-          </span>
-        </div>
-
-        {/* ===================================================
-            CATEGORIES
-            =================================================== */}
-
-        <div className="category-tabs">
-
-          <button
-            type="button"
-            className={
-              activeCategory ===
-              "All"
-                ? "category-tab active"
-                : "category-tab"
-            }
-            onClick={() =>
-              setActiveCategory(
-                "All"
-              )
-            }
-          >
-            All
-
-            <span className="category-tab-count">
-              {menu.length}
-            </span>
-          </button>
-
-          {categories.map(
-            (category) => (
-              <button
-                type="button"
-                key={
-                  category
-                }
-                className={
-                  activeCategory ===
-                  category
-                    ? "category-tab active"
-                    : "category-tab"
-                }
-                onClick={() =>
-                  setActiveCategory(
-                    category
-                  )
-                }
-              >
-                {category}
-
-                <span className="category-tab-count">
-                  {
-                    groupedMenu[
-                      category
-                    ].length
-                  }
-                </span>
+      {kitchenOpen && <section className="kitchen-strip">
+        <div className="kitchen-strip-head"><div><small>KITCHEN / LIVE ORDERS</small><strong>{kitchenOrders.length ? `${kitchenOrders.length} active order${kitchenOrders.length === 1 ? "" : "s"}` : "No active kitchen orders"}</strong></div><button onClick={() => refreshKitchenOrders()} disabled={kitchenLoading}>{kitchenLoading ? "Refreshing…" : "↻ Refresh"}</button></div>
+        <div className="kitchen-order-list">
+          {kitchenOrders.map(order => {
+            const status = String(order.status || "pending").toLowerCase()
+            const isCurrent = currentOrder?.id === order.id
+            return <div className={isCurrent ? "kitchen-card current" : "kitchen-card"} key={order.id}>
+              <button className="kitchen-card-main" onClick={() => openKitchenOrder(order)}>
+                <div className="kitchen-card-top"><strong>{order.display || order.source_label || "Order"}</strong><span className={`k-status ${status}`}>{status.toUpperCase()}</span></div>
+                <div className="kitchen-card-items">{(order.items || []).slice(0, 3).map((i, idx) => <span key={idx}>{i.quantity || i.qty || 1}× {i.name || i.item_name}</span>)}{(order.items || []).length > 3 && <span>+{order.items.length - 3} more</span>}</div>
+                <div className="kitchen-card-total">{money(order.total_amount)} {order.customer_name ? `• ${order.customer_name}` : ""}</div>
               </button>
-            )
-          )}
-
-        </div>
-
-        <div className="category-title">
-          <span>
-            {activeCategory ===
-            "All"
-              ? "All Items"
-              : activeCategory}
-          </span>
-
-          <small>
-            Tap to add
-          </small>
-        </div>
-
-        {/* ===================================================
-            COMPACT PREMIUM PRODUCT GRID
-            =================================================== */}
-
-        <div className="order-food-grid">
-
-          {visibleItems.map(
-            (item) => (
-              <button
-                type="button"
-                className="order-menu-card"
-                key={item.id}
-                onClick={() =>
-                  addToCart(
-                    item
-                  )
-                }
-              >
-
-                <div className="order-menu-image-wrap">
-                  {item.image ? (
-                    <img
-                      src={
-                        item.image
-                      }
-                      alt={
-                        item.name
-                      }
-                      className="order-menu-image"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div
-                      className="order-menu-image-fallback"
-                      aria-hidden="true"
-                    >
-                      🍽️
-                    </div>
-                  )}
-                </div>
-
-                <div className="order-menu-card-content">
-
-                  <span className="order-item-name">
-                    {item.name}
-                  </span>
-
-                  <span className="order-item-price">
-                    ₹
-                    {Number(
-                      item.price ||
-                        0
-                    ).toLocaleString(
-                      "en-IN"
-                    )}
-                  </span>
-
-                </div>
-              </button>
-            )
-          )}
-
-        </div>
-
-        {!visibleItems.length && (
-          <div className="empty-menu">
-            No items in this
-            category.
-          </div>
-        )}
-
-      </div>
-
-      {/* =====================================================
-          RIGHT - CART
-          ===================================================== */}
-
-      <div className="cart-panel">
-
-        <div className="cart-header">
-
-          <div>
-            <div className="cart-eyebrow">
-              YOUR ORDER
-            </div>
-
-            <h2>
-              Cart
-            </h2>
-          </div>
-
-          <span className="cart-badge">
-            {cartCount} items
-          </span>
-
-        </div>
-
-        {cart.length ===
-        0 ? (
-          <div className="empty-cart">
-
-            <div className="empty-cart-icon">
-              🛒
-            </div>
-
-            <strong>
-              Your cart is
-              empty
-            </strong>
-
-            <span>
-              Add food items
-              from the menu.
-            </span>
-
-          </div>
-        ) : (
-          <>
-
-            <div className="cart-list">
-
-              {cart.map(
-                (item) => {
-                  const unitTotal =
-                    Number(
-                      item.price ||
-                        0
-                    ) +
-                    Number(
-                      item.modifierTotal ||
-                        0
-                    )
-
-                  return (
-                    <div
-                      className="cart-item"
-                      key={
-                        item.cartKey
-                      }
-                    >
-
-                      <div className="cart-item-main">
-
-                        <div className="cart-item-name">
-                          {
-                            item.name
-                          }
-                        </div>
-
-                        {item
-                          .selectedModifiers
-                          ?.length >
-                          0 && (
-                          <div className="cart-modifiers">
-                            +{" "}
-                            {item.selectedModifiers
-                              .map(
-                                (
-                                  modifier
-                                ) =>
-                                  modifier.name
-                              )
-                              .join(
-                                ", "
-                              )}
-                          </div>
-                        )}
-
-                        <div className="cart-item-price">
-                          ₹
-                          {unitTotal.toLocaleString(
-                            "en-IN"
-                          )}{" "}
-                          each
-                        </div>
-
-                      </div>
-
-                      <div className="cart-item-actions">
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateQty(
-                              item.cartKey,
-                              -1
-                            )
-                          }
-                          className="qty-btn"
-                          aria-label={`Decrease ${item.name}`}
-                        >
-                          −
-                        </button>
-
-                        <span className="qty-value">
-                          {
-                            item.qty
-                          }
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateQty(
-                              item.cartKey,
-                              1
-                            )
-                          }
-                          className="qty-btn"
-                          aria-label={`Increase ${item.name}`}
-                        >
-                          +
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeItem(
-                              item.cartKey
-                            )
-                          }
-                          className="remove-btn"
-                          aria-label={`Remove ${item.name}`}
-                        >
-                          ×
-                        </button>
-
-                      </div>
-
-                    </div>
-                  )
-                }
-              )}
-
-            </div>
-
-            <div className="cart-summary">
-
-              <div className="summary-row">
-                <span>
-                  Items
-                </span>
-
-                <strong>
-                  {cartCount}
-                </strong>
+              <div className="kitchen-actions">
+                <button onClick={() => printKot(order.id)}>KOT</button>
+                {status !== "preparing" && status !== "done" && <button onClick={() => updateKitchenStatus(order, "preparing")} disabled={kitchenUpdating}>{kitchenUpdating === `${order.id}:preparing` ? "…" : "PREPARE"}</button>}
+                {status === "preparing" && <button className="done-btn" onClick={() => updateKitchenStatus(order, "done")} disabled={kitchenUpdating}>{kitchenUpdating === `${order.id}:done` ? "…" : "MARK DONE"}</button>}
               </div>
-
-              <div className="summary-total">
-
-                <span>
-                  Total
-                </span>
-
-                <strong>
-                  ₹
-                  {cartTotal.toLocaleString(
-                    "en-IN"
-                  )}
-                </strong>
-
-              </div>
-
             </div>
-
-            <button
-              type="button"
-              className="place-order-btn"
-              onClick={
-                placeOrder
-              }
-              disabled={
-                placingOrder
-              }
-            >
-              {placingOrder
-                ? "⏳ Placing..."
-                : "🚀 Place Order"}
-            </button>
-
-          </>
-        )}
-
-      </div>
-
-      {variantItem && (
-        <div className="modal-backdrop" onClick={closeVariantPicker}>
-          <div className="modifier-modal" onClick={e => e.stopPropagation()}>
-            <div className="modifier-modal-header">
-              <div><div className="modal-eyebrow">SELECT VARIANT</div><h2>{variantItem.name}</h2><p>Choose the size or variant before adding this item.</p></div>
-              <button type="button" className="close-btn" onClick={closeVariantPicker}>✕</button>
-            </div>
-            <div className="modifier-options">
-              {(variantItem.variants || []).map(v => {
-                const qty = Number(variantQuantities[v.id] || 0)
-                const unitPrice = Number(variantItem.price || 0) + Number(v.price_delta || 0)
-                return (
-                  <div key={v.id} className={qty > 0 ? "modifier-choice active variant-qty-row" : "modifier-choice variant-qty-row"}>
-                    <span><strong>{v.name}</strong><small style={{display:"block",opacity:.72}}>₹{unitPrice.toFixed(2)} each</small></span>
-                    <span className="variant-qty-controls">
-                      <button type="button" className="qty-btn" onClick={() => setVariantQty(v.id,-1)}>−</button>
-                      <strong className="qty-value">{qty}</strong>
-                      <button type="button" className="qty-btn" onClick={() => setVariantQty(v.id,1)}>+</button>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-            <button type="button" className="place-order-btn modal-add-btn" onClick={continueVariant} disabled={!Object.values(variantQuantities).some(q => Number(q) > 0)}>Continue</button>
-          </div>
+          })}
         </div>
-      )}
+      </section>}
 
-      {/* =====================================================
-          MODIFIER MODAL
-          ===================================================== */}
 
-      {modifierItem && (
-        <div
-          className="modal-backdrop"
-          onClick={() => {
-            setModifierItem(null)
-            setModifierSelection({})
-            setModifierItemQty(1)
-            setVariantBatch([])
-          }}
-        >
-
-          <div
-            className="modifier-modal"
-            onClick={(
-              event
-            ) =>
-              event.stopPropagation()
-            }
-          >
-
-            <div className="modifier-modal-header">
-
-              <div>
-
-                <div className="modal-eyebrow">
-                  CUSTOMIZE ITEM
-                </div>
-
-                <h2>
-                  {
-                    modifierItem.name
-                  }
-                </h2>
-
-                <p>
-                  Choose your options
-                  before adding to
-                  the order.
-                </p>
-
-              </div>
-
-              <button
-                type="button"
-                className="close-btn"
-                onClick={() =>
-                  setModifierItem(
-                    null
-                  )
-                }
-              >
-                ✕
-              </button>
-
-            </div>
-
-            <div className="modifier-groups">
-
-              {itemGroups(
-                modifierItem
-              ).map(
-                (group) => (
-                  <div
-                    key={
-                      group.id
-                    }
-                    className="modifier-group-box"
-                  >
-
-                    <div className="modifier-group-title">
-
-                      <b>
-                        {
-                          group.name
-                        }
-                      </b>
-
-                      <small>
-                        {group.required
-                          ? "Required"
-                          : "Optional"}
-                      </small>
-
-                    </div>
-
-                    <div className="modifier-options">
-
-                      {modifiers
-                        .filter(
-                          (
-                            modifier
-                          ) =>
-                            modifier.group_id ===
-                            group.id
-                        )
-                        .map(
-                          (
-                            modifier
-                          ) => {
-
-                            const chosen =
-                              (
-                                modifierSelection[
-                                  group.id
-                                ] || []
-                              ).some(
-                                (
-                                  selectedModifier
-                                ) =>
-                                  selectedModifier.id ===
-                                  modifier.id
-                              )
-
-                            return (
-                              <button
-                                type="button"
-                                key={
-                                  modifier.id
-                                }
-                                onClick={() =>
-                                  toggleModifier(
-                                    group,
-                                    modifier
-                                  )
-                                }
-                                className={
-                                  chosen
-                                    ? "modifier-choice active"
-                                    : "modifier-choice"
-                                }
-                              >
-
-                                <span>
-                                  {chosen
-                                    ? "✓"
-                                    : "○"}{" "}
-                                  {
-                                    modifier.name
-                                  }
-                                </span>
-
-                                <strong>
-                                  +₹
-                                  {Number(
-                                    modifier.price ||
-                                      0
-                                  ).toLocaleString(
-                                    "en-IN"
-                                  )}
-                                </strong>
-
-                              </button>
-                            )
-                          }
-                        )}
-
-                    </div>
-                  </div>
-                )
-              )}
-
-            </div>
-
-            <button
-              type="button"
-              className="place-order-btn modal-add-btn"
-              onClick={
-                confirmModifiers
-              }
-            >
-              Add to Order
-            </button>
-
-          </div>
+      <section className="pos-info-row">
+        <div className="info-cell"><label>{type === "table" ? "Table No." : type === "room" ? "Room No." : "Order Type"}</label>
+          {(type === "table" || type === "room") ? <select value={selected?.id || ""} onChange={e => setSelected((type === "table" ? tables : rooms).find(x => String(x.id) === e.target.value) || null)}><option value="">Select {type}</option>{(type === "table" ? tables : rooms).map(x => <option key={x.id} value={x.id}>{type === "table" ? `Table ${x.table_number}` : `Room ${x.room_number}`}</option>)}</select> : <strong>{type === "delivery" ? "Delivery Order" : "Takeaway Order"}</strong>}
         </div>
-      )}
+        <div className="info-cell"><label>Customer</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder={type === "delivery" ? "Customer name *" : "Optional"} /></div>
+        <div className="info-cell"><label>Mobile</label><input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Mobile number" inputMode="tel" /></div>
+        {type === "delivery" ? <div className="info-cell wide"><label>Address</label><input value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address *" /></div> : <div className="info-cell"><label>Waiter / Staff</label><input placeholder="Staff" /></div>}
+      </section>
+
+      <main className="pos-grid">
+        <aside className="category-panel">
+          <div className="panel-title">CATEGORIES</div>
+          <button className={activeCategory === "All" ? "category active" : "category"} onClick={() => setActiveCategory("All")}>Popular <span>{menu.length}</span></button>
+          {categories.filter(c => c !== "All").map(c => <button key={c} className={activeCategory === c ? "category active" : "category"} onClick={() => setActiveCategory(c)}>{c}<span>{menu.filter(i => String(i.category || "Other").trim() === c).length}</span></button>)}
+        </aside>
+
+        <section className="menu-panel">
+          <div className="menu-toolbar"><div><small>MENU</small><h1>{activeCategory === "All" ? "Popular Items" : activeCategory}</h1></div><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search item…" /></div>
+          <div className="product-grid">
+            {visibleItems.map(item => <button className="product-card" key={item.id} onClick={() => addToCart(item)}>
+              <div className="product-photo">{item.image ? <img src={item.image} alt={item.name} loading="lazy" /> : <div className="photo-fallback">🍽️</div>}</div>
+              <div className="product-meta"><strong>{item.name}</strong><span>{money(item.price)}</span></div>
+              {(item.variants?.length || itemGroups(item).length) ? <small className="customizable">CUSTOMIZE</small> : null}
+            </button>)}
+            {!visibleItems.length && <div className="empty-menu">No products found.</div>}
+          </div>
+        </section>
+
+        <aside className="cart-panel">
+          <div className="cart-title"><div><small>ITEMS</small><h2>Current Order</h2>{currentOrder?.id && <span className={`cart-status ${String(currentOrder.status || "pending").toLowerCase()}`}>{String(currentOrder.status || "pending").toUpperCase()}</span>}</div><div className="cart-title-actions"><span>{cartCount}</span>{currentOrder?.id && String(currentOrder.status || "pending").toLowerCase() !== "done" && <>{String(currentOrder.status || "pending").toLowerCase() !== "preparing" && <button onClick={() => updateKitchenStatus(currentOrder, "preparing")} disabled={!!kitchenUpdating}>PREPARE</button>}<button className="done-mini" onClick={() => updateKitchenStatus(currentOrder, "done")} disabled={!!kitchenUpdating}>MARK DONE</button></>}</div></div>
+          <div className="cart-list">
+            {cart.map(item => <div className="cart-item" key={item.cartKey}>
+              <div className="cart-thumb">{item.image ? <img src={item.image} alt="" /> : <span>🍽️</span>}</div>
+              <div className="cart-info"><strong>{item.name}{item.variant_name ? ` • ${item.variant_name}` : ""}</strong>{item.selectedModifiers?.length ? <small>{item.selectedModifiers.map(m => m.name).join(", ")}</small> : null}<span>{money(Number(item.price || 0) + Number(item.modifierTotal || 0))}</span></div>
+              <div className="qty"><button onClick={() => updateQty(item.cartKey, -1)}>−</button><b>{item.qty}</b><button onClick={() => updateQty(item.cartKey, 1)}>+</button></div>
+              <button className="delete" onClick={() => removeItem(item.cartKey)}>×</button>
+            </div>)}
+            {!cart.length && <div className="empty-cart">Add products from the menu.<br /><span>Tap a product photo/card to add it.</span></div>}
+          </div>
+
+          {type === "delivery" && <div className="delivery-mini"><select value={deliveryZone} onChange={e => { const z = deliveryZones.find(x => x.name === e.target.value); setDeliveryZone(e.target.value); setDeliveryCharge(Number(z?.charge || 0)) }}><option value="">Delivery zone</option>{deliveryZones.map(z => <option key={z.id} value={z.name}>{z.name} — {money(z.charge)}</option>)}</select><span>Delivery {money(deliveryCharge)}</span></div>}
+
+          {(offerDiscounts.length > 0 || manualDiscount > 0) && <div className="offer-box"><div className="offer-head"><span>OFFERS & DISCOUNTS</span><b>{activeOffer ? `-${money(offerDiscount)}` : ""}</b></div>{offerDiscounts.length > 0 && <select value={activeOffer?.id || ""} onChange={e => setSelectedOfferId(e.target.value)}><option value="">Select offer</option>{offerDiscounts.map(o => <option key={o.id} value={o.id}>{o.title || o.name || "Offer"} • -{money(o.calculated_discount)}</option>)}</select>}<div className="offer-chips">{activeOffer && <span>🏷 {activeOffer.title || activeOffer.name || "Offer"} -{money(offerDiscount)}</span>}{manualDiscount > 0 && <span>Manual -{money(manualDiscount)}</span>}</div></div>}
+
+          <div className="bill-summary">
+            <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
+            <div className="discount-line"><span>Discount</span><div><button className={discountMode === "amount" ? "mini active" : "mini"} onClick={() => setDiscountMode("amount")}>₹</button><button className={discountMode === "percent" ? "mini active" : "mini"} onClick={() => setDiscountMode("percent")}>%</button><input value={discountValue} onChange={e => setDiscountValue(e.target.value)} placeholder="0" /></div><b>-{money(discount)}</b></div>
+            <div><span>Tax {restaurant?.gst_enabled ? `(${restaurant?.gst_rate || 0}%)` : ""}</span><b>{money(gst)}</b></div>
+            {type === "delivery" && <div><span>Delivery</span><b>{money(deliveryCharge)}</b></div>}
+            <div className="grand"><span>Total</span><b>{money(total)}</b></div>
+          </div>
+
+          {screen === "bill" && <div className="inline-bill-box">
+            <div className="inline-bill-head"><div><small>PAYMENT</small><strong>Finalize Bill</strong></div><span>{sourceLabel}</span></div>
+            <div className="payment-row">
+              <label>Method<select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option></select></label>
+              <label>Reference<input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} placeholder="Optional" /></label>
+            </div>
+            <div className="payable-row"><span>PAYABLE</span><strong>{money(finalizedBill?.total_amount ?? total)}</strong></div>
+            {finalizedBill && <div className="paid-banner">✓ Paid • {finalizedBill.invoice_no || "Invoice generated"}</div>}
+            <button className="print-bill-btn" onClick={printBill} disabled={!finalizedBill}>PRINT BILL</button>
+          </div>}
+
+          <div className="pos-buttons">
+            {screen === "order" ? <>
+              <button className="save" onClick={saveOrder} disabled={placing || !cart.length}>{placing ? "Saving…" : "SAVE / KOT"}</button>
+              <button className="kot-action" onClick={() => printKot()} disabled={!currentOrder?.id}>PRINT KOT</button>
+              <button className="finalize" onClick={async () => { try { if (!currentOrder) await createOrder({ forBilling: false }); setScreen("bill") } catch (e) { alert(e.message) } }} disabled={placing || !cart.length}>FINALIZE BILL</button>
+            </> : <>
+              <button className="save" onClick={() => setScreen("order")}>← EDIT ORDER</button>
+              <button className="kot-action" onClick={() => printKot()} disabled={!currentOrder?.id}>PRINT KOT</button>
+              <button className="finalize" onClick={finalizeBill} disabled={finalizing || !!finalizedBill}>{finalizedBill ? "✓ FINALIZED" : finalizing ? "FINALIZING…" : "FINALIZE & PAY"}</button>
+            </>}
+          </div>
+        </aside>
+      </main>
+
+      {printerPrompt && <div className="modal-backdrop" onClick={() => setPrinterPrompt(null)}><div className="modal printer-prompt" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>THERMAL PRINTING</small><h2>{printerPrompt.title}</h2></div><button onClick={() => setPrinterPrompt(null)}>×</button></div><p className="printer-prompt-text">{printerPrompt.message}</p>{typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname) && <div className="local-printer-box"><div className="local-printer-head"><strong>WINDOWS MPT-III / COM</strong><button className="mini" onClick={refreshLocalPrinters} disabled={localPrinterLoading}>{localPrinterLoading ? "…" : "↻"}</button></div>{localPrinters.length ? <><select value={selectedLocalPort} onChange={e => setSelectedLocalPort(e.target.value)}>{localPrinters.map(p => <option key={p.port} value={p.port}>{p.port} — {p.name || p.description || "Serial/Bluetooth"}</option>)}</select><small>Pair MPT-III in Windows Bluetooth. The correct entry normally appears under Device Manager → Ports (COM & LPT) as a Bluetooth/Serial COM port.</small><div className="local-printer-actions"><button className="save" onClick={connectSelectedLocalPrinter} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT SELECTED COM"}</button><button className="kot-action" onClick={testSelectedLocalPrinter} disabled={printerConnecting}>TEST PRINT</button></div></> : <><div className="local-empty">No COM printer port detected.</div><small>Open Windows Bluetooth settings and pair MPT-III. Then check Device Manager → Ports (COM & LPT). If no COM port appears, Windows has not exposed the classic Bluetooth serial service yet.</small></>}</div>}{<div className="printer-prompt-actions"><button className="save" onClick={connectWebBluetoothFromUserGesture} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT BLUETOOTH (BLE)"}</button>{printerPrompt.native && <button className="kot-action" onClick={async () => { try { await openNativeBluetoothSettings() } catch (e) { alert(e.message) } }}>OPEN BLUETOOTH SETTINGS</button>}<button className="finalize" onClick={() => setPrinterPrompt(null)}>CLOSE</button></div>}</div></div>}
+
+      {newKitchenOrder && <div className="modal-backdrop kitchen-alert-backdrop" onClick={() => setNewKitchenOrder(null)}><div className="modal kitchen-alert" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>NEW KITCHEN ORDER</small><h2>{newKitchenOrder.display || "New Order"}</h2></div><button onClick={() => setNewKitchenOrder(null)}>×</button></div><div className="new-order-summary">{(newKitchenOrder.items || []).map((i, idx) => <div key={idx}><span>{i.quantity || i.qty || 1}× {i.name || i.item_name}</span><b>{money(i.line_total ?? ((i.quantity || i.qty || 1) * Number(i.unit_price || 0)))}</b></div>)}</div><div className="new-order-actions"><button className="save" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "preparing") }}>PREPARE</button><button className="done-popup" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "done") }}>MARK DONE</button><button className="finalize" onClick={() => openKitchenOrder(newKitchenOrder)}>OPEN ORDER</button></div></div></div>}
+
+      {variantItem && <div className="modal-backdrop" onClick={() => { setVariantItem(null); setVariantQuantities({}) }}><div className="modal" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>SELECT VARIANT</small><h2>{variantItem.name}</h2></div><button onClick={() => { setVariantItem(null); setVariantQuantities({}) }}>×</button></div>{variantItem.variants.map(v => <div className="variant-row" key={v.id}><span>{v.name}<small>{money(Number(variantItem.price || 0) + Number(v.price_delta || 0))}</small></span><div><button onClick={() => setVariantQuantities(p => ({ ...p, [v.id]: Math.max(0, Number(p[v.id] || 0) - 1) }))}>−</button><b>{variantQuantities[v.id] || 0}</b><button onClick={() => setVariantQuantities(p => ({ ...p, [v.id]: Number(p[v.id] || 0) + 1 }))}>+</button></div></div>)}<button className="modal-primary" onClick={continueVariants}>CONTINUE</button></div></div>}
+
+      {modifierItem && <div className="modal-backdrop" onClick={() => setModifierItem(null)}><div className="modal" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>CUSTOMIZE ITEM</small><h2>{modifierItem.name}</h2></div><button onClick={() => setModifierItem(null)}>×</button></div>{itemGroups(modifierItem).map(group => <div key={group.id} className="modifier-group"><div><b>{group.name}</b><small>{group.required ? "Required" : "Optional"}</small></div>{modifiers.filter(m => m.group_id === group.id).map(mod => { const chosen = (modifierSelection[group.id] || []).some(x => x.id === mod.id); return <button className={chosen ? "modifier active" : "modifier"} key={mod.id} onClick={() => toggleModifier(group, mod)}><span>{chosen ? "✓" : "○"} {mod.name}</span><b>+{money(mod.price)}</b></button> })}</div>)}<button className="modal-primary" onClick={confirmModifiers}>ADD TO ORDER</button></div></div>}
 
       <style jsx global>{`
-        .variant-qty-row { cursor: default; }
-        .variant-qty-controls { display:flex; align-items:center; gap:10px; flex-shrink:0; }
-        .variant-qty-controls .qty-btn { width:32px; height:32px; }
-        .variant-qty-controls .qty-value { min-width:22px; text-align:center; }
-      `}</style>
-
-      {/* =====================================================
-          PAGE CSS
-          ===================================================== */}
-
-      <style jsx global>{`
-
-        * {
-          box-sizing: border-box;
-        }
-
-        html,
-        body {
-          margin: 0;
-          padding: 0;
-        }
-
-        button,
-        input,
-        textarea,
-        select {
-          font-family: inherit;
-        }
-
-        /* ==================================================
-           MAIN PAGE
-           ================================================== */
-
-        .order-page {
-          min-height: 100vh;
-
-          display: grid;
-
-          grid-template-columns:
-            285px
-            minmax(0, 1fr)
-            290px;
-
-          grid-template-rows:
-            auto
-            1fr;
-
-          align-items: start;
-
-          gap: 10px;
-
-          padding: 10px;
-
-          background:
-            linear-gradient(
-              135deg,
-              var(--background),
-              var(--surface-2),
-              var(--background)
-            );
-
-          color: var(--text);
-        }
-
-        /* ==================================================
-           HEADER
-           ================================================== */
-
-        .order-page-header {
-          grid-column: 1 / -1;
-
-          margin-bottom: 1px;
-
-          padding:
-            2px
-            2px
-            0;
-        }
-
-        .order-page-header h1 {
-          margin: 0;
-
-          font-size: 28px;
-
-          line-height: 1.1;
-
-          font-weight: 800;
-
-          color:
-            var(--primary);
-        }
-
-        .order-page-subtitle {
-          margin-top: 4px;
-
-          color:
-            var(--muted);
-
-          font-size: 12px;
-        }
-
-        /* ==================================================
-           PANELS
-           ================================================== */
-
-        .order-type-panel,
-        .menu-panel,
-        .cart-panel {
-          background:
-            rgba(
-              var(--surface-2-rgb),
-              .88
-            );
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .14
-            );
-
-          backdrop-filter:
-            blur(20px);
-
-          -webkit-backdrop-filter:
-            blur(20px);
-
-          border-radius:
-            18px;
-
-          box-shadow:
-            0 18px 48px
-            rgba(0,0,0,.34);
-        }
-
-        .order-type-panel,
-        .cart-panel {
-          position: sticky;
-
-          top: 10px;
-
-          height: fit-content;
-
-          padding: 18px;
-        }
-
-        .menu-panel {
-          min-width: 0;
-
-          padding: 13px;
-        }
-
-        /* ==================================================
-           ORDER TYPES
-           ================================================== */
-
-        .order-type-panel h3 {
-          margin:
-            0
-            0
-            9px;
-
-          font-size: 14px;
-        }
-
-        .order-type-grid {
-          display: grid;
-
-          grid-template-columns:
-            repeat(
-              2,
-              minmax(0, 1fr)
-            );
-
-          gap: 6px;
-        }
-
-        .order-type-btn {
-          min-width: 0;
-
-          min-height:
-            44px;
-
-          padding:
-            10px
-            8px;
-
-          border-radius:
-            12px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .11
-            );
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .035
-            );
-
-          color: var(--text);
-
-          font-size: 10px;
-
-          font-weight: 800;
-
-          cursor: pointer;
-
-          transition:
-            .15s ease;
-        }
-
-        .order-type-btn:hover {
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .07
-            );
-        }
-
-        .order-type-btn.active-info {
-          border-color:
-            #38bdf8;
-
-          color:
-            #38bdf8;
-
-          box-shadow:
-            0 0 11px
-            rgba(
-              56,
-              189,
-              248,
-              .17
-            );
-        }
-
-        .order-type-btn.active-warning {
-          border-color:
-            var(--warning);
-
-          color:
-            var(--warning);
-
-          box-shadow:
-            0 0 11px
-            rgba(
-              245,
-              158,
-              11,
-              .17
-            );
-        }
-
-        .order-type-btn.active-success {
-          border-color:
-            var(--success);
-
-          color:
-            var(--success);
-
-          box-shadow:
-            0 0 11px
-            rgba(
-              34,
-              197,
-              94,
-              .17
-            );
-        }
-
-        .order-type-btn.active-purple {
-          border-color:
-            #a855f7;
-
-          color:
-            #a855f7;
-
-          box-shadow:
-            0 0 11px
-            rgba(
-              168,
-              85,
-              247,
-              .17
-            );
-        }
-
-        /* ==================================================
-           TABLE SELECT
-           ================================================== */
-
-        .select-table-btn {
-          width: 100%;
-
-          margin-top: 13px;
-
-          min-height:
-            44px;
-
-          padding:
-            11px
-            10px;
-
-          border-radius:
-            12px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .12
-            );
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .04
-            );
-
-          color: var(--text);
-
-          font-size: 10px;
-
-          cursor: pointer;
-        }
-
-        .selection-dropdown {
-          max-height:
-            200px;
-
-          overflow-y:
-            auto;
-
-          overflow-x:
-            hidden;
-
-          margin-top:
-            7px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .09
-            );
-
-          border-radius:
-            10px;
-
-          background:
-            rgba(
-              5,
-              15,
-              12,
-              .97
-            );
-        }
-
-        .selection-dropdown-item {
-          display:
-            block;
-
-          width:
-            100%;
-
-          padding:
-            9px;
-
-          border:
-            0;
-
-          border-bottom:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .055
-            );
-
-          background:
-            transparent;
-
-          color:
-            var(--text);
-
-          text-align:
-            left;
-
-          cursor:
-            pointer;
-
-          font-size:
-            12px;
-
-          font-weight:
-            700;
-        }
-
-        .selection-dropdown-item:hover {
-          background:
-            rgba(
-              var(--primary-rgb),
-              .08
-            );
-        }
-
-        /* ==================================================
-           TAKEAWAY
-           ================================================== */
-
-        .mode-info-box {
-          margin-top:
-            9px;
-
-          padding:
-            9px;
-
-          border-radius:
-            10px;
-
-          background:
-            rgba(
-              245,
-              158,
-              11,
-              .07
-            );
-
-          border:
-            1px solid
-            rgba(
-              245,
-              158,
-              11,
-              .18
-            );
-
-          color:
-            #f7c66a;
-
-          font-size:
-            11px;
-
-          line-height:
-            1.5;
-        }
-
-        /* ==================================================
-           DELIVERY
-           ================================================== */
-
-        .delivery-fields {
-          display:
-            grid;
-
-          gap:
-            6px;
-
-          margin-top:
-            9px;
-        }
-
-        .field-input {
-          width:
-            100%;
-
-          min-width:
-            0;
-
-          padding:
-            8px
-            9px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .11
-            );
-
-          border-radius:
-            9px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .035
-            );
-
-          color:
-            var(--text);
-
-          outline:
-            none;
-
-          font-size:
-            12px;
-        }
-
-        .field-input::placeholder {
-          color:
-            rgba(
-              255,
-              255,
-              255,
-              .45
-            );
-        }
-
-        .field-input:focus {
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .48
-            );
-
-          box-shadow:
-            0 0 0 2px
-            rgba(
-              var(--primary-rgb),
-              .06
-            );
-        }
-
-        .textarea-input {
-          resize:
-            vertical;
-        }
-
-        .delivery-charge-box {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          align-items:
-            center;
-
-          padding:
-            8px
-            9px;
-
-          border-radius:
-            9px;
-
-          background:
-            rgba(
-              34,
-              197,
-              94,
-              .06
-            );
-
-          border:
-            1px solid
-            rgba(
-              34,
-              197,
-              94,
-              .17
-            );
-
-          color:
-            var(--success);
-
-          font-size:
-            11px;
-        }
-
-        /* ==================================================
-           MENU HEADER
-           ================================================== */
-
-        .category-header {
-          display:
-            flex;
-
-          align-items:
-            center;
-
-          justify-content:
-            space-between;
-
-          gap:
-            8px;
-
-          margin-bottom:
-            7px;
-        }
-
-        .category-eyebrow,
-        .cart-eyebrow,
-        .modal-eyebrow {
-          color:
-            var(--primary);
-
-          font-size:
-            8px;
-
-          font-weight:
-            900;
-
-          letter-spacing:
-            1.3px;
-        }
-
-        .category-header h2 {
-          margin:
-            3px
-            0
-            0;
-
-          font-size:
-            19px;
-
-          line-height:
-            1.1;
-        }
-
-        .category-count {
-          color:
-            var(--muted);
-
-          font-size:
-            9px;
-
-          font-weight:
-            800;
-
-          white-space:
-            nowrap;
-        }
-
-        /* ==================================================
-           CATEGORY TABS
-           ================================================== */
-
-        .category-tabs {
-          display:
-            flex;
-
-          align-items:
-            center;
-
-          gap:
-            5px;
-
-          width:
-            100%;
-
-          overflow-x:
-            auto;
-
-          padding:
-            2px
-            1px
-            7px;
-
-          margin-bottom:
-            1px;
-
-          scrollbar-width:
-            thin;
-        }
-
-        .category-tab {
-          flex:
-            0 0 auto;
-
-          display:
-            inline-flex;
-
-          align-items:
-            center;
-
-          gap:
-            4px;
-
-          padding:
-            5px
-            8px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .14
-            );
-
-          border-radius:
-            999px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .03
-            );
-
-          color:
-            var(--text);
-
-          font-size:
-            9px;
-
-          font-weight:
-            800;
-
-          cursor:
-            pointer;
-
-          white-space:
-            nowrap;
-        }
-
-        .category-tab.active {
-          background:
-            rgba(
-              var(--primary-rgb),
-              .11
-            );
-
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .52
-            );
-
-          color:
-            var(--primary);
-        }
-
-        .category-tab-count {
-          min-width:
-            15px;
-
-          height:
-            15px;
-
-          display:
-            inline-grid;
-
-          place-items:
-            center;
-
-          border-radius:
-            999px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .07
-            );
-
-          color:
-            var(--muted);
-
-          font-size:
-            7px;
-        }
-
-        .category-tab.active
-        .category-tab-count {
-          background:
-            var(--primary);
-
-          color:
-            #111;
-        }
-
-        .category-title {
-          display:
-            flex;
-
-          align-items:
-            baseline;
-
-          justify-content:
-            space-between;
-
-          margin:
-            3px
-            0
-            7px;
-
-          color:
-            var(--text);
-
-          font-size:
-            11px;
-
-          font-weight:
-            900;
-        }
-
-        .category-title small {
-          color:
-            var(--muted);
-
-          font-size:
-            8px;
-
-          font-weight:
-            600;
-        }
-
-        /* ==================================================
-           PRODUCT GRID
-           DESKTOP = 6
-           ================================================== */
-
-        .order-food-grid {
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-  align-items: stretch;
-}
-
-        /* ==================================================
-           PRODUCT CARD
-           ================================================== */
-
-        .order-menu-card {
-          appearance:
-            none;
-
-          -webkit-appearance:
-            none;
-
-          display:
-            flex;
-
-          flex-direction:
-            column;
-
-          width:
-            100%;
-
-          min-width:
-            0;
-
-          height:
-            100%;
-
-          margin:
-            0;
-
-          padding:
-            4px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .13
-            );
-
-          border-radius:
-            11px;
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(
-                255,
-                255,
-                255,
-                .055
-              ),
-              rgba(
-                255,
-                255,
-                255,
-                .018
-              )
-            );
-
-          color:
-            var(--text);
-
-          text-align:
-            left;
-
-          cursor:
-            pointer;
-
-          overflow:
-            hidden;
-
-          box-shadow:
-            0 6px 15px
-            rgba(
-              0,
-              0,
-              0,
-              .17
-            );
-
-          transition:
-            transform .15s ease,
-            border-color .15s ease,
-            background .15s ease,
-            box-shadow .15s ease;
-        }
-
-        .order-menu-card:hover {
-          transform:
-            translateY(-2px);
-
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .44
-            );
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(
-                var(--primary-rgb),
-                .085
-              ),
-              rgba(
-                255,
-                255,
-                255,
-                .025
-              )
-            );
-
-          box-shadow:
-            0 10px 22px
-            rgba(
-              0,
-              0,
-              0,
-              .24
-            );
-        }
-
-        .order-menu-card:active {
-          transform:
-            scale(.985);
-        }
-
-        /* ==================================================
-           PRODUCT IMAGE
-           ================================================== */
-
-        .order-menu-image-wrap {
-          position:
-            relative;
-
-          width:
-            100%;
-
-          aspect-ratio:
-            1 / .70;
-
-          min-height:
-            0;
-
-          overflow:
-            hidden;
-
-          border-radius:
-            7px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .035
-            );
-        }
-
-        .order-menu-image {
-          display:
-            block;
-
-          width:
-            100%;
-
-          height:
-            100%;
-
-          object-fit:
-            cover;
-
-          transition:
-            transform .2s ease;
-        }
-
-        .order-menu-card:hover
-        .order-menu-image {
-          transform:
-            scale(1.035);
-        }
-
-        .order-menu-image-fallback {
-          width:
-            100%;
-
-          height:
-            100%;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          background:
-            linear-gradient(
-              145deg,
-              #183127,
-              #10231c
-            );
-
-          font-size:
-            19px;
-        }
-
-        /* ==================================================
-           PRODUCT CONTENT
-           ================================================== */
-
-        .order-menu-card-content {
-          min-width:
-            0;
-
-          display:
-            flex;
-
-          flex-direction:
-            column;
-
-          padding:
-            5px
-            2px
-            2px;
-        }
-
-        .order-item-name {
-          display:
-            -webkit-box;
-
-          -webkit-box-orient:
-            vertical;
-
-          -webkit-line-clamp:
-            2;
-
-          overflow:
-            hidden;
-
-          min-height:
-            24px;
-
-          color:
-            #f7f2e8;
-
-          font-size:
-            9.5px;
-
-          line-height:
-            1.18;
-
-          font-weight:
-            800;
-
-          white-space:
-            normal;
-        }
-
-        .order-item-price {
-          display:
-            block;
-
-          margin-top:
-            3px;
-
-          color:
-            var(--primary);
-
-          font-size:
-            9.5px;
-
-          line-height:
-            1;
-
-          font-weight:
-            900;
-
-          white-space:
-            nowrap;
-        }
-
-        .empty-menu {
-          padding:
-            35px
-            10px;
-
-          color:
-            var(--muted);
-
-          text-align:
-            center;
-
-          font-size:
-            12px;
-        }
-
-        /* ==================================================
-           CART
-           ================================================== */
-
-        .cart-header {
-          display:
-            flex;
-
-          align-items:
-            center;
-
-          justify-content:
-            space-between;
-
-          gap:
-            7px;
-
-          margin-bottom:
-            9px;
-        }
-
-        .cart-header h2 {
-          margin:
-            3px
-            0
-            0;
-
-          font-size:
-            19px;
-        }
-
-        .cart-badge {
-          padding:
-            4px
-            7px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .17
-            );
-
-          border-radius:
-            999px;
-
-          background:
-            rgba(
-              var(--primary-rgb),
-              .07
-            );
-
-          color:
-            var(--primary);
-
-          font-size:
-            8px;
-
-          font-weight:
-            800;
-
-          white-space:
-            nowrap;
-        }
-
-        .empty-cart {
-          min-height:
-            170px;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          align-content:
-            center;
-
-          gap:
-            5px;
-
-          color:
-            var(--muted);
-
-          text-align:
-            center;
-
-          font-size:
-            10px;
-        }
-
-        .empty-cart-icon {
-          width:
-            45px;
-
-          height:
-            45px;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          margin-bottom:
-            4px;
-
-          border-radius:
-            15px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .04
-            );
-
-          font-size:
-            21px;
-        }
-
-        .cart-list {
-          display:
-            grid;
-
-          gap:
-            6px;
-
-          max-height:
-            340px;
-
-          overflow-y:
-            auto;
-
-          padding-right:
-            2px;
-        }
-
-        .cart-item {
-          display:
-            flex;
-
-          align-items:
-            center;
-
-          justify-content:
-            space-between;
-
-          gap:
-            6px;
-
-          padding:
-            7px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .06
-            );
-
-          border-radius:
-            11px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .028
-            );
-        }
-
-        .cart-item-main {
-          min-width:
-            0;
-
-          flex:
-            1;
-        }
-
-        .cart-item-name {
-          overflow:
-            hidden;
-
-          text-overflow:
-            ellipsis;
-
-          white-space:
-            nowrap;
-
-          font-size:
-            10px;
-
-          font-weight:
-            850;
-        }
-
-        .cart-modifiers {
-          margin-top:
-            2px;
-
-          overflow:
-            hidden;
-
-          text-overflow:
-            ellipsis;
-
-          white-space:
-            nowrap;
-
-          color:
-            var(--muted);
-
-          font-size:
-            8px;
-        }
-
-        .cart-item-price {
-          margin-top:
-            2px;
-
-          color:
-            var(--primary);
-
-          font-size:
-            8px;
-
-          font-weight:
-            800;
-        }
-
-        .cart-item-actions {
-          flex:
-            0 0 auto;
-
-          display:
-            flex;
-
-          align-items:
-            center;
-
-          gap:
-            3px;
-        }
-
-        .qty-btn {
-          width:
-            24px;
-
-          height:
-            24px;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          padding:
-            0;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .20
-            );
-
-          border-radius:
-            7px;
-
-          background:
-            rgba(
-              var(--primary-rgb),
-              .065
-            );
-
-          color:
-            var(--text);
-
-          font-size:
-            14px;
-
-          font-weight:
-            800;
-
-          cursor:
-            pointer;
-        }
-
-        .qty-value {
-          min-width:
-            15px;
-
-          color:
-            var(--text);
-
-          text-align:
-            center;
-
-          font-size:
-            9px;
-
-          font-weight:
-            900;
-        }
-
-        .remove-btn {
-          width:
-            23px;
-
-          height:
-            23px;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          margin-left:
-            1px;
-
-          padding:
-            0;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              80,
-              80,
-              .18
-            );
-
-          border-radius:
-            7px;
-
-          background:
-            rgba(
-              255,
-              80,
-              80,
-              .065
-            );
-
-          color:
-            #ff8c8c;
-
-          font-size:
-            15px;
-
-          line-height:
-            1;
-
-          cursor:
-            pointer;
-        }
-
-        .cart-summary {
-          margin-top:
-            8px;
-
-          padding:
-            8px
-            9px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .12
-            );
-
-          border-radius:
-            11px;
-
-          background:
-            rgba(
-              var(--primary-rgb),
-              .05
-            );
-        }
-
-        .summary-row {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          margin-bottom:
-            5px;
-
-          color:
-            var(--muted);
-
-          font-size:
-            9px;
-        }
-
-        .summary-total {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          align-items:
-            center;
-
-          color:
-            var(--text);
-
-          font-size:
-            12px;
-
-          font-weight:
-            900;
-        }
-
-        .place-order-btn {
-          width:
-            100%;
-
-          margin-top:
-            8px;
-
-          padding:
-            11px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .30
-            );
-
-          border-radius:
-            12px;
-
-          background:
-            linear-gradient(
-              135deg,
-              var(--surface),
-              var(--surface-2)
-            );
-
-          color:
-            var(--text);
-
-          font-size:
-            12px;
-
-          font-weight:
-            800;
-
-          cursor:
-            pointer;
-
-          box-shadow:
-            0 12px 26px
-            rgba(
-              0,
-              0,
-              0,
-              .25
-            );
-        }
-
-        .place-order-btn:hover {
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .56
-            );
-        }
-
-        .place-order-btn:disabled {
-          opacity:
-            .6;
-
-          cursor:
-            not-allowed;
-        }
-
-        /* ==================================================
-           MODIFIER MODAL
-           ================================================== */
-
-        .modal-backdrop {
-          position:
-            fixed;
-
-          inset:
-            0;
-
-          z-index:
-            9999;
-
-          display:
-            grid;
-
-          place-items:
-            center;
-
-          padding:
-            15px;
-
-          background:
-            rgba(
-              0,
-              0,
-              0,
-              .68
-            );
-
-          backdrop-filter:
-            blur(8px);
-
-          -webkit-backdrop-filter:
-            blur(8px);
-        }
-
-        .modifier-modal {
-          width:
-            min(
-              100%,
-              550px
-            );
-
-          max-height:
-            90vh;
-
-          overflow-y:
-            auto;
-
-          padding:
-            19px;
-
-          border:
-            1px solid
-            rgba(
-              var(--primary-rgb),
-              .21
-            );
-
-          border-radius:
-            21px;
-
-          background:
-            linear-gradient(
-              145deg,
-              #0b2118,
-              #102b20
-            );
-
-          color:
-            var(--text);
-
-          box-shadow:
-            0 35px 100px
-            rgba(
-              0,
-              0,
-              0,
-              .55
-            );
-        }
-
-        .modifier-modal-header {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          align-items:
-            flex-start;
-
-          gap:
-            11px;
-        }
-
-        .modifier-modal-header h2 {
-          margin:
-            4px
-            0;
-
-          font-size:
-            19px;
-        }
-
-        .modifier-modal-header p {
-          margin:
-            0;
-
-          color:
-            var(--muted);
-
-          font-size:
-            10px;
-        }
-
-        .close-btn {
-          width:
-            33px;
-
-          height:
-            33px;
-
-          flex:
-            0 0 auto;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .09
-            );
-
-          border-radius:
-            9px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .035
-            );
-
-          color:
-            var(--text);
-
-          cursor:
-            pointer;
-        }
-
-        .modifier-groups {
-          display:
-            grid;
-
-          gap:
-            11px;
-
-          margin-top:
-            15px;
-        }
-
-        .modifier-group-box {
-          padding:
-            11px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .065
-            );
-
-          border-radius:
-            14px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .028
-            );
-        }
-
-        .modifier-group-title {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          gap:
-            8px;
-        }
-
-        .modifier-group-title small {
-          color:
-            var(--muted);
-
-          font-size:
-            8px;
-        }
-
-        .modifier-options {
-          display:
-            grid;
-
-          gap:
-            5px;
-
-          margin-top:
-            7px;
-        }
-
-        .modifier-choice {
-          display:
-            flex;
-
-          justify-content:
-            space-between;
-
-          align-items:
-            center;
-
-          width:
-            100%;
-
-          padding:
-            8px
-            9px;
-
-          border:
-            1px solid
-            rgba(
-              255,
-              255,
-              255,
-              .07
-            );
-
-          border-radius:
-            9px;
-
-          background:
-            rgba(
-              255,
-              255,
-              255,
-              .022
-            );
-
-          color:
-            var(--text);
-
-          font-size:
-            10px;
-
-          cursor:
-            pointer;
-
-          text-align:
-            left;
-        }
-
-        .modifier-choice.active {
-          background:
-            rgba(
-              var(--primary-rgb),
-              .10
-            );
-
-          border-color:
-            rgba(
-              var(--primary-rgb),
-              .36
-            );
-
-          color:
-            var(--primary);
-        }
-
-        .modifier-choice strong {
-          white-space:
-            nowrap;
-        }
-
-        .modal-add-btn {
-          margin-top:
-            14px;
-        }
-
-        /* ==================================================
-           RESPONSIVE
-           ================================================== */
-
-        /*
-          1250px and above:
-          8 products per row.
-        */
-
-        @media (min-width: 1250px) {
-          .order-food-grid {
-            grid-template-columns:
-              repeat(
-                6,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-        }
-
-        /*
-          1000px - 1249px:
-          7 products per row.
-        */
-
-        @media
-          (min-width: 1000px)
-          and (max-width: 1249px) {
-
-          .order-page {
-            grid-template-columns:
-              250px
-              minmax(0, 1fr)
-              370px;
-          }
-
-          .order-food-grid {
-            grid-template-columns:
-              repeat(
-                6,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-        }
-
-        /*
-          Tablet.
-        */
-
-        @media
-          (min-width: 768px)
-          and (max-width: 999px) {
-
-          .order-page {
-            grid-template-columns:
-              185px
-              minmax(0, 1fr);
-
-            grid-template-rows:
-              auto
-              auto
-              auto;
-
-            padding:
-              8px;
-          }
-
-          .order-page-header {
-            grid-column:
-              1 / -1;
-          }
-
-          .order-type-panel {
-            position:
-              static;
-
-            grid-column:
-              1;
-          }
-
-          .menu-panel {
-            grid-column:
-              2;
-
-            grid-row:
-              2 / span 2;
-          }
-
-          .cart-panel {
-            position:
-              static;
-
-            grid-column:
-              1;
-          }
-
-          .order-food-grid {
-            grid-template-columns:
-              repeat(
-                4,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-        }
-
-        /*
-          Mobile.
-        */
-
-        @media (max-width: 767px) {
-
-          .order-page {
-            display:
-              block;
-
-            padding:
-              7px;
-          }
-
-          .order-page-header {
-            margin-bottom:
-              7px;
-          }
-
-          .order-page-header h1 {
-            font-size:
-              22px;
-          }
-
-          .order-page-subtitle {
-            font-size:
-              10px;
-          }
-
-          .order-type-panel,
-          .menu-panel,
-          .cart-panel {
-            position:
-              static;
-
-            margin-bottom:
-              7px;
-
-            border-radius:
-              16px;
-          }
-
-          .order-type-panel,
-          .cart-panel {
-            padding:
-              11px;
-          }
-
-          .menu-panel {
-            padding:
-              11px;
-          }
-
-          .order-type-grid {
-            grid-template-columns:
-              repeat(
-                4,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-
-          .order-type-btn {
-            min-height:
-              44px;
-
-            padding:
-              9px
-              5px;
-
-            font-size:
-              11px;
-          }
-
-          .delivery-fields {
-            grid-template-columns:
-              repeat(
-                2,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-
-          .delivery-fields
-          .field-input:first-child,
-
-          .delivery-fields
-          textarea,
-
-          .delivery-charge-box {
-            grid-column:
-              1 / -1;
-          }
-
-          .order-food-grid {
-            grid-template-columns:
-              repeat(
-                3,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-
-            gap:
-              6px;
-          }
-
-          .order-menu-card {
-            padding:
-              4px;
-
-            border-radius:
-              10px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio:
-              1 / .73;
-
-            border-radius:
-              7px;
-          }
-
-          .order-item-name {
-            font-size:
-              9px;
-
-            min-height:
-              23px;
-          }
-
-          .order-item-price {
-            font-size:
-              9px;
-          }
-
-          .cart-list {
-            max-height:
-              290px;
-          }
-        }
-
-        /*
-          Small phones.
-        */
-
-        @media (max-width: 480px) {
-
-          .order-type-grid {
-            grid-template-columns:
-              repeat(
-                2,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-          }
-
-          .delivery-fields {
-            grid-template-columns:
-              1fr;
-          }
-
-          .delivery-fields
-          .field-input:first-child,
-
-          .delivery-fields
-          textarea,
-
-          .delivery-charge-box {
-            grid-column:
-              auto;
-          }
-
-          .order-food-grid {
-            grid-template-columns:
-              repeat(
-                2,
-                minmax(
-                  0,
-                  1fr
-                )
-              );
-
-            gap:
-              7px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio:
-              1 / .76;
-          }
-
-          .order-item-name {
-            font-size:
-              10px;
-
-            min-height:
-              25px;
-          }
-
-          .order-item-price {
-            font-size:
-              10px;
-          }
-        }
-
-        @media (max-width: 360px) {
-
-          .order-food-grid {
-            gap:
-              5px;
-          }
-
-          .order-menu-card {
-            padding:
-              3px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio:
-              1 / .78;
-          }
-
-          .order-item-name {
-            font-size:
-              9px;
-
-            min-height:
-              22px;
-          }
-
-          .order-item-price {
-            font-size:
-              9px;
-          }
-        }
-
-
-        /* =========================================================
-           FINAL RESPONSIVE UI OVERRIDES
-           UI ONLY — NO ORDER / CART / SUPABASE LOGIC CHANGED
-           ========================================================= */
-
-        /* ---------- BASE / DESKTOP ---------- */
-
-        .order-page {
-          gap: 14px;
-          padding: 14px;
-        }
-
-        .order-type-panel,
-        .cart-panel {
-          padding: 20px;
-        }
-
-        .menu-panel {
-          padding: 16px;
-        }
-
-        .order-type-grid {
-          gap: 10px;
-        }
-
-        .order-type-btn {
-          min-height: 56px;
-          padding: 13px 10px;
-          border-radius: 14px;
-          font-size: 13px;
-        }
-
-        .select-table-btn {
-          min-height: 52px;
-          padding: 13px 12px;
-          border-radius: 13px;
-          font-size: 13px;
-          font-weight: 800;
-        }
-
-        .selection-dropdown-item {
-          min-height: 46px;
-          padding: 11px 12px;
-          font-size: 13px;
-        }
-
-        .delivery-fields {
-          gap: 9px;
-          margin-top: 12px;
-        }
-
-        .field-input {
-          min-height: 48px;
-          padding: 12px 13px;
-          border-radius: 11px;
-          font-size: 13px;
-        }
-
-        .textarea-input {
-          min-height: 82px;
-        }
-
-        .delivery-charge-box {
-          min-height: 48px;
-          padding: 11px 13px;
-          border-radius: 11px;
-          font-size: 13px;
-        }
-
-        .category-header h2 {
-          font-size: 22px;
-        }
-
-        .category-eyebrow,
-        .cart-eyebrow,
-        .modal-eyebrow {
-          font-size: 9px;
-        }
-
-        .category-count {
-          font-size: 11px;
-        }
-
-        .category-tabs {
-          gap: 7px;
-          padding: 3px 2px 9px;
-        }
-
-        .category-tab {
-          padding: 7px 11px;
-          gap: 5px;
-          font-size: 11px;
-        }
-
-        .category-tab-count {
-          min-width: 18px;
-          height: 18px;
-          font-size: 8px;
-        }
-
-        .category-title {
-          margin: 6px 0 10px;
-          font-size: 13px;
-        }
-
-        .category-title small {
-          font-size: 10px;
-        }
-
-        /* PC: EXACTLY 5 FOOD ITEMS PER ROW */
-        .order-food-grid {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .order-menu-card {
-          padding: 7px;
-          border-radius: 14px;
-        }
-
-        .order-menu-image-wrap {
-          aspect-ratio: 1 / .72;
-          border-radius: 10px;
-        }
-
-        .order-menu-card-content {
-          padding: 8px 3px 3px;
-        }
-
-        .order-item-name {
-          min-height: 34px;
-          font-size: 13px;
-          line-height: 1.25;
-        }
-
-        .order-item-price {
-          margin-top: 6px;
-          font-size: 14px;
-          line-height: 1.1;
-        }
-
-        /* ---------- CART ---------- */
-
-        .cart-header h2 {
-          font-size: 22px;
-        }
-
-        .cart-badge {
-          min-height: 28px;
-          padding: 6px 10px;
-          font-size: 11px;
-        }
-
-        .cart-list {
-          gap: 9px;
-        }
-
-        .cart-item {
-          gap: 9px;
-          padding: 10px;
-          border-radius: 12px;
-        }
-
-        .cart-item-name {
-          font-size: 12px;
-        }
-
-        .cart-modifiers {
-          margin-top: 4px;
-          font-size: 10px;
-        }
-
-        .cart-item-price {
-          margin-top: 4px;
-          font-size: 10px;
-        }
-
-        .cart-item-actions {
-          gap: 5px;
-        }
-
-        .qty-btn {
-          width: 34px;
-          height: 34px;
-          border-radius: 9px;
-          font-size: 18px;
-        }
-
-        .qty-value {
-          min-width: 22px;
-          font-size: 12px;
-        }
-
-        .remove-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 9px;
-          font-size: 19px;
-        }
-
-        .cart-summary {
-          margin-top: 11px;
-          padding: 11px 12px;
-          border-radius: 12px;
-        }
-
-        .summary-row {
-          margin-bottom: 7px;
-          font-size: 11px;
-        }
-
-        .summary-total {
-          font-size: 16px;
-        }
-
-        .place-order-btn {
-          min-height: 56px;
-          margin-top: 12px;
-          padding: 13px 16px;
-          border-radius: 14px;
-          font-size: 15px;
-        }
-
-        /* ---------- MODIFIER MODAL ---------- */
-
-        .modifier-choice {
-          min-height: 46px;
-          padding: 11px 12px;
-          border-radius: 10px;
-          font-size: 12px;
-        }
-
-        .close-btn {
-          width: 38px;
-          height: 38px;
-          border-radius: 10px;
-          font-size: 16px;
-        }
-
-        /* =========================================================
-           LARGE DESKTOP: 1250px+
-           5 ITEMS / ROW
-           ========================================================= */
-
-        @media (min-width: 1250px) {
-          .order-page {
-            grid-template-columns: 300px minmax(0, 1fr) 330px;
-          }
-
-          .order-food-grid {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-          }
-        }
-
-        /* =========================================================
-           DESKTOP / SMALL PC: 1000px–1249px
-           5 ITEMS / ROW
-           ========================================================= */
-
-        @media (min-width: 1000px) and (max-width: 1249px) {
-          .order-page {
-            grid-template-columns: 260px minmax(0, 1fr) 320px;
-            gap: 12px;
-            padding: 12px;
-          }
-
-          .order-food-grid {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 11px;
-          }
-
-          .order-menu-card {
-            padding: 6px;
-          }
-
-          .order-item-name {
-            font-size: 12px;
-            min-height: 31px;
-          }
-
-          .order-item-price {
-            font-size: 13px;
-          }
-
-          .order-type-btn {
-            min-height: 54px;
-            font-size: 12px;
-          }
-        }
-
-        /* =========================================================
-           TABLET: 768px–999px
-           3 ITEMS / ROW
-           ========================================================= */
-
-        @media (min-width: 768px) and (max-width: 999px) {
-          .order-page {
-            grid-template-columns: 225px minmax(0, 1fr);
-            gap: 10px;
-            padding: 10px;
-          }
-
-          .order-type-panel,
-          .cart-panel {
-            padding: 15px;
-          }
-
-          .menu-panel {
-            padding: 13px;
-          }
-
-          .order-type-btn {
-            min-height: 52px;
-            padding: 11px 7px;
-            font-size: 12px;
-          }
-
-          .select-table-btn {
-            min-height: 48px;
-            font-size: 12px;
-          }
-
-          .delivery-fields {
-            grid-template-columns: 1fr;
-          }
-
-          .order-food-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 10px;
-          }
-
-          .order-menu-card {
-            padding: 6px;
-            border-radius: 12px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio: 1 / .74;
-          }
-
-          .order-menu-card-content {
-            padding: 7px 2px 2px;
-          }
-
-          .order-item-name {
-            min-height: 32px;
-            font-size: 12px;
-          }
-
-          .order-item-price {
-            font-size: 13px;
-          }
-
-          .cart-item {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .cart-item-main {
-            width: 100%;
-          }
-
-          .cart-item-actions {
-            width: 100%;
-            justify-content: flex-end;
-          }
-        }
-
-        /* =========================================================
-           MOBILE: 481px–767px
-           2 ITEMS / ROW
-           ========================================================= */
-
-        @media (min-width: 481px) and (max-width: 767px) {
-          .order-page {
-            display: block;
-            padding: 9px;
-          }
-
-          .order-page-header {
-            margin-bottom: 9px;
-          }
-
-          .order-page-header h1 {
-            font-size: 24px;
-          }
-
-          .order-page-subtitle {
-            font-size: 11px;
-          }
-
-          .order-type-panel,
-          .menu-panel,
-          .cart-panel {
-            position: static;
-            margin-bottom: 9px;
-            border-radius: 16px;
-          }
-
-          .order-type-panel,
-          .cart-panel {
-            padding: 13px;
-          }
-
-          .menu-panel {
-            padding: 13px;
-          }
-
-          .order-type-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 9px;
-          }
-
-          .order-type-btn {
-            min-height: 56px;
-            padding: 12px 7px;
-            font-size: 13px;
-          }
-
-          .delivery-fields {
-            grid-template-columns: 1fr;
-          }
-
-          .delivery-fields .field-input:first-child,
-          .delivery-fields textarea,
-          .delivery-charge-box {
-            grid-column: auto;
-          }
-
-          .order-food-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
-          }
-
-          .order-menu-card {
-            padding: 6px;
-            border-radius: 12px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio: 1 / .74;
-            border-radius: 9px;
-          }
-
-          .order-menu-card-content {
-            padding: 7px 3px 3px;
-          }
-
-          .order-item-name {
-            min-height: 34px;
-            font-size: 13px;
-          }
-
-          .order-item-price {
-            font-size: 14px;
-          }
-
-          .cart-list {
-            max-height: 360px;
-          }
-
-          .cart-item {
-            align-items: flex-start;
-          }
-        }
-
-        /* =========================================================
-           SMALL MOBILE: 360px–480px
-           2 ITEMS / ROW
-           ========================================================= */
-
-        @media (max-width: 480px) {
-          .order-page {
-            display: block;
-            padding: 7px;
-          }
-
-          .order-page-header h1 {
-            font-size: 22px;
-          }
-
-          .order-page-subtitle {
-            font-size: 10px;
-          }
-
-          .order-type-panel,
-          .menu-panel,
-          .cart-panel {
-            margin-bottom: 8px;
-          }
-
-          .order-type-panel,
-          .cart-panel,
-          .menu-panel {
-            padding: 11px;
-          }
-
-          .order-type-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
-          }
-
-          .order-type-btn {
-            min-height: 52px;
-            padding: 10px 5px;
-            font-size: 12px;
-          }
-
-          .select-table-btn {
-            min-height: 48px;
-            font-size: 12px;
-          }
-
-          .field-input {
-            min-height: 46px;
-            padding: 11px 12px;
-            font-size: 13px;
-          }
-
-          .textarea-input {
-            min-height: 78px;
-          }
-
-          .order-food-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
-          }
-
-          .order-menu-card {
-            padding: 5px;
-            border-radius: 11px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio: 1 / .76;
-            border-radius: 8px;
-          }
-
-          .order-item-name {
-            min-height: 31px;
-            font-size: 11px;
-          }
-
-          .order-item-price {
-            font-size: 12px;
-          }
-
-          .qty-btn {
-            width: 32px;
-            height: 32px;
-          }
-
-          .remove-btn {
-            width: 30px;
-            height: 30px;
-          }
-
-          .place-order-btn {
-            min-height: 54px;
-            font-size: 14px;
-          }
-        }
-
-        /* =========================================================
-           VERY SMALL PHONES: <=360px
-           KEEP 2 ITEMS / ROW, DO NOT SHRINK TOO FAR
-           ========================================================= */
-
-        @media (max-width: 360px) {
-          .order-food-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 7px;
-          }
-
-          .order-menu-card {
-            padding: 4px;
-          }
-
-          .order-menu-image-wrap {
-            aspect-ratio: 1 / .78;
-          }
-
-          .order-item-name {
-            min-height: 29px;
-            font-size: 10px;
-          }
-
-          .order-item-price {
-            font-size: 11px;
-          }
-
-          .order-type-btn {
-            min-height: 50px;
-            font-size: 11px;
-          }
-
-          .qty-btn {
-            width: 30px;
-            height: 30px;
-          }
-
-          .remove-btn {
-            width: 29px;
-            height: 29px;
-          }
-        }
-
+        *{box-sizing:border-box}
+        .anaira-pos{min-height:100vh;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}
+        .pos-topbar{height:58px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.16);display:flex;align-items:center;gap:16px;padding:0 18px;position:sticky;top:0;z-index:20;box-shadow:0 4px 20px rgba(0,0,0,.18)}
+        .back-btn{border:1px solid rgba(var(--primary-rgb),.25);background:rgba(var(--primary-rgb),.07);font-weight:800;color:var(--text);font-size:13px;cursor:pointer;border-radius:10px;padding:8px 12px}.back-btn:hover{background:rgba(var(--primary-rgb),.15)}
+        .brand-block{display:flex;align-items:baseline;gap:12px;min-width:0}.brand-block strong{font-size:17px;color:var(--primary)}.brand-block span{font-size:11px;color:rgba(255,255,255,.62)}
+        .top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}.top-actions button{border:1px solid rgba(var(--primary-rgb),.35);background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 60%,var(--accent)));color:#111827;border-radius:9px;padding:8px 12px;font-size:10px;font-weight:900;cursor:pointer}.live-pill{font-size:9px;color:var(--accent);font-weight:900}
+        .order-mode-bar{height:48px;background:var(--surface-2);border-bottom:1px solid rgba(var(--primary-rgb),.14);display:flex;padding-left:18px;align-items:stretch;gap:3px}.mode{border:0;background:transparent;color:rgba(255,255,255,.62);padding:0 24px;font-size:11px;font-weight:900;cursor:pointer;border-bottom:3px solid transparent}.mode:hover{color:var(--text);background:rgba(var(--primary-rgb),.05)}.mode.active{color:#111827;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 65%,var(--accent)));border-bottom-color:var(--primary)}.bill-mode-label{margin-left:auto;align-self:center;margin-right:18px;font-size:9px;font-weight:900;color:var(--primary)}
+        .kitchen-strip{background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.15);padding:8px 14px}.kitchen-strip-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}.kitchen-strip-head>div{display:flex;flex-direction:column;gap:2px}.kitchen-strip-head small{font-size:7px;font-weight:900;color:rgba(255,255,255,.42);letter-spacing:1px}.kitchen-strip-head strong{font-size:10px;color:var(--text)}.kitchen-strip-head button{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(var(--primary-rgb),.06);color:var(--primary);border-radius:6px;padding:6px 9px;font-size:8px;font-weight:900;cursor:pointer}.kitchen-order-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:7px;max-height:180px;overflow:auto}.kitchen-card{border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface-2);border-radius:8px;padding:7px;display:flex;gap:7px;align-items:stretch}.kitchen-card.current{border-color:var(--primary);box-shadow:0 0 0 1px rgba(var(--primary-rgb),.12)}.kitchen-card-main{flex:1;min-width:0;border:0;background:transparent;color:var(--text);text-align:left;padding:0;cursor:pointer}.kitchen-card-top{display:flex;justify-content:space-between;gap:5px;align-items:center}.kitchen-card-top strong{font-size:10px}.k-status{font-size:6px;font-weight:900;padding:3px 5px;border-radius:4px;background:rgba(var(--primary-rgb),.10);color:var(--primary)}.k-status.preparing{color:#fbbf24;background:rgba(251,191,36,.10)}.k-status.done{color:#4ade80}.kitchen-card-items{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.kitchen-card-items span{font-size:7px;color:rgba(255,255,255,.55)}.kitchen-card-total{margin-top:5px;font-size:8px;font-weight:900;color:var(--primary)}.kitchen-actions{display:flex;flex-direction:column;gap:4px;justify-content:center}.kitchen-actions button{border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:5px;padding:5px 7px;font-size:7px;font-weight:900;cursor:pointer}.kitchen-actions button:hover{border-color:var(--primary)}.kitchen-actions .done-btn{background:rgba(74,222,128,.10);border-color:rgba(74,222,128,.25);color:#4ade80}.kitchen-toggle{border:1px solid rgba(var(--primary-rgb),.18)!important;background:rgba(var(--primary-rgb),.05)!important;color:rgba(255,255,255,.65)!important;margin-left:8px!important;padding:0 14px!important;font-size:9px!important}.kitchen-toggle.active{color:var(--primary)!important;border-color:rgba(var(--primary-rgb),.35)!important;background:rgba(var(--primary-rgb),.10)!important}.new-order-summary{border:1px solid rgba(var(--primary-rgb),.14);border-radius:8px;padding:8px;background:var(--surface-2)}.new-order-summary>div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:10px}.new-order-summary>div:last-child{border-bottom:0}.new-order-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.new-order-actions .done-popup{background:rgba(74,222,128,.10);color:#4ade80;border:1px solid rgba(74,222,128,.25)}.new-order-actions button{border-radius:7px;padding:10px;border:0;font-size:9px;font-weight:900;cursor:pointer}.kitchen-alert{width:min(430px,100%)}
+.pos-info-row{display:grid;grid-template-columns:190px 1fr 180px 1.5fr;gap:8px;padding:9px 14px;background:var(--background);border-bottom:1px solid rgba(var(--primary-rgb),.12)}.info-cell{background:var(--surface);border:1px solid rgba(var(--primary-rgb),.14);border-radius:9px;padding:6px 9px;display:flex;align-items:center;gap:8px;min-width:0;box-shadow:0 3px 14px rgba(0,0,0,.12)}.info-cell label{font-size:8px;color:rgba(255,255,255,.52);font-weight:800;white-space:nowrap}.info-cell input,.info-cell select{border:0;outline:0;width:100%;font-size:11px;background:transparent;color:var(--text);min-width:0}.info-cell select option{background:var(--surface);color:var(--text)}.info-cell strong{font-size:11px;color:var(--primary)}
+        .pos-grid{display:grid;grid-template-columns:175px minmax(0,1fr) 365px;min-height:calc(100vh - 114px);gap:0}.category-panel{background:var(--surface);border-right:1px solid rgba(var(--primary-rgb),.14);padding:12px 8px;overflow:auto}.panel-title{font-size:9px;font-weight:900;color:rgba(255,255,255,.48);padding:5px 8px 10px;letter-spacing:1px}.category{width:100%;border:1px solid transparent;background:transparent;text-align:left;padding:11px 10px;border-radius:9px;display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;color:rgba(255,255,255,.78);cursor:pointer;margin-bottom:3px}.category span{font-size:8px;background:rgba(var(--primary-rgb),.10);border-radius:10px;padding:3px 6px;color:rgba(255,255,255,.55)}.category:hover{background:rgba(var(--primary-rgb),.07);border-color:rgba(var(--primary-rgb),.12)}.category.active{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827;border-color:var(--primary);box-shadow:0 4px 16px rgba(var(--primary-rgb),.18)}.category.active span{background:rgba(0,0,0,.12);color:#111827}
+        .menu-panel{padding:14px;background:var(--background);min-width:0;overflow:auto}.menu-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:11px}.menu-toolbar small,.cart-title small,.modal-head small,.inline-bill-head small{font-size:8px;font-weight:900;color:rgba(255,255,255,.45);letter-spacing:1px}.menu-toolbar h1,.cart-title h2{margin:2px 0 0;font-size:17px;color:var(--text)}.menu-toolbar input{width:250px;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface);color:var(--text);border-radius:9px;padding:10px 11px;outline:0;font-size:11px}.menu-toolbar input:focus{border-color:rgba(var(--primary-rgb),.55);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.07)}
+        .product-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.product-card{position:relative;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface);color:var(--text);border-radius:11px;padding:6px;text-align:left;cursor:pointer;box-shadow:0 5px 16px rgba(0,0,0,.16);transition:.15s;min-width:0}.product-card:hover{transform:translateY(-2px);border-color:rgba(var(--primary-rgb),.55);box-shadow:0 8px 22px rgba(var(--primary-rgb),.10)}.product-photo{width:100%;aspect-ratio:1/.78;border-radius:8px;overflow:hidden;background:linear-gradient(145deg,var(--surface-2),var(--surface));border:1px solid rgba(var(--primary-rgb),.10)}.product-photo img{width:100%;height:100%;object-fit:cover;display:block}.photo-fallback{height:100%;display:grid;place-items:center;font-size:28px;color:var(--primary)}.product-meta{padding:7px 3px 3px;display:flex;flex-direction:column;gap:3px}.product-meta strong{font-size:11px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.product-meta span{font-size:11px;font-weight:900;color:var(--primary)}.customizable{position:absolute;right:8px;top:8px;background:var(--surface);border:1px solid rgba(var(--primary-rgb),.35);border-radius:5px;padding:3px 5px;font-size:6px;font-weight:900;color:var(--primary);box-shadow:0 2px 8px rgba(0,0,0,.25)}.empty-menu,.empty-cart{padding:50px 10px;text-align:center;color:rgba(255,255,255,.42);font-size:11px}.empty-cart span{font-size:9px}
+        .cart-panel{background:var(--surface);border-left:1px solid rgba(var(--primary-rgb),.16);display:flex;flex-direction:column;min-width:0}.cart-title{padding:10px 12px;border-bottom:1px solid rgba(var(--primary-rgb),.13);display:flex;justify-content:space-between;align-items:center}.cart-status{display:block!important;margin-top:3px;font-size:7px!important;color:var(--primary)!important;font-weight:900!important;letter-spacing:.6px}.cart-status.preparing{color:#fbbf24!important}.cart-status.done{color:#4ade80!important}.cart-title-actions{display:flex;align-items:center;gap:5px}.cart-title-actions>span{background:rgba(var(--primary-rgb),.12);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.18);border-radius:12px;padding:4px 7px;font-size:9px;font-weight:900}.cart-title-actions button{border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.06);color:var(--primary);border-radius:5px;padding:5px 6px;font-size:6px;font-weight:900;cursor:pointer}.cart-title-actions .done-mini{color:#4ade80;border-color:rgba(74,222,128,.25);background:rgba(74,222,128,.08)}.cart-title>span{background:rgba(var(--primary-rgb),.12);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.18);border-radius:12px;padding:4px 7px;font-size:9px;font-weight:900}.cart-list{padding:8px;overflow:auto;max-height:calc(100vh - 430px)}.cart-item{display:grid;grid-template-columns:42px minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,.06)}.cart-thumb{width:42px;height:42px;border-radius:7px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center;color:var(--primary)}.cart-thumb img{width:100%;height:100%;object-fit:cover}.cart-info{min-width:0;display:flex;flex-direction:column;gap:2px}.cart-info strong{font-size:10px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cart-info small{font-size:8px;color:rgba(255,255,255,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cart-info span{font-size:9px;font-weight:900;color:var(--primary)}.qty{display:flex;align-items:center;gap:3px}.qty button,.delete{width:22px;height:22px;border:1px solid rgba(var(--primary-rgb),.20);background:rgba(var(--primary-rgb),.05);color:var(--text);border-radius:5px;cursor:pointer;font-weight:900}.qty button:hover{border-color:var(--primary)}.qty b{font-size:9px;min-width:14px;text-align:center}.delete{color:#f87171}.delivery-mini{padding:8px 10px;border-top:1px solid rgba(var(--primary-rgb),.12);display:flex;gap:8px;align-items:center}.delivery-mini select{flex:1;border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);color:var(--text);border-radius:6px;padding:7px;font-size:9px}.delivery-mini span{font-size:8px;font-weight:800;color:var(--primary)}
+        .printer-prompt-text{margin:0 0 14px;padding:0 2px;color:rgba(255,255,255,.72);font-size:10px;line-height:1.55}.printer-prompt-actions{display:grid;grid-template-columns:1fr;gap:7px}.printer-prompt-actions button{min-height:38px}.printer-prompt{max-width:430px}
+        .printer-btn{border:1px solid rgba(var(--primary-rgb),.22);background:rgba(var(--primary-rgb),.06);color:var(--primary);border-radius:7px;padding:8px 10px;font-size:8px;font-weight:900;cursor:pointer}.printer-btn:disabled{opacity:.5}.offer-box{margin:0 10px 8px;padding:8px 10px;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.045);border-radius:8px}.offer-head{display:flex;justify-content:space-between;font-size:8px;font-weight:900;color:var(--primary);margin-bottom:6px}.offer-box select{width:100%;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface-2);color:var(--text);border-radius:5px;padding:7px;font-size:9px}.offer-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.offer-chips span{padding:4px 6px;border-radius:5px;background:rgba(var(--accent-rgb),.09);color:var(--accent);font-size:7px;font-weight:800}.bill-summary{margin-top:auto;border-top:1px solid rgba(var(--primary-rgb),.13);padding:10px 12px}.bill-summary>div{display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:9px;color:rgba(255,255,255,.70)}.bill-summary b{color:var(--text)}.bill-summary .discount-line>div{display:flex;align-items:center;gap:2px}.mini{border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.05);color:var(--text);width:22px;height:22px;font-size:8px;font-weight:900;cursor:pointer}.mini.active{background:var(--primary);color:#111827;border-color:var(--primary)}.discount-line input{width:54px;height:22px;border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);color:var(--text);border-radius:4px;padding:3px;font-size:9px}.grand{margin:8px -12px -10px!important;padding:12px;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827!important;font-size:15px!important}.grand span,.grand b{color:#111827!important}.grand b{font-size:17px}
+        .pos-buttons{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:7px;padding:10px 12px;background:var(--surface);border-top:1px solid rgba(var(--primary-rgb),.13)}.pos-buttons button{border:0;border-radius:8px;padding:11px 6px;font-size:9px;font-weight:900;cursor:pointer}.pos-buttons button:disabled{opacity:.45;cursor:not-allowed}.kot-action{background:rgba(var(--accent-rgb),.08);color:var(--accent);border:1px solid rgba(var(--accent-rgb),.20)!important}.kot-action:hover{filter:brightness(1.05)}.save{background:rgba(var(--primary-rgb),.13);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.25)!important}.finalize{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827}.save:hover,.finalize:hover{filter:brightness(1.05)}
+        .inline-bill-box{margin:0 10px 8px;padding:10px;border:1px solid rgba(var(--primary-rgb),.20);background:linear-gradient(145deg,rgba(var(--primary-rgb),.07),rgba(var(--accent-rgb),.04));border-radius:9px}.inline-bill-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.inline-bill-head>div{display:flex;flex-direction:column;gap:2px}.inline-bill-head strong{font-size:12px;color:var(--text)}.inline-bill-head>span{font-size:8px;color:var(--primary);font-weight:900}.payment-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}.payment-row label{display:flex;flex-direction:column;gap:3px;font-size:7px;color:rgba(255,255,255,.5);font-weight:900}.payment-row select,.payment-row input{width:100%;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface-2);color:var(--text);border-radius:5px;padding:7px;font-size:9px;outline:0}.payment-row select option{background:var(--surface);color:var(--text)}.payable-row{display:flex;justify-content:space-between;align-items:end;padding-top:9px}.payable-row span{font-size:7px;color:rgba(255,255,255,.45);font-weight:900}.payable-row strong{font-size:18px;color:var(--primary)}.print-bill-btn{width:100%;margin-top:8px;border:1px solid rgba(var(--primary-rgb),.28);background:rgba(var(--primary-rgb),.09);color:var(--primary);border-radius:6px;padding:8px;font-size:8px;font-weight:900}.print-bill-btn:disabled{opacity:.4}.paid-banner{margin-top:7px;background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.22);color:var(--accent);border-radius:6px;padding:7px;font-size:8px;font-weight:900}
+        .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(5px);z-index:50;display:grid;place-items:center;padding:18px}.modal{width:min(480px,100%);max-height:85vh;overflow:auto;background:var(--surface);color:var(--text);border:1px solid rgba(var(--primary-rgb),.22);border-radius:12px;padding:16px;box-shadow:0 25px 70px rgba(0,0,0,.45)}.modal-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}.modal-head h2{margin:3px 0;font-size:18px}.modal-head button{border:1px solid rgba(var(--primary-rgb),.15);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:5px;font-size:17px;cursor:pointer}.variant-row{display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface-2);border-radius:7px;margin:6px 0}.variant-row span{font-size:11px;font-weight:800}.variant-row small{display:block;color:rgba(255,255,255,.48);font-size:9px;margin-top:2px}.variant-row>div{display:flex;align-items:center;gap:7px}.variant-row button{width:28px;height:28px;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.05);color:var(--text);border-radius:5px}.modifier-group{margin:10px 0}.modifier-group>div:first-child{display:flex;justify-content:space-between;margin-bottom:5px;font-size:11px}.modifier-group>div:first-child small{color:rgba(255,255,255,.45);font-size:8px}.modifier{width:100%;display:flex;justify-content:space-between;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface-2);color:var(--text);border-radius:7px;padding:9px;margin:4px 0;font-size:10px;cursor:pointer}.modifier.active{border-color:var(--primary);background:rgba(var(--primary-rgb),.10);color:var(--primary)}.modal-primary{width:100%;border:0;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827;border-radius:7px;padding:11px;font-weight:900;font-size:10px;margin-top:8px}
+        .pos-loading,.pos-error{min-height:100vh;display:grid;place-items:center;align-content:center;gap:12px;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}.pos-loading{font-weight:800}.pos-error{padding:20px;text-align:center}.pos-error strong{max-width:600px;color:#fca5a5}.pos-error button{border:1px solid rgba(var(--primary-rgb),.28);background:var(--primary);color:#111827;padding:10px 15px;border-radius:8px;font-weight:800}
+        @media(max-width:1100px){.pos-grid{grid-template-columns:135px minmax(0,1fr) 325px}.product-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.pos-info-row{grid-template-columns:150px 1fr 150px}.info-cell.wide{grid-column:1/-1}}
+        @media(max-width:800px){.pos-topbar{padding:0 10px}.brand-block span,.live-pill{display:none}.order-mode-bar{overflow:auto;padding-left:8px}.mode{padding:0 16px}.pos-info-row{grid-template-columns:1fr 1fr}.pos-grid{grid-template-columns:1fr;display:block}.category-panel{display:flex;gap:5px;overflow:auto;border-right:0;border-bottom:1px solid rgba(var(--primary-rgb),.13);padding:7px}.panel-title{display:none}.category{width:auto;min-width:max-content;margin:0}.menu-panel{padding:8px}.product-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cart-panel{border-left:0;border-top:1px solid rgba(var(--primary-rgb),.13)}.cart-list{max-height:330px}.back-btn span{display:none}}
+        @media(max-width:520px){.kitchen-order-list{grid-template-columns:1fr}.kitchen-toggle{margin-left:3px!important;padding:0 10px!important}.pos-info-row{grid-template-columns:1fr}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.menu-toolbar{align-items:stretch;flex-direction:column}.menu-toolbar input{width:100%}.cart-item{grid-template-columns:38px minmax(0,1fr) auto}.delete{grid-column:3;grid-row:1}.qty{grid-column:2;justify-self:end;grid-row:1}.cart-info{padding-right:45px}.pos-buttons{position:sticky;bottom:0;z-index:5}.brand-block strong{font-size:13px}}
+        @media print{.pos-topbar,.order-mode-bar,.kitchen-strip,.pos-info-row,.category-panel,.menu-panel,.pos-buttons,.inline-bill-box{display:none!important}.anaira-pos{background:#fff;color:#111}.pos-grid{display:block}.cart-panel{border:0;width:100%;background:#fff;color:#111}.cart-list{max-height:none}.cart-title{border-bottom:1px solid #111}.cart-title h2,.cart-info strong,.bill-summary b{color:#111!important}.bill-summary{color:#111;border-top:1px solid #111}.grand{background:#ddd!important;color:#111!important}.grand span,.grand b{color:#111!important}}
       `}</style>
     </div>
   )

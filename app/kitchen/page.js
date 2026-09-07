@@ -212,9 +212,7 @@ const [kotSize, setKotSize] = useState("A5")
 
   async function printKot(order) {
     if (!order) return
-    try {
-      await printHtmlInFrame(buildKotHtml(order, kotSize).replace(/<script>window.onload=\(\)=>window.print\(\)<\/script>/, ""), { title: `KOT ${order?.display || order?.id || ""}`, width: kotSize === "A5" ? "148mm" : kotSize === "58mm" ? "58mm" : "80mm", height: kotSize === "A5" ? "210mm" : "auto" })
-    } catch (e) { alert(e.message || "Unable to print KOT") }
+    try { await printKotThermal(order) } catch (e) { alert(e.message || "Unable to print KOT") }
   }
 
   function downloadKot(order) {

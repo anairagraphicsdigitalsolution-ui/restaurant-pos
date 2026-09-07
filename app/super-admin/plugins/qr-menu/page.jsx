@@ -4,6 +4,15 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 
+async function printQrPage(){
+  if (window.anairaElectron?.previewCurrentPage) {
+    const result = await window.anairaElectron.previewCurrentPage()
+    if (!result?.success) alert(result?.error || "Unable to create PDF preview")
+    return
+  }
+  window.print()
+}
+
 export default function QRPage(){
   const params=useSearchParams()
   const rid=params.get("rid")
@@ -76,7 +85,7 @@ export default function QRPage(){
           <div style={actions}>
             <button onClick={()=>copy(x)} style={primaryBtn}>{copied===x.id?"✓ Copied":"Copy Link"}</button>
             <button onClick={()=>window.open(getURL(x),"_blank","noopener,noreferrer")} style={secondaryBtn}>Open</button>
-            <button onClick={()=>window.print()} style={secondaryBtn}>Print</button>
+            <button onClick={printQrPage} style={secondaryBtn}>Print</button>
           </div>
         </article>)}
       </section>

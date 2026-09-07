@@ -1,0 +1,2 @@
+@echo off
+powershell.exe -NoProfile -Command "Write-Host 'ANAIRA MPT-III / WINDOWS COM CHECK' -ForegroundColor Cyan; Get-CimInstance Win32_PnPEntity | Where-Object {$_.Name -match '\(COM\d+\)' -or $_.Name -match 'MPT|Bluetooth|Thermal|Printer'} | Select-Object Status,Name,Manufacturer,Description | Format-Table -AutoSize; Write-Host ''; Write-Host 'If MPT-III is paired but no COM port is shown, Windows has not exposed the Bluetooth serial service.' -ForegroundColor Yellow; pause"

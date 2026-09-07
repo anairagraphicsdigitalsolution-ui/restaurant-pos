@@ -1,7 +1,21 @@
-const { app, BrowserWindow, screen, ipcMain } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, shell } = require("electron");
+
+// Electron-only performance tuning.
+// Keep the application code, UI, routes and database behavior untouched.
+// Chromium normally enables hardware acceleration, but these switches make
+// GPU rasterization/zero-copy explicit on Windows where supported.
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("enable-gpu-rasterization");
+  app.commandLine.appendSwitch("enable-zero-copy");
+  // Prevent Windows native-window occlusion from unnecessarily throttling the
+  // POS renderer when another window overlaps it. This helps long-running POS
+  // sessions/realtime UI without changing application behavior.
+  app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+}
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
+const fs = require("fs");
 
 let mainWindow = null;
 let nextProcess = null;
@@ -9,6 +23,8 @@ let serverWatchdog = null;
 let shuttingDown = false;
 let restartTimer = null;
 let restartAttempts = 0;
+let watchdogFailures = 0;
+let serverRestartInFlight = false;
 
 // Prevent two Electron instances from fighting over the same embedded Next.js
 // port. A second launch now focuses the already-running POS instead.
@@ -133,6 +149,92 @@ ipcMain.on("window-close", (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
 });
 
+function getPdfPageSize(width, height) {
+  const w = String(width || "80mm").trim();
+  const h = String(height || "auto").trim();
+  if (w === "148mm" && h === "210mm") return "A5";
+  if (w === "210mm" && h === "297mm") return "A4";
+  const widthMicrons = Math.max(58000, Math.round(parseFloat(w) * 1000));
+  const heightMicrons = h === "auto" ? 300000 : Math.max(80000, Math.round(parseFloat(h) * 1000));
+  return { width: widthMicrons, height: heightMicrons };
+}
+
+async function createPdfPreview({ html = "", title = "Print", width = "80mm", height = "auto" } = {}) {
+  if (!html) throw new Error("Nothing to print")
+
+  // Electron does not ship the same built-in PDF viewer/plugin that a normal
+  // Chrome/Edge tab has. Generate a real PDF first, then hand that PDF to
+  // Windows' registered PDF application (normally Edge/Acrobat). This gives
+  // the user the normal PDF preview/print UI instead of Electron's Win32
+  // native print dialog with "No preview available".
+  const preview = new BrowserWindow({
+    show: false,
+    width: 980,
+    height: 900,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+
+  const htmlUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+  try {
+    await preview.loadURL(htmlUrl)
+    await new Promise(resolve => setTimeout(resolve, 250))
+
+    const pdf = await preview.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageSize: getPdfPageSize(width, height),
+      margins: { marginType: "none" },
+    })
+
+    const tempDir = path.join(app.getPath("temp"), "AnairaPOS-print-preview")
+    fs.mkdirSync(tempDir, { recursive: true })
+    const safeName = String(title || "print").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 80) || "print"
+    const pdfPath = path.join(tempDir, `${safeName}-${Date.now()}.pdf`)
+    fs.writeFileSync(pdfPath, pdf)
+
+    // Open the actual PDF with Windows' default PDF viewer. Do not delete it
+    // immediately: Edge/Acrobat may still be loading it when this handler
+    // returns. Cleanup is deferred so the viewer always has a valid file.
+    const openError = await shell.openPath(pdfPath)
+    if (openError) throw new Error(openError)
+
+    setTimeout(() => { try { fs.unlinkSync(pdfPath) } catch (_) {} }, 10 * 60 * 1000)
+    return { success: true, path: pdfPath, external: true }
+  } finally {
+    try { preview.close() } catch (_) {}
+  }
+}
+
+ipcMain.handle("print-preview-pdf", async (_event, payload) => {
+  try { return await createPdfPreview(payload || {}); }
+  catch (error) { console.error("Electron PDF preview failed:", error); return { success: false, error: error?.message || "PDF preview failed" }; }
+});
+
+ipcMain.handle("print-current-page-pdf", async (event) => {
+  const source = BrowserWindow.fromWebContents(event.sender)
+  if (!source || source.isDestroyed()) return { success: false, error: "Print source is unavailable" }
+  const title = source.getTitle() || "Anaira POS Print"
+  try {
+    const pdf = await source.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      margins: { marginType: "none" },
+    })
+    const tempDir = path.join(app.getPath("temp"), "AnairaPOS-print-preview")
+    fs.mkdirSync(tempDir, { recursive: true })
+    const safeName = title.replace(/[^a-z0-9._-]+/gi, "-").slice(0, 80) || "print"
+    const pdfPath = path.join(tempDir, `${safeName}-${Date.now()}.pdf`)
+    fs.writeFileSync(pdfPath, pdf)
+    const openError = await shell.openPath(pdfPath)
+    if (openError) return { success: false, error: openError }
+    setTimeout(() => { try { fs.unlinkSync(pdfPath) } catch (_) {} }, 10 * 60 * 1000)
+    return { success: true, path: pdfPath, external: true }
+  } catch (error) {
+    console.error("Electron current-page PDF preview failed:", error)
+    return { success: false, error: error?.message || "PDF preview failed" }
+  }
+})
+
 function startNextServer() {
 
   return new Promise((resolve, reject) => {
@@ -216,7 +318,7 @@ function startNextServer() {
         if (Date.now() - startedAt >= 30000) {
           reject(new Error("Next.js server did not start within 30 seconds."));
         } else {
-          setTimeout(check, 250);
+          setTimeout(check, 400);
         }
       });
 
@@ -241,21 +343,53 @@ function getAdaptiveZoomFactor(display) {
   return 1;
 }
 
+async function restartEmbeddedServer(reason) {
+  if (shuttingDown || serverRestartInFlight) return;
+  if (restartAttempts >= 3) return;
+  serverRestartInFlight = true;
+  restartAttempts += 1;
+  console.warn(`Restarting embedded Next.js server: ${reason}`);
+
+  const child = nextProcess;
+  nextProcess = null;
+  try { child?.kill(); } catch (_) {}
+
+  try {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await startNextServer();
+    watchdogFailures = 0;
+    restartAttempts = 0;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.loadURL(`http://${HOST}:${PORT}`);
+    }
+  } catch (error) {
+    console.error("Embedded Next.js restart failed:", error);
+  } finally {
+    serverRestartInFlight = false;
+  }
+}
+
 function startServerWatchdog() {
   if (serverWatchdog) clearInterval(serverWatchdog);
+  watchdogFailures = 0;
   serverWatchdog = setInterval(() => {
     if (!nextProcess || nextProcess.exitCode !== null) {
-      console.error("Anaira Next.js process is not running.");
+      watchdogFailures += 1;
+      if (watchdogFailures >= 2) void restartEmbeddedServer("Next.js process is not running");
       return;
     }
     const req = http.get(`http://${HOST}:${PORT}`, res => {
       res.resume();
+      watchdogFailures = 0;
     });
-    req.setTimeout(3000, () => req.destroy());
-    req.on("error", error => console.error("Anaira Next.js health check failed:", error.message));
-  }, 15000);
+    req.setTimeout(2500, () => req.destroy(new Error("health check timeout")));
+    req.on("error", error => {
+      watchdogFailures += 1;
+      console.error("Anaira Next.js health check failed:", error.message);
+      if (watchdogFailures >= 3) void restartEmbeddedServer("local Next.js health check failed three times");
+    });
+  }, 10000);
 }
-
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   const workArea = display.workAreaSize;
@@ -288,7 +422,10 @@ function createWindow() {
       preload: process.platform === "win32" ? path.join(__dirname, "preload.cjs") : undefined,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      // Keep Chromium's V8 bytecode cache enabled for faster repeat launches.
+      v8CacheOptions: "code",
+      spellcheck: false
     }
   });
 

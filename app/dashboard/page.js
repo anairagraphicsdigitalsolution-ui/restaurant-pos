@@ -51,13 +51,17 @@ export default function Dashboard() {
     let cancelled = false
     let loadingRefresh = false
     let refreshQueued = false
+    let lastRefreshAt = 0
 
     const scheduleRefresh = (rid) => {
       clearTimeout(refreshTimer)
       refreshTimer = setTimeout(async () => {
         if (cancelled) return
         if (loadingRefresh) { refreshQueued = true; return }
+        const sinceLast = Date.now() - lastRefreshAt
+        if (sinceLast < 4000) { refreshQueued = true; refreshTimer = setTimeout(() => scheduleRefresh(rid), 4000 - sinceLast); return }
         loadingRefresh = true
+        lastRefreshAt = Date.now()
         try { await loadData(rid, false) } finally {
           loadingRefresh = false
           if (refreshQueued && !cancelled) {
@@ -65,7 +69,7 @@ export default function Dashboard() {
             scheduleRefresh(rid)
           }
         }
-      }, 1000)
+      }, 1500)
     }
 
     async function init() {
@@ -120,14 +124,24 @@ export default function Dashboard() {
       // Read dashboard data through the Cloud-only server endpoint. This keeps
       // the browser and Electron builds on the exact same Cloud Supabase query
       // path and avoids browser RLS differences for dashboard reporting.
-      const response = await fetch("/api/dashboard/overview", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || `Dashboard Cloud request failed (${response.status})`)
+      let response = null
+      let payload = null
+      let lastError = null
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          response = await fetch("/api/dashboard/overview", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+          })
+          payload = await response.json().catch(() => ({}))
+          if (response.ok && payload?.success) break
+          lastError = new Error(payload?.error || `Dashboard Cloud request failed (${response.status})`)
+        } catch (error) {
+          lastError = error
+        }
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)))
       }
+      if (!response?.ok || !payload?.success) throw lastError || new Error("Dashboard Cloud request failed")
 
       if (String(payload.restaurant_id) !== String(rid)) {
         throw new Error("Cloud restaurant context changed. Please refresh the dashboard.")
@@ -139,7 +153,6 @@ export default function Dashboard() {
       const customerData = payload.customers || []
       const reservationData = payload.reservations || []
       const tableData = payload.tables || []
-      const orderItems = payload.orderItems || []
       const restaurantData = payload.restaurant
 
       if (!restaurantData) throw new Error("Restaurant was not found in Cloud Supabase")
@@ -178,41 +191,22 @@ export default function Dashboard() {
         completedOrders: orderData.filter((o) => ["done", "completed", "served", "paid"].includes(String(o.status || "").toLowerCase())).length,
       })
 
-      const itemMap = new Map(itemData.map((item) => [String(item.id), item]))
-      const salesMap = {}
-      for (const oi of orderItems) {
-        const menuItem = itemMap.get(String(oi.item_id))
-        const name = oi.item_name || menuItem?.name || "Unknown item"
-        const qty = Number(oi.quantity || 0)
-        const unitPrice = Number(oi.unit_price ?? menuItem?.price ?? 0)
-        if (!salesMap[name]) salesMap[name] = { name, qty: 0, amount: 0 }
-        salesMap[name].qty += qty
-        salesMap[name].amount += unitPrice * qty
-      }
-      setTopSelling(Object.values(salesMap).sort((a, b) => b.qty - a.qty).slice(0, 6))
+      setTopSelling((payload.topSelling || []).map((item) => ({
+        name: item.item_name || "Unknown item",
+        qty: Number(item.quantity || 0),
+        amount: Number(item.sales_amount || 0),
+      })))
 
-      const days = []
-      for (let offset = 6; offset >= 0; offset--) {
-        const d = new Date()
-        d.setHours(0, 0, 0, 0)
-        d.setDate(d.getDate() - offset)
-        const key = localDateKey(d)
-        const total = orderData
-          .filter((o) => localDateKey(o.created_at || o.billed_at) === key && !cancelledStatuses.has(String(o.status || "").toLowerCase()))
-          .reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
-        days.push({ key, label: formatIndiaDate(d, { weekday: "short" }), total })
-      }
+      const days = (payload.salesDays || []).map((row) => ({
+        key: String(row.day_key || ""),
+        label: formatIndiaDate(new Date(`${row.day_key}T12:00:00`), { weekday: "short" }),
+        total: Number(row.total_sales || 0),
+      }))
       setSalesDays(days)
     } catch (error) {
+      // Keep the last known-good dashboard on transient Cloud/network failures.
+      // Clearing the whole screen made a temporary timeout look like data loss.
       console.error("DASHBOARD CLOUD LOAD ERROR:", error)
-      setRestaurant(null)
-      setOrders([])
-      setItems([])
-      setOffers([])
-      setCustomers([])
-      setReservations([])
-      setTables([])
-      setSummary(null)
     } finally {
       setLoading(false)
     }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import QRCode from "react-qr-code"
+import { printHtmlInFrame } from "@/lib/printUtils"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const BRAND_LOGO = "/anaira-branding.png"
@@ -234,7 +235,14 @@ export default function QRPrintCenter({ superAdmin = false }) {
       } catch {}
       window.print()
     }
-    window.setTimeout(runPrint, 120)
+    window.setTimeout(async () => {
+      if (window.anairaElectron?.previewCurrentPage) {
+        const result = await window.anairaElectron.previewCurrentPage()
+        if (!result?.success) alert(result?.error || "Unable to create PDF preview")
+        return
+      }
+      runPrint()
+    }, 120)
   }
 
   const total = tables.length + rooms.length
@@ -473,13 +481,22 @@ function QRCard({ type, label, url, restaurant, canPrint = false, config = {} })
       return
     }
 
+    const cardHtml = cardRef.current.outerHTML
+
+    // In Electron, route this QR card through the same real-PDF preview path
+    // as bills/KOT/slips. Keep the existing popup printing behavior in normal
+    // browsers unchanged.
+    if (window.anairaElectron?.previewPrint) {
+      printHtmlInFrame(cardHtml, { title: `${label} QR`, width: "210mm", height: "297mm" })
+        .catch((error) => alert(error?.message || "Unable to create PDF preview"))
+      return
+    }
+
     const popup = window.open("", "_blank", "width=800,height=900")
     if (!popup) {
       alert("Please allow pop-ups to print a QR card.")
       return
     }
-
-    const cardHtml = cardRef.current.outerHTML
     popup.document.write(`<!doctype html>
 <html>
 <head>

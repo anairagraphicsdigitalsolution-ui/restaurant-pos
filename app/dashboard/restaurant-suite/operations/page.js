@@ -1,7 +1,7 @@
 "use client"
 import { formatIndiaDateTime, indiaDateKey } from "@/lib/indiaTime"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 
 const tabs = [
@@ -64,6 +64,10 @@ function Empty({ children }) { return <div className="pp-empty">{children}</div>
 
 export default function AnairaOperationsHub() {
   const [rid, setRid] = useState("")
+  const ridRef = useRef("")
+  const dataRef = useRef({})
+  const loadSeqRef = useRef(0)
+  const emptyConfirmRef = useRef({})
   const [role, setRole] = useState("")
   const [tab, setTab] = useState("floor")
   const [plugins, setPlugins] = useState({})
@@ -120,17 +124,24 @@ export default function AnairaOperationsHub() {
 
   useEffect(() => {
     init()
-    const refresh = () => load()
+    const refresh = () => { if (ridRef.current) void load(ridRef.current) }
     window.addEventListener("anaira:plugins-updated", refresh)
-    return () => window.removeEventListener("anaira:plugins-updated", refresh)
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible" && ridRef.current) void load(ridRef.current)
+    }, 30000)
+    return () => {
+      window.removeEventListener("anaira:plugins-updated", refresh)
+      clearInterval(timer)
+    }
   }, [])
 
   async function init() {
-    const { data: userData } = await supabaseCloud.auth.getUser()
-    const user = userData?.user
+    const { data: sessionData } = await supabaseCloud.auth.getSession()
+    const user = sessionData?.session?.user
     if (!user) return
     const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id,role").eq("id", user.id).maybeSingle()
     if (!profile?.restaurant_id) return
+    ridRef.current = profile.restaurant_id
     setRid(profile.restaurant_id)
     setRole(profile.role || "")
     await load(profile.restaurant_id)
@@ -138,6 +149,7 @@ export default function AnairaOperationsHub() {
 
   async function load(id = rid) {
     if (!id) return
+    const requestId = ++loadSeqRef.current
     const q = {
       areas: supabaseCloud.from("restaurant_areas").select("*").eq("restaurant_id", id).order("sort_order").order("name"),
       tables: supabaseCloud.from("dining_tables").select("*").eq("restaurant_id", id).order("table_no"),
@@ -172,8 +184,46 @@ export default function AnairaOperationsHub() {
       cashMovements: supabaseCloud.from("cash_movements").select("id,session_id,movement_type,amount,reference,note,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
       holds: supabaseCloud.from("order_holds").select("id,order_id,hold_type,note,released_at,created_at").eq("restaurant_id", id).order("created_at", { ascending: false }).limit(20),
     }
-    const entries = await Promise.all(Object.entries(q).map(async ([k, query]) => [k, (await query).data || []]))
-    const result = Object.fromEntries(entries)
+    const entries = await Promise.all(Object.entries(q).map(async ([k, query]) => {
+      try {
+        const response = await query
+        return [k, { data: response.data || [], error: response.error || null }]
+      } catch (error) {
+        return [k, { data: null, error }]
+      }
+    }))
+    if (requestId !== loadSeqRef.current) return
+    const previous = dataRef.current || {}
+    const result = {}
+    let hadError = false
+    for (const [key, response] of entries) {
+      if (response.error) {
+        hadError = true
+        result[key] = previous[key] ?? []
+        continue
+      }
+      const next = response.data || []
+      const previousValue = previous[key]
+      // A transient Cloud/RLS/network glitch can occasionally return an empty
+      // successful payload. Never wipe an already-populated screen on the
+      // first unexpected empty refresh; require a second consecutive empty
+      // response for that dataset before accepting it.
+      if (Array.isArray(next) && next.length === 0 && Array.isArray(previousValue) && previousValue.length > 0) {
+        const confirmations = (emptyConfirmRef.current[key] || 0) + 1
+        emptyConfirmRef.current[key] = confirmations
+        result[key] = confirmations >= 2 ? next : previousValue
+      } else {
+        emptyConfirmRef.current[key] = 0
+        result[key] = next
+      }
+    }
+    // Do not commit a mixed/partial snapshot while any query is failing. The
+    // previous last-known-good snapshot stays visible until Cloud recovers.
+    if (hadError && Object.keys(previous).length) {
+      for (const key of Object.keys(previous)) {
+        if (!(key in result)) result[key] = previous[key]
+      }
+    }
     const nextPlugins = Object.fromEntries((result.plugins || []).map(x => [x.plugin_code, x.enabled === true]))
     const nextPluginSettings = Object.fromEntries(
       (result.pluginSettings || []).map(x => [x.plugin_code, x.config || {}])
@@ -192,6 +242,7 @@ export default function AnairaOperationsHub() {
     delete result.pluginSettings
     setOrders(result.orders || [])
     setMenu(result.menu || [])
+    dataRef.current = result
     setData(result)
 
     const today = indiaDateKey(new Date())
@@ -209,7 +260,10 @@ export default function AnairaOperationsHub() {
     const { error } = await supabaseCloud.from(tableName).insert({ ...payload, restaurant_id: rid })
     setBusy(false)
     setMessage(error?.message || "Saved successfully")
-    if (!error) { reset?.(); await load() }
+    if (!error) {
+      reset?.()
+      void load()
+    }
   }
 
   async function api(action, payload = {}) {
@@ -219,7 +273,7 @@ export default function AnairaOperationsHub() {
     const json = await response.json().catch(() => ({}))
     setBusy(false)
     setMessage(json.error || (response.ok ? "Completed successfully" : "Operation failed"))
-    if (response.ok) await load()
+    if (response.ok) void load()
     return json
   }
 

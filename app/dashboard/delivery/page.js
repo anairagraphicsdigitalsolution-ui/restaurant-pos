@@ -1,7 +1,7 @@
 "use client"
 import { formatIndiaDate, formatIndiaDateTime } from "@/lib/indiaTime"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { sendThermalPrint } from "@/lib/thermalPrintClient"
 import { printHtmlInFrame } from "@/lib/printUtils"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -53,6 +53,9 @@ export default function DeliveryManagement() {
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [restaurant, setRestaurant] = useState(null)
+  const [slipPreview, setSlipPreview] = useState(null)
+  const loadRequestRef = useRef(0)
+  const emptyDeliveryConfirmRef = useRef(0)
 
   const [zoneForm, setZoneForm] = useState({
     id: "",
@@ -77,8 +80,9 @@ export default function DeliveryManagement() {
     }
   }
 
-  async function load() {
-    setLoading(true)
+  async function load({ background = false } = {}) {
+    const requestId = ++loadRequestRef.current
+    if (!background) setLoading(true)
     setError("")
 
     try {
@@ -93,11 +97,25 @@ export default function DeliveryManagement() {
         throw new Error(data.error || "Delivery data unavailable")
       }
 
+      if (requestId !== loadRequestRef.current) return
       const rows = data.deliveries || []
-      setDeliveries(rows)
-      setRiders(data.riders || [])
+      // API can remain HTTP-200 while one Cloud query is temporarily failed.
+      // Never interpret that partial failure as "no deliveries". Also protect
+      // against a transient empty successful response: an already-populated
+      // delivery list is only cleared after two consecutive empty confirmations.
+      if (!data?.errors?.deliveries) {
+        if (rows.length === 0 && deliveries.length > 0) {
+          emptyDeliveryConfirmRef.current += 1
+          if (emptyDeliveryConfirmRef.current >= 2) setDeliveries(rows)
+          else console.warn("Transient empty delivery refresh; keeping current data")
+        } else {
+          emptyDeliveryConfirmRef.current = 0
+          setDeliveries(rows)
+        }
+      } else console.warn("Delivery list refresh failed; keeping current data", data.errors.deliveries)
+      if (!data?.errors?.riders) setRiders(data.riders || [])
       if (data.restaurant) setRestaurant(data.restaurant)
-      setZones(data.zones || [])
+      if (!data?.errors?.zones) setZones(data.zones || [])
 
       const slip = search.get("slip")
       const orderId = search.get("order_id")
@@ -114,12 +132,25 @@ export default function DeliveryManagement() {
     } catch (e) {
       setError(e?.message || "Delivery data unavailable")
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }
 
   useEffect(() => {
-    load()
+    let disposed = false
+    const refresh = () => { if (!disposed) load({ background: true }) }
+    load({ background: false })
+    const timer = window.setInterval(refresh, 30000)
+    const onVisible = () => { if (document.visibilityState === "visible") refresh() }
+    const onPageShow = (event) => { if (event.persisted) refresh() }
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("pageshow", onPageShow)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("pageshow", onPageShow)
+    }
   }, [])
 
   function selectDelivery(delivery, resetCollection = true) {
@@ -330,7 +361,7 @@ export default function DeliveryManagement() {
     catch (e) { setError(e.message || "Thermal delivery print failed") }
   }
 
-  async function printSlip(delivery) {
+  async function printSlip(delivery, options = {}) {
     if (!delivery) return
 
     // Always print from the latest enriched Cloud delivery object. This prevents
@@ -457,7 +488,16 @@ export default function DeliveryManagement() {
         </body>
       </html>
     `
-    printHtmlInFrame(html, { title: printable.slip_no || title, width: "148mm", height: "210mm" }).catch(e => setError(e.message || "Unable to print the slip"))
+    if (options.preview !== false) {
+      setSlipPreview({
+        html,
+        title: printable.slip_no || title,
+        printable,
+      })
+      return
+    }
+
+    await printHtmlInFrame(html, { title: printable.slip_no || title, width: "148mm", height: "210mm" }).catch(e => setError(e.message || "Unable to print the slip"))
   }
 
   async function assignDeliveryPerson() {
@@ -745,8 +785,37 @@ export default function DeliveryManagement() {
     }
   }
 
+  async function printPreviewSlip() {
+    if (!slipPreview) return
+    try {
+      await printHtmlInFrame(slipPreview.html, {
+        title: slipPreview.title || "Delivery Slip",
+        width: "148mm",
+        height: "210mm",
+      })
+    } catch (e) {
+      setError(e.message || "Unable to print the delivery slip")
+    }
+  }
+
   return (
     <main className="deliveryPage">
+      {slipPreview && (
+        <div role="dialog" aria-modal="true" aria-label="Delivery slip preview" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div style={{ width: "min(920px, 96vw)", height: "min(92vh, 900px)", background: "#e9e9e9", borderRadius: 12, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", background: "#fff", borderBottom: "1px solid #ddd" }}>
+              <strong>Delivery Slip Preview</strong>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="printBtn" onClick={printPreviewSlip}>🖨 Print</button>
+                <button type="button" className="printBtn" onClick={() => setSlipPreview(null)}>✕ Close</button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: 18, display: "flex", justifyContent: "center" }}>
+              <iframe title="Delivery slip preview" srcDoc={slipPreview.html} style={{ width: "560px", maxWidth: "100%", height: "100%", minHeight: 720, border: 0, background: "#fff", boxShadow: "0 4px 20px rgba(0,0,0,.15)" }} />
+            </div>
+          </div>
+        </div>
+      )}
       <section className="deliveryHero">
         <div>
           <div className="eyebrow">DELIVERY COLLECTION CONTROL</div>

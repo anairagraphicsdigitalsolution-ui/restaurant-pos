@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("anairaElectron", {
   minimize: () => ipcRenderer.send("window-minimize"),
   toggleMaximize: () => ipcRenderer.send("window-toggle-maximize"),
   close: () => ipcRenderer.send("window-close"),
+  previewPrint: (payload) => ipcRenderer.invoke("print-preview-pdf", payload),
+  previewCurrentPage: () => ipcRenderer.invoke("print-current-page-pdf"),
   onMaximizeState: (callback) => {
     if (typeof callback !== "function") return;
     ipcRenderer.on("anaira-window-maximized", (_event, value) => callback(!!value));
