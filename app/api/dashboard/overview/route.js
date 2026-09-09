@@ -31,12 +31,14 @@ export async function GET(req) {
     const todayKey = todayIndiaKey()
     const dayStart = indiaDayStartIso(0)
     const tomorrowStart = indiaDayStartIso(-1)
-    const sevenDaysStart = indiaDayStartIso(6)
 
     // The dashboard UI only renders the latest seven orders. Do not download
     // hundreds of historical orders merely to calculate summary cards; those
     // summaries are calculated from today's complete order set instead.
-    const [restaurantRes, todayOrdersRes, recentOrdersRes, itemsRes, offersRes, customersRes, reservationsRes, tablesRes] = await Promise.all([
+    // Keep the dashboard payload small: cards need today's orders, the activity
+    // list only needs a handful of recent orders, and the chart/top-items queries
+    // run in parallel with the other reads.
+    const [restaurantRes, todayOrdersRes, recentOrdersRes, itemsRes, offersRes, customersRes, reservationsRes, tablesRes, topRpc] = await Promise.all([
       supabaseCloudAdmin.from("restaurants").select("id,name,logo").eq("id", rid).single(),
       supabaseCloudAdmin.from("orders")
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
@@ -48,12 +50,18 @@ export async function GET(req) {
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
         .eq("restaurant_id", rid)
         .order("created_at", { ascending: false })
-        .limit(50),
-      supabaseCloudAdmin.from("menu_items").select("id,name,price,image,category").eq("restaurant_id", rid),
-      supabaseCloudAdmin.from("offers").select("id,title,discount,valid_till,created_at").eq("restaurant_id", rid).order("created_at", { ascending: false }),
+        .limit(7),
+      supabaseCloudAdmin.from("menu_items").select("id,name,price,image,category").eq("restaurant_id", rid).order("name").limit(250),
+      supabaseCloudAdmin.from("offers").select("id,title,discount,valid_till,created_at").eq("restaurant_id", rid).eq("active", true).order("created_at", { ascending: false }).limit(50),
       supabaseCloudAdmin.from("customers").select("id", { count: "exact", head: true }).eq("restaurant_id", rid),
-      supabaseCloudAdmin.from("reservations").select("id,name,phone,guests,date,time,status,table_id,created_at").eq("restaurant_id", rid).eq("date", todayKey).order("time", { ascending: true }),
-      supabaseCloudAdmin.from("tables").select("id,table_number,seats").eq("restaurant_id", rid).order("table_number")
+      supabaseCloudAdmin.from("reservations").select("id,name,phone,guests,date,time,status,table_id,created_at").eq("restaurant_id", rid).eq("date", todayKey).order("time", { ascending: true }).limit(100),
+      supabaseCloudAdmin.from("tables").select("id,table_number,seats").eq("restaurant_id", rid).order("table_number").limit(200),
+      supabaseCloudAdmin.rpc("get_dashboard_top_items", {
+        p_restaurant_id: rid,
+        p_start: indiaDayStartIso(6),
+        p_end: tomorrowStart,
+        p_limit: 6,
+      })
     ])
 
     const errors = {
@@ -76,31 +84,32 @@ export async function GET(req) {
     const readyOrders = validTodayOrders.filter(o => String(o.status || "").toLowerCase() === "ready").length
     const completedOrders = validTodayOrders.filter(o => ["done", "completed", "served", "paid"].includes(String(o.status || "").toLowerCase())).length
 
-    // Reporting is delegated to PostgreSQL. If the functions are not yet
-    // migrated, the dashboard still works using a lightweight fallback query.
-    let salesDays = []
-    let topSelling = []
-    const [salesRpc, topRpc] = await Promise.all([
-      supabaseCloudAdmin.rpc("get_dashboard_sales_summary", { p_restaurant_id: rid, p_start: sevenDaysStart, p_end: tomorrowStart }),
-      supabaseCloudAdmin.rpc("get_dashboard_top_items", { p_restaurant_id: rid, p_start: sevenDaysStart, p_end: tomorrowStart, p_limit: 6 })
-    ])
-
-    if (!salesRpc.error) {
-      salesDays = salesRpc.data || []
-    } else {
-      errors.sales_summary = salesRpc.error.message
-      const { data } = await supabaseCloudAdmin.from("orders")
-        .select("created_at,total_amount,status")
-        .eq("restaurant_id", rid)
-        .gte("created_at", sevenDaysStart)
-        .lt("created_at", tomorrowStart)
-      const rows = data || []
-      for (let offset = 6; offset >= 0; offset--) {
-        const key = dateKeyInIndia(new Date(Date.now() - offset * 86400000))
-        const valid = rows.filter(o => dateKeyInIndia(o.created_at) === key && !cancelledStatuses.has(String(o.status || "").toLowerCase()))
-        salesDays.push({ day_key: key, total_sales: valid.reduce((s, o) => s + Number(o.total_amount || 0), 0), order_count: valid.length })
-      }
+    // The dashboard sales chart is intentionally TODAY-only.
+    // Build an hourly performance series from the complete India-time today order set.
+    // This keeps the main dashboard focused on the current business day instead of
+    // mixing the current shift with the previous six days.
+    const salesByHour = Array.from({ length: 24 }, () => ({ total_sales: 0, order_count: 0 }))
+    const indiaHourFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      hour12: false,
+    })
+    for (const order of validTodayOrders) {
+      const date = new Date(order.created_at || order.billed_at)
+      if (Number.isNaN(date.getTime())) continue
+      const hour = Number(indiaHourFormatter.format(date)) % 24
+      salesByHour[hour].total_sales += Number(order.total_amount || 0)
+      salesByHour[hour].order_count += 1
     }
+    const salesHours = salesByHour.map((row, hour) => ({
+      day_key: `${todayKey}-${String(hour).padStart(2, "0")}`,
+      hour,
+      total_sales: row.total_sales,
+      order_count: row.order_count,
+    }))
+
+    // Top-selling items are fetched in parallel with the dashboard reads above.
+    let topSelling = []
     if (!topRpc.error) {
       topSelling = topRpc.data || []
     } else {
@@ -120,7 +129,7 @@ export async function GET(req) {
       tables: tablesRes.data || [],
       orderItems: [],
       topSelling,
-      salesDays,
+      salesDays: salesHours,
       summary: {
         todayKey,
         todayOrderCount: validTodayOrders.length,

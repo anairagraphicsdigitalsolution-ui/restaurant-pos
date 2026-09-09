@@ -1,168 +1,90 @@
+param([int]$Port = 3211)
 $ErrorActionPreference = 'Stop'
-$BindAddress = [System.Net.IPAddress]::Parse('127.0.0.1')
-$PortNumber = 3211
-$Config = Join-Path $env:LOCALAPPDATA 'Anaira\printer.json'
-$ConfigDir = Split-Path $Config -Parent
-New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
-$script:CurrentPort = $null
-$script:Serial = $null
-$script:BaudRate = 9600
 
-function Send-Http($Stream, $StatusCode, $StatusText, $Object) {
-  $json = ($Object | ConvertTo-Json -Depth 10 -Compress)
-  $body = [Text.Encoding]::UTF8.GetBytes($json)
-  $head = "HTTP/1.1 $StatusCode $StatusText`r`nContent-Type: application/json; charset=utf-8`r`nAccess-Control-Allow-Origin: *`r`nAccess-Control-Allow-Headers: Content-Type`r`nAccess-Control-Allow-Methods: GET,POST,OPTIONS`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
-  $hb = [Text.Encoding]::ASCII.GetBytes($head)
-  $Stream.Write($hb,0,$hb.Length)
-  $Stream.Write($body,0,$body.Length)
-  $Stream.Flush()
-}
-function Get-SavedPort {
-  if (Test-Path $Config) { try { return (Get-Content $Config -Raw | ConvertFrom-Json).port } catch {} }
-  return $null
-}
-function Save-Port($Port) { @{ port=$Port; baud=$script:BaudRate; updated_at=(Get-Date).ToString('o') } | ConvertTo-Json | Set-Content -Encoding UTF8 $Config }
-function Get-Ports {
-  $items = @()
-  try {
-    $pnp = Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\(COM\d+\)' }
-    foreach ($x in $pnp) {
-      if ($x.Name -match '\((COM\d+)\)') {
-        $items += [pscustomobject]@{ port=$matches[1]; name=[string]$x.Name; description=[string]$x.Description; status=[string]$x.Status; manufacturer=[string]$x.Manufacturer }
-      }
-    }
-  } catch {}
-  $items | Sort-Object port -Unique
-}
-function Get-PreferredPort {
-  $ports = @(Get-Ports)
-  if (!$ports.Count) { return $null }
-  $saved = Get-SavedPort
-  if ($saved -and ($ports.port -contains $saved)) { return $saved }
-  $preferred = $ports | Where-Object { $_.name -match 'MPT|MTP|Thermal|POS|Bluetooth|Serial over Bluetooth' -or $_.description -match 'Bluetooth|Thermal|Printer|Serial' } | Select-Object -First 1
-  if ($preferred) { return $preferred.port }
-  return $ports[0].port
-}
-function Close-Serial {
-  if ($script:Serial) {
-    try { if ($script:Serial.IsOpen) { $script:Serial.Close() } } catch {}
-    try { $script:Serial.Dispose() } catch {}
-  }
-  $script:Serial = $null
-  $script:CurrentPort = $null
-}
-function Open-Printer($Port, $Baud = 9600) {
-  Close-Serial
-  $script:BaudRate = [int]$Baud
-  $script:Serial = New-Object System.IO.Ports.SerialPort
-  $script:Serial.PortName = $Port
-  $script:Serial.BaudRate = $script:BaudRate
-  $script:Serial.Parity = [System.IO.Ports.Parity]::None
-  $script:Serial.DataBits = 8
-  $script:Serial.StopBits = [System.IO.Ports.StopBits]::One
-  $script:Serial.Handshake = [System.IO.Ports.Handshake]::None
-  $script:Serial.DtrEnable = $false
-  $script:Serial.RtsEnable = $false
-  $script:Serial.ReadTimeout = 1000
-  $script:Serial.WriteTimeout = 8000
-  $script:Serial.Open()
-  $script:CurrentPort = $Port
-  Save-Port $Port
-}
-function Ensure-Printer {
-  if ($script:Serial -and $script:Serial.IsOpen) { return $script:CurrentPort }
-  $port = Get-PreferredPort
-  if (!$port) { throw 'No Windows COM/Bluetooth printer port found. Pair MPT-III in Windows Bluetooth and make sure a COM port exists.' }
-  Open-Printer $port $script:BaudRate
-  return $port
-}
-function Print-Bytes($Bytes) {
-  $port = Ensure-Printer
-  try {
-    $script:Serial.Write($Bytes,0,$Bytes.Length)
-    Start-Sleep -Milliseconds 180
-    return $port
-  } catch {
-    Close-Serial
-    throw "Print failed on $port: $($_.Exception.Message)"
-  }
-}
-function Test-Print {
-  $text = [Text.Encoding]::ASCII.GetBytes("`x1B`x40`x1B`x61`x01ANAIRA POS`n`x1B`x61`x00MPT-III TEST PRINT`nPort: $($script:CurrentPort)`nBaud: $($script:BaudRate)`nBridge: 127.0.0.1:3211`n`n`n")
-  $cut = [byte[]](0x1D,0x56,0x00)
-  $all = New-Object byte[] ($text.Length + $cut.Length)
-  [Array]::Copy($text,0,$all,0,$text.Length); [Array]::Copy($cut,0,$all,$text.Length,$cut.Length)
-  Print-Bytes $all
-}
-function Read-Request($Stream) {
-  $buffer = New-Object byte[] 4096
-  $all = New-Object System.Collections.Generic.List[byte]
-  $headerEnd = -1
-  while ($all.Count -lt 65536) {
-    $n = $Stream.Read($buffer,0,$buffer.Length)
-    if ($n -le 0) { break }
-    for ($i=0;$i -lt $n;$i++) { [void]$all.Add($buffer[$i]) }
-    $raw = [Text.Encoding]::ASCII.GetString($all.ToArray())
-    $headerEnd = $raw.IndexOf("`r`n`r`n")
-    if ($headerEnd -ge 0) { break }
-  }
-  if ($headerEnd -lt 0) { throw 'Invalid HTTP request.' }
-  $rawHeaders = [Text.Encoding]::ASCII.GetString($all.ToArray(),0,$headerEnd)
-  $lines = $rawHeaders -split "`r`n"
-  $requestLine = $lines[0] -split ' '
-  $method = $requestLine[0]
-  $path = $requestLine[1]
-  $contentLength = 0
-  foreach ($line in $lines) { if ($line -match '^Content-Length:\s*(\d+)') { $contentLength=[int]$matches[1] } }
-  $bodyStart = $headerEnd + 4
-  $bytes = $all.ToArray()
-  $need = $bodyStart + $contentLength
-  while ($all.Count -lt $need) {
-    $n = $Stream.Read($buffer,0,$buffer.Length)
-    if ($n -le 0) { break }
-    for ($i=0;$i -lt $n;$i++) { [void]$all.Add($buffer[$i]) }
-  }
-  $bytes = $all.ToArray()
-  $body = if ($contentLength -gt 0 -and $bytes.Length -ge $need) { [Text.Encoding]::UTF8.GetString($bytes,$bodyStart,$contentLength) } else { '' }
-  return @{ method=$method; path=$path; body=$body }
-}
-function Parse-Body($Text) { if ([string]::IsNullOrWhiteSpace($Text)) { return $null }; try { return ($Text | ConvertFrom-Json) } catch { throw 'Invalid JSON request body.' } }
+$stateDir = Join-Path $env:APPDATA 'Anaira'
+$stateFile = Join-Path $stateDir 'printer.json'
+$logFile = Join-Path $stateDir 'print-bridge.log'
+New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
-$listener = New-Object System.Net.Sockets.TcpListener($BindAddress,$PortNumber)
-try { $listener.Start() } catch { Write-Error "Cannot start Anaira Print Bridge on 127.0.0.1:$PortNumber : $($_.Exception.Message)"; exit 1 }
-
-while ($true) {
-  $client = $null
-  try {
-    $client = $listener.AcceptTcpClient()
-    $stream = $client.GetStream()
-    $req = Read-Request $stream
-    if ($req.method -eq 'OPTIONS') { Send-Http $stream 204 'No Content' @{success=$true}; continue }
-    $path = ($req.path -split '\?')[0]
-    if ($path -eq '/health') { Send-Http $stream 200 'OK' @{success=$true; bridge='AnairaPrintBridge'; transport='tcp-http'; port=$script:CurrentPort; saved_port=(Get-SavedPort); baud=$script:BaudRate}; continue }
-    if ($path -eq '/printers') { Send-Http $stream 200 'OK' @{success=$true; printers=@(Get-Ports); saved_port=(Get-SavedPort); baud=$script:BaudRate}; continue }
-    if ($path -eq '/connect') {
-      $body=Parse-Body $req.body; $port=$body.port; $baud=if($body.baud){[int]$body.baud}else{9600}
-      if (!$port) { $port=Get-PreferredPort }
-      if (!$port) { throw 'No COM printer port found. Pair MPT-III in Windows Bluetooth first.' }
-      Open-Printer $port $baud
-      Send-Http $stream 200 'OK' @{success=$true; connected=$true; port=$port; printer=$port; baud=$script:BaudRate}; continue
-    }
-    if ($path -eq '/test-print') { $port=Test-Print; Send-Http $stream 200 'OK' @{success=$true; port=$port; printer=$port; baud=$script:BaudRate}; continue }
-    if ($path -eq '/disconnect') { Close-Serial; Send-Http $stream 200 'OK' @{success=$true}; continue }
-    if ($path -eq '/print-raw') {
-      $body=Parse-Body $req.body
-      if (!$body.base64) { throw 'No ESC/POS base64 data received.' }
-      $bytes=[Convert]::FromBase64String([string]$body.base64)
-      $port=Print-Bytes $bytes
-      Send-Http $stream 200 'OK' @{success=$true; port=$port; printer=$port; transport='windows-com-escpos'; baud=$script:BaudRate}; continue
-    }
-    Send-Http $stream 404 'Not Found' @{success=$false; error='Not found'}
-  } catch {
-    try { if ($stream) { Send-Http $stream 500 'Internal Server Error' @{success=$false; error=$_.Exception.Message} } } catch {}
-  } finally {
-    try { if ($stream) { $stream.Dispose() } } catch {}
-    try { if ($client) { $client.Close() } } catch {}
-    $stream = $null
-  }
+function Write-BridgeLog([string]$message) {
+  try { Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $message" -Encoding UTF8 } catch {}
 }
+Write-BridgeLog "Starting Anaira Print Bridge on 127.0.0.1:$Port"
+
+function Get-State {
+  if (Test-Path $stateFile) { try { return (Get-Content $stateFile -Raw | ConvertFrom-Json) } catch {} }
+  return [pscustomobject]@{ name=''; port=''; address='' }
+}
+function Save-State($state) { $state | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $stateFile }
+
+function Get-SerialPrinters {
+  $items = @(); $seen = @{}
+  try {
+    foreach ($p in @(Get-CimInstance Win32_SerialPort -ErrorAction Stop | Sort-Object DeviceID)) {
+      $port=[string]$p.DeviceID; if (!$port -or $seen.ContainsKey($port)){continue}
+      $name=[string]$p.Name; $desc=[string]$p.Description; $caption=[string]$p.Caption; $seen[$port]=$true
+      $items += [pscustomobject]@{name=if($name){$name}else{"Serial Printer $port"};port=$port;address='';bluetooth=(($desc -match 'Bluetooth') -or ($caption -match 'Bluetooth') -or ($name -match 'Bluetooth|MPT'));description=$desc}
+    }
+  } catch { Write-BridgeLog "Win32_SerialPort ERROR: $($_.Exception.Message)" }
+  try {
+    foreach ($p in @(Get-PnpDevice -Class Ports -PresentOnly -ErrorAction Stop)) {
+      $friendly=[string]$p.FriendlyName
+      $m=[regex]::Match($friendly,'\(COM(\d+)\)',[System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+      if(!$m.Success){$m=[regex]::Match($friendly,'\b(COM\d+)\b',[System.Text.RegularExpressions.RegexOptions]::IgnoreCase)}
+      if(!$m.Success){continue}
+      $port=if($m.Groups[1].Success){"COM$($m.Groups[1].Value)"}else{$m.Groups[1].Value.ToUpperInvariant()}
+      if($seen.ContainsKey($port)){continue}; $seen[$port]=$true
+      $items += [pscustomobject]@{name=if($friendly){$friendly}else{"Serial Printer $port"};port=$port;address='';bluetooth=($friendly -match 'Bluetooth|MPT|Serial over Bluetooth');description=$friendly}
+    }
+  } catch { Write-BridgeLog "PnP Ports ERROR: $($_.Exception.Message)" }
+  @($items | Sort-Object port)
+}
+
+function Send-Raw($portName,[byte[]]$bytes) {
+  if(!$portName){throw 'No printer COM port selected.'}; if(!$bytes -or $bytes.Length -eq 0){throw 'No print data supplied.'}
+  $sp=New-Object System.IO.Ports.SerialPort($portName,9600,([System.IO.Ports.Parity]::None),8,([System.IO.Ports.StopBits]::One)); $sp.Handshake=[System.IO.Ports.Handshake]::None; $sp.ReadTimeout=500; $sp.WriteTimeout=5000
+  try{$sp.Open();$sp.Write($bytes,0,$bytes.Length);$sp.BaseStream.Flush()}catch{throw "Unable to print to ${portName}: $($_.Exception.Message)"}finally{if($sp.IsOpen){$sp.Close()};$sp.Dispose()}
+}
+function Test-Print($portName) {
+  $enc=[System.Text.Encoding]::ASCII
+  $parts=@([byte[]](0x1B,0x40),[byte[]](0x1B,0x61,0x01),$enc.GetBytes("ANAIRA POS`r`n"),[byte[]](0x1B,0x61,0x00),$enc.GetBytes("MPT-III 80mm`r`n"),$enc.GetBytes("Bluetooth / ESC-POS Test`r`n"),$enc.GetBytes("------------------------------`r`n"),$enc.GetBytes("Printer connected successfully`r`n"),$enc.GetBytes("COM: $portName`r`n"),$enc.GetBytes("------------------------------`r`n`r`n`r`n`r`n"),[byte[]](0x1D,0x56,0x00))
+  $all=New-Object System.Collections.Generic.List[byte];foreach($part in $parts){$all.AddRange($part)};Send-Raw $portName ([byte[]]$all.ToArray())
+}
+
+function Json($obj){$obj|ConvertTo-Json -Depth 10 -Compress}
+function Write-HttpResponse($stream,[int]$status,$obj) {
+  $body=[System.Text.Encoding]::UTF8.GetBytes((Json $obj)); $reason=switch($status){200{'OK'};204{'No Content'};400{'Bad Request'};404{'Not Found'};500{'Internal Server Error'};default{'OK'}}
+  $header="HTTP/1.1 $status $reason`r`nContent-Type: application/json; charset=utf-8`r`nAccess-Control-Allow-Origin: *`r`nAccess-Control-Allow-Headers: Content-Type`r`nAccess-Control-Allow-Methods: GET,POST,OPTIONS`r`nAccess-Control-Allow-Private-Network: true`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
+  $h=[System.Text.Encoding]::ASCII.GetBytes($header);$stream.Write($h,0,$h.Length);if($body.Length){$stream.Write($body,0,$body.Length)};$stream.Flush()
+}
+function Read-TcpRequest($stream) {
+  $ms=New-Object System.IO.MemoryStream; $buffer=New-Object byte[] 8192; $headerEnd=-1
+  while($headerEnd -lt 0 -and $ms.Length -lt 65536){$n=$stream.Read($buffer,0,$buffer.Length);if($n -le 0){break};$ms.Write($buffer,0,$n);$raw=[System.Text.Encoding]::ASCII.GetString($ms.ToArray());$headerEnd=$raw.IndexOf("`r`n`r`n")}
+  if($headerEnd -lt 0){throw 'Invalid HTTP request headers.'}
+  $all=$ms.ToArray();$headerText=[System.Text.Encoding]::ASCII.GetString($all,0,$headerEnd);$lines=$headerText -split "`r`n"; $first=$lines[0] -split ' ';$method=$first[0].ToUpperInvariant();$path=$first[1].Split('?')[0]
+  $contentLength=0;foreach($line in $lines){if($line -match '^Content-Length:\s*(\d+)'){ $contentLength=[int]$Matches[1];break }}
+  $bodyStart=$headerEnd+4;$bodyBytes=$all[$bodyStart..($all.Length-1)]; if($all.Length -lt $bodyStart){$bodyBytes=@()}
+  while($bodyBytes.Count -lt $contentLength){$need=[Math]::Min($buffer.Length,$contentLength-$bodyBytes.Count);$n=$stream.Read($buffer,0,$need);if($n -le 0){break};$tmp=New-Object byte[] ($bodyBytes.Count+$n);if($bodyBytes.Count){[Array]::Copy($bodyBytes,0,$tmp,0,$bodyBytes.Count)};[Array]::Copy($buffer,0,$tmp,$bodyBytes.Count,$n);$bodyBytes=$tmp}
+  $body=if($contentLength -gt 0){[System.Text.Encoding]::UTF8.GetString($bodyBytes,0,[Math]::Min($contentLength,$bodyBytes.Count))}else{''}
+  [pscustomobject]@{Method=$method;Path=$path;Body=$body}
+}
+
+# TcpListener avoids Windows HttpListener URL-ACL/admin requirements while exposing the same Sofson-compatible HTTP endpoints.
+$listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$Port)
+try{$listener.Start()}catch{Write-BridgeLog "LISTENER START ERROR: $($_.Exception.Message)";Write-Host "Anaira Print Bridge FAILED to start: $($_.Exception.Message)" -ForegroundColor Red;throw}
+Write-BridgeLog "LISTENING on http://127.0.0.1:$Port/";Write-Host "Anaira Print Bridge listening on http://127.0.0.1:$Port/" -ForegroundColor Green
+
+while($true){$client=$null;$stream=$null;try{
+  $client=$listener.AcceptTcpClient();$stream=$client.GetStream();$req=Read-TcpRequest $stream;Write-BridgeLog "REQUEST $($req.Method) $($req.Path)"
+  if($req.Method -eq 'OPTIONS'){Write-HttpResponse $stream 200 @{ok=$true;success=$true};continue}
+  $state=Get-State
+  switch($req.Path){
+    '/health'{Write-HttpResponse $stream 200 @{ok=$true;success=$true;service='anaira-print-bridge';version='2.4.0';saved_port=[string]$state.port;saved_name=[string]$state.name;printers=(Get-SerialPrinters)};continue}
+    '/printers'{Write-HttpResponse $stream 200 @{ok=$true;success=$true;printers=(Get-SerialPrinters);selected=$state};continue}
+    '/connect'{if(!$req.Body){throw 'Printer COM port is required.'};$body=$req.Body|ConvertFrom-Json;if(!$body.port){throw 'Printer COM port is required.'};$portName=[string]$body.port;$available=Get-SerialPrinters;if(!($available|Where-Object{$_.port -eq $portName})){throw "${portName} is not currently visible to Windows. Pair MPT-III and check Device Manager -> Ports (COM & LPT)."};$probe=New-Object System.IO.Ports.SerialPort($portName,9600,([System.IO.Ports.Parity]::None),8,([System.IO.Ports.StopBits]::One));$probe.Handshake=[System.IO.Ports.Handshake]::None;try{$probe.Open()}catch{throw "Cannot open ${portName}: $($_.Exception.Message)"}finally{if($probe.IsOpen){$probe.Close()};$probe.Dispose()};$selected=$available|Where-Object{$_.port -eq $portName}|Select-Object -First 1;$newState=[pscustomobject]@{name=if($body.name){[string]$body.name}elseif($selected){[string]$selected.name}else{'MPT-III'};port=$portName;address=[string]$body.address};Save-State $newState;Write-HttpResponse $stream 200 @{ok=$true;success=$true;connected=$true;printer=$newState;port=$portName};continue}
+    '/disconnect'{Save-State ([pscustomobject]@{name='';port='';address=''});Write-HttpResponse $stream 200 @{ok=$true;success=$true;disconnected=$true};continue}
+    '/test-print'{if(!$state.port){throw 'No MPT-III printer selected. Pair it in Windows Bluetooth and connect the COM port first.'};Test-Print $state.port;Write-HttpResponse $stream 200 @{ok=$true;success=$true;printed=$true;printer=$state;port=$state.port};continue}
+    '/print-raw'{if(!$state.port){throw 'No printer selected. Connect the MPT-III COM port first.'};if(!$req.Body){throw 'Print data is required.'};$body=$req.Body|ConvertFrom-Json;if(!$body.data){throw 'Print data is required.'};$bytes=[Convert]::FromBase64String([string]$body.data);Send-Raw $state.port $bytes;Write-HttpResponse $stream 200 @{ok=$true;success=$true;printed=$true;printer=$state;port=$state.port};continue}
+    default{Write-HttpResponse $stream 404 @{ok=$false;success=$false;error='Not found'};continue}
+  }
+}catch{Write-BridgeLog "ERROR: $($_.Exception.Message)";try{if($stream){Write-HttpResponse $stream 500 @{ok=$false;success=$false;error=$_.Exception.Message}}}catch{}}finally{try{if($stream){$stream.Dispose()}}catch{};try{if($client){$client.Dispose()}}catch{}}}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
-import { connectBluetoothThermalPrinter, disconnectBluetoothThermalPrinter, disconnectNativeBluetoothThermalPrinter, getBluetoothThermalName, isBluetoothThermalConnected, isBluetoothThermalSupported, isNativeBluetoothPrinterAvailable, listNativeBluetoothPrinters, connectNativeBluetoothThermalPrinter, openNativeBluetoothSettings, makeEscPosReceipt, printBluetoothThermal, sendThermalPrint, connectLocalPrinter, listLocalPrinters, testLocalPrinter, getLocalBridgeStatus, startLocalPrintBridge, printLocalBridge } from "@/lib/thermalPrintClient"
+import { connectBluetoothThermalPrinter, disconnectBluetoothThermalPrinter, disconnectNativeBluetoothThermalPrinter, disconnectLocalPrinter, getBluetoothThermalName, isBluetoothThermalConnected, isBluetoothThermalSupported, isNativeBluetoothPrinterAvailable, listNativeBluetoothPrinters, connectNativeBluetoothThermalPrinter, openNativeBluetoothSettings, makeEscPosReceipt, printBluetoothThermal, sendThermalPrint, connectLocalPrinter, listLocalPrinters, testLocalPrinter, getLocalBridgeStatus, startLocalPrintBridge, printLocalBridge } from "@/lib/thermalPrintClient"
 
 const money = (value) => `₹${Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -41,6 +41,7 @@ export default function OrderPage() {
   const [loading, setLoading] = useState(true)
   const [placing, setPlacing] = useState(false)
   const [screen, setScreen] = useState("order")
+  const [posView, setPosView] = useState("floor")
   const [currentOrder, setCurrentOrder] = useState(null)
   const [finalizedBill, setFinalizedBill] = useState(null)
   const [paymentMethod, setPaymentMethod] = useState("cash")
@@ -63,6 +64,19 @@ export default function OrderPage() {
   const [finalizing, setFinalizing] = useState(false)
   const [error, setError] = useState("")
   const [kitchenOrders, setKitchenOrders] = useState([])
+  const [billingOrders, setBillingOrders] = useState([])
+  const [deliveryRiders, setDeliveryRiders] = useState([])
+  const [activeDelivery, setActiveDelivery] = useState(null)
+  const [deliveryPopupOpen, setDeliveryPopupOpen] = useState(false)
+  const [deliveryAction, setDeliveryAction] = useState("")
+  const [deliveryPersonType, setDeliveryPersonType] = useState("rider")
+  const [deliveryRiderId, setDeliveryRiderId] = useState("")
+  const [deliveryOwnerName, setDeliveryOwnerName] = useState("Restaurant Owner")
+  const [deliveryOwnerPhone, setDeliveryOwnerPhone] = useState("")
+  const [deliveryCash, setDeliveryCash] = useState("")
+  const [deliveryUpi, setDeliveryUpi] = useState("")
+  const [deliveryCard, setDeliveryCard] = useState("")
+  const [deliveryNote, setDeliveryNote] = useState("")
   const [kitchenOpen, setKitchenOpen] = useState(true)
   const [kitchenLoading, setKitchenLoading] = useState(false)
   const [kitchenUpdating, setKitchenUpdating] = useState("")
@@ -79,7 +93,7 @@ export default function OrderPage() {
     if (!initialId || !["table", "room"].includes(initialType)) return
     const list = initialType === "table" ? tables : rooms
     const found = list.find(x => String(x.id) === String(initialId) || String(x.table_number ?? x.room_number) === String(initialId))
-    if (found) { setType(initialType); setSelected(found) }
+    if (found) { setType(initialType); setSelected(found); setPosView("order") }
   }, [tables, rooms, route?.type, route?.id])
 
   async function init() {
@@ -94,29 +108,38 @@ export default function OrderPage() {
         setRestaurant(data)
         setRestaurantName(data.name || "")
       } else if (!rid) {
-        const { data: auth, error: authError } = await supabaseCloud.auth.getUser()
-        if (authError || !auth?.user) throw new Error("Please sign in first.")
-        const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", auth.user.id).single()
+        const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+        if (sessionError || !sessionData?.session?.user) throw new Error("Please sign in first.")
+        const user = sessionData.session.user
+        const { data: profile } = await supabaseCloud.from("profiles").select("restaurant_id").eq("id", user.id).single()
         rid = profile?.restaurant_id
       }
       if (!rid) throw new Error("Restaurant profile not found")
       setRestaurantId(rid)
-      await fetchAll(rid)
+      await fetchAll(rid, restaurant)
       const initialType = route?.type || params.get("type") || "table"
       const initialId = route?.id || params.get("id")
-      if (["table", "room", "delivery", "takeaway"].includes(initialType)) setType(initialType)
+      if (["table", "room", "delivery", "takeaway"].includes(initialType)) { setType(initialType); setPosView(route?.id || params.get("id") ? "order" : "floor") }
     } catch (e) {
       console.error(e)
       setError(e.message || "Unable to load order screen")
     } finally { setLoading(false) }
   }
 
-  async function fetchAll(rid) {
-    const { data: rest } = await supabaseCloud.from("restaurants").select("*").eq("id", rid).maybeSingle()
-    if (rest) { setRestaurant(rest); setRestaurantName(rest.name || "") }
+  async function fetchAll(rid, knownRestaurant = null) {
+    // Reuse the restaurant fetched during slug bootstrap; avoid a duplicate
+    // restaurant query on every hard navigation to the POS.
+    if (knownRestaurant) {
+      setRestaurant(knownRestaurant)
+      setRestaurantName(knownRestaurant.name || "")
+    }
     const { data: plugin } = await supabaseCloud.from("restaurant_plugins").select("enabled").eq("restaurant_id", rid).eq("plugin_code", "operations-hub").maybeSingle()
     const hubOn = plugin?.enabled === true
     setOperationsHubEnabled(hubOn)
+    if (!knownRestaurant) {
+      const { data: rest } = await supabaseCloud.from("restaurants").select("*").eq("id", rid).maybeSingle()
+      if (rest) { setRestaurant(rest); setRestaurantName(rest.name || "") }
+    }
     const empty = { data: [], error: null }
     const [menuResult, variantResult, tableResult, roomResult, zoneResult, offerResult, groupResult, modifierResult, linkResult] = await Promise.all([
       supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid).order("name"),
@@ -289,6 +312,8 @@ export default function OrderPage() {
 
   function changeType(next) {
     setType(next); setSelected(null); setDeliveryCharge(0); setDeliveryZone("")
+    if (next === "table" || next === "room") setPosView("floor")
+    else setPosView("order")
     if (next !== "delivery") { setCustomerName(""); setCustomerPhone(""); setDeliveryAddress(""); setCustomerNotes("") }
   }
 
@@ -296,6 +321,124 @@ export default function OrderPage() {
     const { data, error: sessionError } = await supabaseCloud.auth.getSession()
     if (sessionError || !data?.session?.access_token) throw new Error("Login session expired. Please login again.")
     return data.session.access_token
+  }
+
+  function normalizeInputValue(value) {
+    return value == null ? "" : String(value)
+  }
+
+  function hydrateDeliveryPopup(delivery, { open = true } = {}) {
+    if (!delivery?.id) return
+    setActiveDelivery({ ...delivery })
+    const assignedType = String(delivery.delivery_person_type || "rider").toLowerCase()
+    setDeliveryPersonType(assignedType === "owner" ? "owner" : "rider")
+    setDeliveryRiderId(normalizeInputValue(delivery.rider_id))
+    setDeliveryOwnerName(normalizeInputValue(delivery.delivery_person_name || "Restaurant Owner"))
+    setDeliveryOwnerPhone(normalizeInputValue(delivery.delivery_person_phone))
+    if (open && String(delivery.settlement_status || "pending").toLowerCase() !== "settled") setDeliveryPopupOpen(true)
+  }
+
+  async function refreshDeliveries({ silent = false, orderId = null } = {}) {
+    if (!restaurantId) return []
+    try {
+      const token = await authToken()
+      const response = await fetch("/api/delivery", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to load delivery workflow")
+      const deliveries = result.deliveries || []
+      setDeliveryRiders(result.riders || [])
+      const targetId = orderId || currentOrder?.id
+      const target = targetId ? deliveries.find(d => String(d.order_id) === String(targetId)) : null
+      if (target) {
+        setActiveDelivery(target)
+        if (String(target.settlement_status || "pending").toLowerCase() !== "settled") setDeliveryPopupOpen(true)
+      } else if (activeDelivery?.id) {
+        const refreshed = deliveries.find(d => String(d.id) === String(activeDelivery.id))
+        if (refreshed) {
+          setActiveDelivery(refreshed)
+          if (String(refreshed.settlement_status || "pending").toLowerCase() !== "settled") setDeliveryPopupOpen(true)
+        }
+      }
+      return deliveries
+    } catch (e) {
+      if (!silent) console.warn("DELIVERY WORKFLOW:", e)
+      return []
+    }
+  }
+
+  async function deliveryActionRequest(action, payload = {}) {
+    if (!activeDelivery?.id) throw new Error("Delivery record not found.")
+    setDeliveryAction(action)
+    try {
+      const token = await authToken()
+      const response = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action, delivery_id: activeDelivery.id, ...payload })
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) throw new Error(result.error || "Delivery operation failed")
+      if (result.delivery) setActiveDelivery(result.delivery)
+      return result
+    } finally { setDeliveryAction("") }
+  }
+
+  async function assignActiveDelivery() {
+    if (!activeDelivery?.id) return
+    if (deliveryPersonType === "rider" && !deliveryRiderId) return alert("Select a delivery rider.")
+    try {
+      const rider = deliveryRiders.find(r => String(r.id) === String(deliveryRiderId))
+      const result = await deliveryActionRequest("assign", {
+        delivery_person_type: deliveryPersonType,
+        rider_id: deliveryPersonType === "rider" ? deliveryRiderId : null,
+        delivery_person_name: deliveryPersonType === "owner" ? normalizeInputValue(deliveryOwnerName).trim() || "Restaurant Owner" : undefined,
+        delivery_person_phone: deliveryPersonType === "owner" ? normalizeInputValue(deliveryOwnerPhone).trim() || null : undefined,
+        rider_name: deliveryPersonType === "rider" ? rider?.name : undefined,
+        rider_phone: deliveryPersonType === "rider" ? rider?.phone : undefined,
+      })
+      hydrateDeliveryPopup(result.delivery, { open: true })
+    } catch (e) { alert(e.message || "Unable to assign delivery") }
+  }
+
+  async function advanceActiveDelivery(nextStatus) {
+    if (!activeDelivery?.id) return
+    try {
+      const result = await deliveryActionRequest("status", { status: nextStatus })
+      hydrateDeliveryPopup(result.delivery, { open: true })
+    } catch (e) { alert(e.message || "Unable to update delivery status") }
+  }
+
+  async function settleActiveDelivery() {
+    if (!activeDelivery?.id) return
+    const expected = Number(activeDelivery.collection_expected ?? activeDelivery.expected_amount ?? 0)
+    const cash = Number(deliveryCash || 0)
+    const upi = Number(deliveryUpi || 0)
+    const card = Number(deliveryCard || 0)
+    if (cash + upi + card <= 0 && expected > 0) return alert(`Enter amount collected. Expected ${money(expected)}.`)
+    try {
+      const result = await deliveryActionRequest("settle", {
+        cash_collected: cash, upi_collected: upi, card_collected: card, collection_notes: normalizeInputValue(deliveryNote).trim() || null
+      })
+      setActiveDelivery(result.delivery)
+      setDeliveryCash(""); setDeliveryUpi(""); setDeliveryCard(""); setDeliveryNote("")
+      await refreshKitchenOrders({ silent: true })
+    } catch (e) { alert(e.message || "Unable to settle delivery") }
+  }
+
+  async function completeActiveDelivery() {
+    if (!activeDelivery?.id) return
+    if (String(activeDelivery.settlement_status || "").toLowerCase() !== "settled") return alert("Settle the delivery first.")
+    try {
+      const result = await deliveryActionRequest("complete")
+      if (result.order) {
+        setCurrentOrder(prev => ({ ...(prev || {}), ...result.order, status: result.order.status || "done" }))
+        setActiveDelivery(result.delivery || null)
+        setDeliveryPopupOpen(false)
+        setScreen("bill")
+        setPosView("order")
+        await refreshKitchenOrders({ silent: true })
+      }
+    } catch (e) { alert(e.message || "Unable to complete delivery order") }
   }
 
   async function refreshKitchenOrders({ silent = false } = {}) {
@@ -309,8 +452,14 @@ export default function OrderPage() {
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result.success) throw new Error(result.error || "Unable to load kitchen orders")
-      const live = (result.orders || []).filter(o => !["done", "completed", "complete", "cancelled", "canceled"].includes(String(o.status || "").toLowerCase()))
+      const allOrders = result.orders || []
+      const live = allOrders.filter(o => !["done", "completed", "complete", "cancelled", "canceled"].includes(String(o.status || "").toLowerCase()))
+      const billQueue = allOrders
+        .filter(o => ["done", "completed", "complete"].includes(String(o.status || "").toLowerCase()))
+        .filter(o => !["paid", "settled", "completed"].includes(String(o.payment_status || "").toLowerCase()))
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
       setKitchenOrders(live)
+      setBillingOrders(billQueue)
 
       if (!kitchenInitialized.current) {
         ;(live || []).forEach(o => kitchenSeen.current.add(String(o.id)))
@@ -330,9 +479,24 @@ export default function OrderPage() {
   useEffect(() => {
     if (!restaurantId) return
     refreshKitchenOrders()
-    const timer = setInterval(() => refreshKitchenOrders({ silent: true }), 10000)
-    return () => clearInterval(timer)
+    const tick = () => {
+      if (document.visibilityState === "visible") refreshKitchenOrders({ silent: true })
+    }
+    const timer = setInterval(tick, 15000)
+    document.addEventListener("visibilitychange", tick)
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", tick) }
   }, [restaurantId])
+
+  useEffect(() => {
+    if (!restaurantId) return
+    refreshDeliveries({ silent: true })
+    const tick = () => {
+      if (document.visibilityState === "visible") refreshDeliveries({ silent: true })
+    }
+    const timer = setInterval(tick, 15000)
+    document.addEventListener("visibilitychange", tick)
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", tick) }
+  }, [restaurantId, currentOrder?.id])
 
   function kitchenItemToCart(item) {
     const menuItem = menu.find(m => String(m.id) === String(item.item_id)) || {}
@@ -374,8 +538,22 @@ export default function OrderPage() {
     setCurrentOrder(order)
     setFinalizedBill(null)
     setScreen("order")
+    setPosView("order")
     setCart((order.items || []).map(kitchenItemToCart))
     setNewKitchenOrder(null)
+    if (orderType === "delivery") {
+      refreshDeliveries({ silent: true, orderId: order.id }).then(deliveries => {
+        const delivery = deliveries.find(d => String(d.order_id) === String(order.id))
+        if (delivery && String(delivery.settlement_status || "pending").toLowerCase() !== "settled") hydrateDeliveryPopup(delivery, { open: true })
+      })
+    }
+  }
+
+  function openBillingOrder(order) {
+    if (!order?.id) return
+    openKitchenOrder(order)
+    setScreen("bill")
+    setPosView("order")
   }
 
   async function updateKitchenStatus(order, status) {
@@ -392,6 +570,11 @@ export default function OrderPage() {
       if (!response.ok || !result.success) throw new Error(result.error || "Unable to update kitchen status")
       const updated = { ...order, ...(result.order || {}), status }
       setKitchenOrders(prev => status === "done" || status === "cancelled" ? prev.filter(o => o.id !== order.id) : prev.map(o => o.id === order.id ? updated : o))
+      if (status === "done") {
+        setBillingOrders(prev => [updated, ...prev.filter(o => o.id !== order.id)])
+      } else if (status === "cancelled") {
+        setBillingOrders(prev => prev.filter(o => o.id !== order.id))
+      }
       if (currentOrder?.id === order.id) setCurrentOrder(prev => ({ ...prev, ...updated, status }))
     } catch (e) {
       alert(e.message || "Kitchen status update failed")
@@ -419,7 +602,7 @@ export default function OrderPage() {
   }
 
   async function refreshLocalPrinters() {
-    if (typeof window === "undefined" || !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) return []
+    if (typeof window === "undefined") return []
     setLocalPrinterLoading(true)
     try {
       const printers = await listLocalPrinters()
@@ -433,7 +616,7 @@ export default function OrderPage() {
   }
 
   async function openPrinterChooser() {
-    const local = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+    const local = true
     setPrinterPrompt({
       title: "CONNECT PRINTER",
       message: local
@@ -442,7 +625,7 @@ export default function OrderPage() {
     })
     if (local) {
       try { await refreshLocalPrinters() } catch (e) {
-        setPrinterPrompt(prev => ({ ...prev, message: `Windows print bridge: ${e?.message || "not running"}. Pair MPT-III in Windows Bluetooth and make sure a COM port exists.` }))
+        setPrinterPrompt(prev => ({ ...prev, message: `Windows print bridge: ${e?.message || "not running"}. Pair MPT-III in Windows Bluetooth and make sure a COM port exists. The MPT-III uses classic Bluetooth/COM, not Web Bluetooth BLE.` }))
       }
     }
   }
@@ -451,9 +634,10 @@ export default function OrderPage() {
     setPrinterConnecting(true)
     try {
       const result = await connectLocalPrinter(selectedLocalPort || null)
-      setPrinterName(result.printer || result.port || "MPT-III")
+      const connectedPort = result.port || result.printer?.port || result.printer?.name || selectedLocalPort || "COM port"
+      setPrinterName(connectedPort)
       setPrinterPrompt(null)
-      alert(`MPT-III connected on ${result.port || result.printer || "COM port"}`)
+      alert(`MPT-III connected on ${connectedPort}`)
       return true
     } catch (e) {
       setPrinterPrompt(prev => ({ ...(prev || {}), title: "MPT-III NOT CONNECTED", message: e?.message || "Unable to connect the selected Windows COM port." }))
@@ -465,7 +649,7 @@ export default function OrderPage() {
     setPrinterConnecting(true)
     try {
       const result = await testLocalPrinter(selectedLocalPort || null)
-      alert(`Test print sent to ${result.port || selectedLocalPort || "MPT-III"}.`)
+      alert(`Test print sent to ${result.port || result.printer?.port || selectedLocalPort || "MPT-III"}.`)
     } catch (e) {
       alert(e?.message || "MPT-III test print failed")
     } finally { setPrinterConnecting(false) }
@@ -490,14 +674,15 @@ export default function OrderPage() {
 
       // On Windows localhost, MPT-III classic Bluetooth is exposed as a COM port.
       // Prefer the local Anaira bridge over Chrome Web Bluetooth.
-      if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+      if (typeof window !== "undefined") {
         try {
           const result = await connectLocalPrinter()
-          setPrinterName(result.printer || result.port || "MPT-III")
-          if (!silent) alert(`Printer connected: ${result.printer || result.port || "MPT-III"}`)
+          const connectedPort = result.port || result.printer?.port || result.printer?.name || "MPT-III"
+          setPrinterName(connectedPort)
+          if (!silent) alert(`Printer connected: ${connectedPort}`)
           return true
         } catch (localError) {
-          if (!silent) setPrinterPrompt({ title: "PRINTER NOT CONNECTED", message: `${localError?.message || "Windows local printer bridge could not connect to MPT-III."} You can also use CONNECT BLUETOOTH for a supported BLE ESC/POS printer.`, showBluetooth: true })
+          if (!silent) setPrinterPrompt({ title: "MPT-III NOT CONNECTED", message: `${localError?.message || "Windows local printer bridge could not connect to MPT-III."} Pair MPT-III in Windows Bluetooth, confirm its COM port in Device Manager, and keep Anaira Print Bridge running.` })
           return false
         }
       }
@@ -532,9 +717,13 @@ export default function OrderPage() {
     })
     if (kind === "kot") {
       const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - KOT`, lines, footer: "KITCHEN COPY" })
-      if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
-        try { return await printLocalBridge({ bytes, type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } }) }
-        catch (_) {}
+      if (typeof window !== "undefined") {
+        try {
+          const bridgeStatus = await getLocalBridgeStatus()
+          if (bridgeStatus.running && bridgeStatus.saved_port) {
+            return await printLocalBridge({ bytes, type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } })
+          }
+        } catch (_) {}
       }
       if (!isBluetoothThermalConnected()) {
         const connected = await connectPrinter({ silent: true })
@@ -555,13 +744,22 @@ export default function OrderPage() {
     if (bill?.invoice_no) lines.push(`Invoice: ${bill.invoice_no}`)
     lines.push(`Payment: ${bill?.payment_method || paymentMethod}`)
     const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - BILL`, lines, footer: bill?.payment_status === "paid" ? "PAID - THANK YOU" : "THANK YOU" })
-    if (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
-      try { return await printLocalBridge({ bytes, type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } }) }
-      catch (_) {}
+    if (typeof window !== "undefined") {
+      try {
+        const bridgeStatus = await getLocalBridgeStatus()
+        if (bridgeStatus.running && bridgeStatus.saved_port) return await printLocalBridge({ bytes, type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } })
+      } catch (_) {}
     }
     if (!isBluetoothThermalConnected()) {
       const connected = await connectPrinter({ silent: true })
-      if (!connected) throw new Error("Printer connection required. Open Connect Printer and pair/select the thermal printer.")
+      if (!connected) {
+        setPrinterPrompt({
+          title: "CONNECT PRINTER",
+          message: "Bill is ready, but no thermal printer is connected. Select your Windows MPT-III COM port or choose a supported BLE ESC/POS printer, then print again.",
+          allowBle: true,
+        })
+        return { success: false, requiresConnection: true }
+      }
     }
     if (isBluetoothThermalConnected()) return printBluetoothThermal(bytes)
     return sendThermalPrint({ type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } })
@@ -638,6 +836,7 @@ export default function OrderPage() {
           })
           const deliveryResult = await deliveryResponse.json().catch(() => ({}))
           if (!deliveryResponse.ok || !deliveryResult.success) console.warn("DELIVERY CREATE:", deliveryResult.error || "Unable to save delivery details")
+          else if (deliveryResult.delivery) hydrateDeliveryPopup(deliveryResult.delivery, { open: true })
         } catch (e) { console.warn("DELIVERY CREATE:", e) }
       }
 
@@ -685,25 +884,53 @@ export default function OrderPage() {
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result.success) throw new Error(result.error || "Unable to finalize bill")
-      setFinalizedBill(result.bill || { ...currentOrder, invoice_no: currentOrder.id.slice(0, 8).toUpperCase(), total_amount: total, payment_status: "paid", paid_amount: total })
+      const finalizedItems = [...cart]
       const completedBill = result.bill || { ...currentOrder, invoice_no: currentOrder.id.slice(0, 8).toUpperCase(), total_amount: total, payment_status: "paid", paid_amount: total }
-      setCurrentOrder(prev => ({ ...prev, ...completedBill, status: "done", payment_status: completedBill.payment_status || "paid", paid_amount: Number(completedBill.paid_amount ?? total) }))
+      const completedOrder = { ...currentOrder, ...completedBill, status: "done", payment_status: completedBill.payment_status || "paid", paid_amount: Number(completedBill.paid_amount ?? total), items: finalizedItems }
+
+      // FINALIZE is the point at which the active POS order is finished.
+      // Clear the working cart immediately after the server confirms payment;
+      // printing is only a side effect and must never keep the cart/order alive.
+      setBillingOrders(prev => prev.filter(o => o.id !== currentOrder.id))
+      setCurrentOrder(null)
+      setFinalizedBill(null)
+      setCart([])
+      setSelected(null)
+      setActiveDelivery(null)
+      setDeliveryPopupOpen(false)
+      setScreen("order")
+      setPosView("floor")
+      setDiscountValue("")
+      setPaymentReference("")
+      setCustomerName("")
+      setCustomerPhone("")
+      setDeliveryAddress("")
+      setDeliveryZone("")
+      setDeliveryCharge(0)
+      setCustomerNotes("")
+      setOrderNote("")
+      setTimeout(() => refreshKitchenOrders({ silent: true }), 0)
+
+      // Printing is attempted after the POS is cleared. Whether the printer
+      // is connected, disconnected, or fails, the finalized order stays closed.
       try {
-        const printResult = await printThermal("bill", { ...currentOrder, ...completedBill, items: cart }, completedBill)
+        const printResult = await printThermal("bill", completedOrder, completedBill)
         if (printResult?.requiresConnection) {
-          alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Connect the printer from the popup, then print the bill.`)
+          alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Printer is not connected; the cart has been cleared.`)
           return
         }
       } catch (printError) {
         console.warn("AUTO BILL PRINT:", printError)
-        alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Bill print needs attention: ${printError.message}`)
+        alert(`Invoice ${completedBill.invoice_no || "generated"} finalized. Bill print needs attention: ${printError.message || "Printer error"}. The cart has been cleared.`)
         return
       }
       alert(`Invoice ${completedBill.invoice_no || "generated"} finalized and printed.`)
     } catch (e) {
       console.error(e); alert(e.message || "Billing failed")
+    } finally {
       finalizeLock.current = false
-    } finally { setFinalizing(false) }
+      setFinalizing(false)
+    }
   }
 
   async function printBill() {
@@ -725,11 +952,14 @@ export default function OrderPage() {
       <header className="pos-topbar">
         <button className="back-btn" onClick={() => router.back()}>← <span>Back</span></button>
         <div className="brand-block"><strong>{restaurantName || "Anaira POS"}</strong><span>{currentOrder?.invoice_no ? `Invoice ${currentOrder.invoice_no}` : currentOrder?.id ? `Order ${String(currentOrder.id).slice(0, 8).toUpperCase()}` : "New Order"}</span></div>
-        <div className="top-actions"><button className="printer-btn" onClick={printerName ? async () => { await disconnectNativeBluetoothThermalPrinter(); disconnectBluetoothThermalPrinter(); setPrinterName("") } : openPrinterChooser} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : printerName ? `🖨 ${printerName}` : "🖨 PRINTER"}</button><button onClick={() => { setCart([]); setCurrentOrder(null); setFinalizedBill(null); setScreen("order"); setDiscountValue("") }}>NEW ORDER</button><span className="live-pill">● POS ONLINE</span></div>
+        <div className="top-actions"><button className="printer-btn" onClick={printerName ? async () => { await disconnectLocalPrinter().catch(() => {}); await disconnectNativeBluetoothThermalPrinter(); disconnectBluetoothThermalPrinter(); setPrinterName(""); setSelectedLocalPort("") } : openPrinterChooser} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : printerName ? `🖨 ${printerName}` : "🖨 PRINTER"}</button><button onClick={() => { setCart([]); setCurrentOrder(null); setFinalizedBill(null); setScreen("order"); setPosView("floor"); setSelected(null); setDiscountValue("") }}>NEW ORDER</button><span className="live-pill">● POS ONLINE</span></div>
       </header>
 
       <div className="order-mode-bar">
-        {[['table', 'TABLE'], ['room', 'ROOM'], ['delivery', 'DELIVERY'], ['takeaway', 'TAKEAWAY']].map(([key, label]) => <button key={key} className={type === key ? "mode active" : "mode"} onClick={() => { changeType(key); setScreen("order") }}>{label}</button>)}
+        <button className={posView === "floor" && screen === "order" ? "mode active" : "mode"} onClick={() => { setScreen("order"); setPosView("floor") }}>FLOOR</button>
+        {[['table', 'TABLE'], ['room', 'ROOM'], ['delivery', 'DELIVERY'], ['takeaway', 'TAKEAWAY']].map(([key, label]) => <button key={key} className={type === key && posView === "order" && screen === "order" ? "mode active" : "mode"} onClick={() => { changeType(key); setScreen("order") }}>{label}</button>)}
+        <button className={posView === "running" ? "mode active" : "mode"} onClick={() => { setScreen("order"); setPosView("running") }}>RUNNING {kitchenOrders.length ? `(${kitchenOrders.length})` : ""}</button>
+        <button className={posView === "billing" ? "mode active" : "mode"} onClick={() => { setScreen("order"); setPosView("billing") }}>BILLING {billingOrders.length ? `(${billingOrders.length})` : ""}</button>
         <button className={kitchenOpen ? "kitchen-toggle active" : "kitchen-toggle"} onClick={() => setKitchenOpen(v => !v)}>KITCHEN {kitchenOrders.length ? `(${kitchenOrders.length})` : ""}</button>
         {screen === "bill" && <span className="bill-mode-label">BILL / FINALIZE</span>}
       </div>
@@ -757,16 +987,55 @@ export default function OrderPage() {
       </section>}
 
 
-      <section className="pos-info-row">
+      {posView === "billing" && screen === "order" && <section className="billing-dashboard">
+        <div className="floor-head"><div><small>ANAIRA POS • BILLING QUEUE</small><h1>Latest Bills to Finalize</h1><p>Kitchen-completed orders stay here until payment and invoice finalization are completed.</p></div><button className="floor-primary" onClick={() => refreshKitchenOrders()}>↻ REFRESH</button></div>
+        <div className="billing-grid">
+          {billingOrders.slice(0, 20).map(order => {
+            const status = String(order.payment_status || "unpaid").toLowerCase()
+            const source = order.display || order.source_label || "Order"
+            return <article key={order.id} className="billing-card">
+              <div className="billing-card-top"><div><strong>{source}</strong><span>{order.invoice_no ? `Invoice ${order.invoice_no}` : `Order ${String(order.id).slice(0, 8).toUpperCase()}`}</span></div><b className={`billing-payment ${status}`}>{status.toUpperCase()}</b></div>
+              <div className="billing-card-items">{(order.items || []).slice(0, 3).map((i, idx) => <span key={idx}>{i.quantity || i.qty || 1}× {i.name || i.item_name}</span>)}{(order.items || []).length > 3 && <span>+{order.items.length - 3} more</span>}</div>
+              <div className="billing-card-bottom"><strong>{money(order.total_amount)}</strong><button className="finalize" onClick={() => openBillingOrder(order)}>OPEN & FINALIZE</button></div>
+            </article>
+          })}
+          {!billingOrders.length && <div className="floor-empty">No completed unpaid bills. Orders marked <b>DONE</b> will appear here automatically.</div>}
+        </div>
+      </section>}
+
+      {posView === "floor" && screen === "order" && <section className="floor-dashboard">
+        <div className="floor-head"><div><small>ANAIRA POS • TABLE MANAGEMENT</small><h1>{type === "room" ? "Rooms & Running Orders" : "Restaurant Floor"}</h1><p>Tap a table to open its running order, or start a new order.</p></div><div className="floor-actions"><button className={type === "table" ? "floor-type active" : "floor-type"} onClick={() => { setType("table"); setSelected(null) }}>TABLES</button><button className={type === "room" ? "floor-type active" : "floor-type"} onClick={() => { setType("room"); setSelected(null) }}>ROOMS</button><button className="floor-type" onClick={() => { setType("takeaway"); setSelected(null); setPosView("order") }}>TAKEAWAY</button><button className="floor-type" onClick={() => { setType("delivery"); setSelected(null); setPosView("order") }}>DELIVERY</button></div></div>
+        <div className="floor-legend"><span><i className="dot free"/> AVAILABLE</span><span><i className="dot occupied"/> RUNNING</span><span><i className="dot preparing"/> KITCHEN</span></div>
+        <div className="table-grid">
+          {(type === "room" ? rooms : tables).map(x => {
+            const number = type === "room" ? x.room_number : x.table_number
+            const active = kitchenOrders.find(o => String(o.source_type || o.order_type).toLowerCase() === type && String(o.source_id) === String(x.id))
+            const status = String(active?.status || "").toLowerCase()
+            return <button key={x.id} className={`floor-table ${active ? "occupied" : "free"} ${status === "preparing" ? "preparing" : ""}`} onClick={() => { setSelected(x); setPosView("order"); setScreen("order"); if (active) openKitchenOrder(active) }}>
+              <span className="table-no">{type === "room" ? "ROOM" : "TABLE"} {number}</span><strong>{active ? "RUNNING" : "AVAILABLE"}</strong>{active && <small>{status.toUpperCase()} • {money(active.total_amount)}</small>}
+            </button>
+          })}
+          {!(type === "room" ? rooms : tables).length && <div className="floor-empty">No {type === "room" ? "rooms" : "tables"} configured yet.</div>}
+        </div>
+      </section>}
+
+      {posView === "running" && screen === "order" && <section className="running-dashboard">
+        <div className="floor-head"><div><small>LIVE ORDER QUEUE</small><h1>Running Orders</h1><p>Open an order, print KOT, prepare it, mark it done, or continue billing.</p></div><button className="floor-primary" onClick={() => { setCart([]); setCurrentOrder(null); setFinalizedBill(null); setSelected(null); setType("table"); setPosView("floor") }}>+ NEW ORDER</button></div>
+        <div className="running-grid">{kitchenOrders.map(order => { const status=String(order.status||"pending").toLowerCase(); return <button key={order.id} className="running-card" onClick={() => openKitchenOrder(order)}><div><strong>{order.display || order.source_label || "Order"}</strong><span className={`running-status ${status}`}>{status.toUpperCase()}</span></div><p>{(order.items||[]).slice(0,4).map(i => `${i.quantity||i.qty||1}× ${i.name||i.item_name}`).join(" • ")}</p><b>{money(order.total_amount)}</b></button> })}{!kitchenOrders.length && <div className="floor-empty">No active running orders.</div>}</div>
+      </section>}
+
+      {posView === "order" && screen !== "bill" && <div className="order-flow-crumb"><button onClick={() => setPosView("floor")}>← FLOOR</button><span>ORDER</span><b>{sourceLabel}</b><span>→</span><span>ADD ITEMS</span><span>→</span><span>KOT</span><span>→</span><span>BILL</span></div>}
+
+      {posView === "order" && <section className="pos-info-row">
         <div className="info-cell"><label>{type === "table" ? "Table No." : type === "room" ? "Room No." : "Order Type"}</label>
           {(type === "table" || type === "room") ? <select value={selected?.id || ""} onChange={e => setSelected((type === "table" ? tables : rooms).find(x => String(x.id) === e.target.value) || null)}><option value="">Select {type}</option>{(type === "table" ? tables : rooms).map(x => <option key={x.id} value={x.id}>{type === "table" ? `Table ${x.table_number}` : `Room ${x.room_number}`}</option>)}</select> : <strong>{type === "delivery" ? "Delivery Order" : "Takeaway Order"}</strong>}
         </div>
-        <div className="info-cell"><label>Customer</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder={type === "delivery" ? "Customer name *" : "Optional"} /></div>
-        <div className="info-cell"><label>Mobile</label><input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Mobile number" inputMode="tel" /></div>
-        {type === "delivery" ? <div className="info-cell wide"><label>Address</label><input value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address *" /></div> : <div className="info-cell"><label>Waiter / Staff</label><input placeholder="Staff" /></div>}
-      </section>
+        <div className="info-cell"><label>Customer</label><input value={normalizeInputValue(customerName)} onChange={e => setCustomerName(e.target.value)} placeholder={type === "delivery" ? "Customer name *" : "Optional"} /></div>
+        <div className="info-cell"><label>Mobile</label><input value={normalizeInputValue(customerPhone)} onChange={e => setCustomerPhone(e.target.value)} placeholder="Mobile number" inputMode="tel" /></div>
+        {type === "delivery" ? <div className="info-cell wide" key="delivery-address"><label>Address</label><input value={normalizeInputValue(deliveryAddress)} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address *" /></div> : <div className="info-cell" key="waiter-staff"><label>Waiter / Staff</label><input defaultValue="" placeholder="Staff" /></div>}
+      </section>}
 
-      <main className="pos-grid">
+      {posView === "order" && <main className="pos-grid">
         <aside className="category-panel">
           <div className="panel-title">CATEGORIES</div>
           <button className={activeCategory === "All" ? "category active" : "category"} onClick={() => setActiveCategory("All")}>Popular <span>{menu.length}</span></button>
@@ -803,7 +1072,7 @@ export default function OrderPage() {
 
           <div className="bill-summary">
             <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
-            <div className="discount-line"><span>Discount</span><div><button className={discountMode === "amount" ? "mini active" : "mini"} onClick={() => setDiscountMode("amount")}>₹</button><button className={discountMode === "percent" ? "mini active" : "mini"} onClick={() => setDiscountMode("percent")}>%</button><input value={discountValue} onChange={e => setDiscountValue(e.target.value)} placeholder="0" /></div><b>-{money(discount)}</b></div>
+            <div className="discount-line"><span>Discount</span><div><button className={discountMode === "amount" ? "mini active" : "mini"} onClick={() => setDiscountMode("amount")}>₹</button><button className={discountMode === "percent" ? "mini active" : "mini"} onClick={() => setDiscountMode("percent")}>%</button><input value={normalizeInputValue(discountValue)} onChange={e => setDiscountValue(e.target.value)} placeholder="0" /></div><b>-{money(discount)}</b></div>
             <div><span>Tax {restaurant?.gst_enabled ? `(${restaurant?.gst_rate || 0}%)` : ""}</span><b>{money(gst)}</b></div>
             {type === "delivery" && <div><span>Delivery</span><b>{money(deliveryCharge)}</b></div>}
             <div className="grand"><span>Total</span><b>{money(total)}</b></div>
@@ -813,7 +1082,7 @@ export default function OrderPage() {
             <div className="inline-bill-head"><div><small>PAYMENT</small><strong>Finalize Bill</strong></div><span>{sourceLabel}</span></div>
             <div className="payment-row">
               <label>Method<select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option></select></label>
-              <label>Reference<input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} placeholder="Optional" /></label>
+              <label>Reference<input value={normalizeInputValue(paymentReference)} onChange={e => setPaymentReference(e.target.value)} placeholder="Optional" /></label>
             </div>
             <div className="payable-row"><span>PAYABLE</span><strong>{money(finalizedBill?.total_amount ?? total)}</strong></div>
             {finalizedBill && <div className="paid-banner">✓ Paid • {finalizedBill.invoice_no || "Invoice generated"}</div>}
@@ -832,9 +1101,25 @@ export default function OrderPage() {
             </>}
           </div>
         </aside>
-      </main>
+      </main>}
 
-      {printerPrompt && <div className="modal-backdrop" onClick={() => setPrinterPrompt(null)}><div className="modal printer-prompt" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>THERMAL PRINTING</small><h2>{printerPrompt.title}</h2></div><button onClick={() => setPrinterPrompt(null)}>×</button></div><p className="printer-prompt-text">{printerPrompt.message}</p>{typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname) && <div className="local-printer-box"><div className="local-printer-head"><strong>WINDOWS MPT-III / COM</strong><button className="mini" onClick={refreshLocalPrinters} disabled={localPrinterLoading}>{localPrinterLoading ? "…" : "↻"}</button></div>{localPrinters.length ? <><select value={selectedLocalPort} onChange={e => setSelectedLocalPort(e.target.value)}>{localPrinters.map(p => <option key={p.port} value={p.port}>{p.port} — {p.name || p.description || "Serial/Bluetooth"}</option>)}</select><small>Pair MPT-III in Windows Bluetooth. The correct entry normally appears under Device Manager → Ports (COM & LPT) as a Bluetooth/Serial COM port.</small><div className="local-printer-actions"><button className="save" onClick={connectSelectedLocalPrinter} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT SELECTED COM"}</button><button className="kot-action" onClick={testSelectedLocalPrinter} disabled={printerConnecting}>TEST PRINT</button></div></> : <><div className="local-empty">No COM printer port detected.</div><small>Open Windows Bluetooth settings and pair MPT-III. Then check Device Manager → Ports (COM & LPT). If no COM port appears, Windows has not exposed the classic Bluetooth serial service yet.</small></>}</div>}{<div className="printer-prompt-actions"><button className="save" onClick={connectWebBluetoothFromUserGesture} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT BLUETOOTH (BLE)"}</button>{printerPrompt.native && <button className="kot-action" onClick={async () => { try { await openNativeBluetoothSettings() } catch (e) { alert(e.message) } }}>OPEN BLUETOOTH SETTINGS</button>}<button className="finalize" onClick={() => setPrinterPrompt(null)}>CLOSE</button></div>}</div></div>}
+      {deliveryPopupOpen && activeDelivery && <div className="modal-backdrop delivery-flow-backdrop" onClick={() => setDeliveryPopupOpen(false)}><div className="modal delivery-flow-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-head"><div><small>DELIVERY WORKFLOW • ORDER PAGE</small><h2>{activeDelivery.slip_no ? `Delivery ${activeDelivery.slip_no}` : "Delivery Order"}</h2></div><button onClick={() => setDeliveryPopupOpen(false)}>×</button></div>
+        <div className="delivery-flow-customer"><div><b>{activeDelivery.customer_name || customerName || "Customer"}</b><span>{activeDelivery.phone || customerPhone || "No phone"}</span></div><div><b>{money(activeDelivery.collection_expected ?? activeDelivery.expected_amount)}</b><span>{activeDelivery.address || deliveryAddress || "No address"}</span></div></div>
+        <div className="delivery-steps">{[["pending","ORDER"],["assigned","ASSIGNED"],["out_for_delivery","OUT FOR DELIVERY"],["delivered","DELIVERED"],["settled","SETTLED"]].map(([key,label], idx) => { const status = String(activeDelivery.status || "pending").toLowerCase(); const order = ["pending","assigned","out_for_delivery","delivered","settled"]; const current = order.indexOf(status); const done = idx <= current; return <div key={key} className={`delivery-step ${done ? "done" : ""} ${status === key ? "current" : ""}`}><span>{done ? "✓" : idx + 1}</span><b>{label}</b></div> })}</div>
+        <div className="delivery-flow-body">
+          {String(activeDelivery.status || "pending").toLowerCase() === "pending" && <div className="delivery-action-card"><h3>Assign Delivery Person</h3><div className="delivery-choice"><button className={deliveryPersonType === "rider" ? "active" : ""} onClick={() => setDeliveryPersonType("rider")}>RIDER</button><button className={deliveryPersonType === "owner" ? "active" : ""} onClick={() => setDeliveryPersonType("owner")}>OWNER / SELF</button></div>{deliveryPersonType === "rider" ? <select value={normalizeInputValue(deliveryRiderId)} onChange={e => setDeliveryRiderId(e.target.value)}><option value="">Select rider</option>{deliveryRiders.filter(r => r.active !== false).map(r => <option key={r.id} value={r.id}>{r.name}{r.phone ? ` • ${r.phone}` : ""}</option>)}</select> : <div className="delivery-owner-fields"><input value={normalizeInputValue(deliveryOwnerName)} onChange={e => setDeliveryOwnerName(e.target.value)} placeholder="Owner name"/><input value={normalizeInputValue(deliveryOwnerPhone)} onChange={e => setDeliveryOwnerPhone(e.target.value)} placeholder="Phone" inputMode="tel"/></div>}<button className="delivery-main-action" onClick={assignActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "assign" ? "ASSIGNING…" : "ASSIGN & CONTINUE"}</button></div>}
+          {String(activeDelivery.status || "pending").toLowerCase() === "assigned" && <div className="delivery-action-card"><h3>Rider Assigned</h3><p>{activeDelivery.delivery_person_name || activeDelivery.rider_name || "Delivery person"}{activeDelivery.delivery_person_phone ? ` • ${activeDelivery.delivery_person_phone}` : ""}</p><button className="delivery-main-action" onClick={() => advanceActiveDelivery("out_for_delivery")} disabled={!!deliveryAction}>{deliveryAction === "status" ? "UPDATING…" : "OUT FOR DELIVERY"}</button></div>}
+          {String(activeDelivery.status || "pending").toLowerCase() === "out_for_delivery" && <div className="delivery-action-card"><h3>Delivery In Progress</h3><p>Rider has left the restaurant. Keep this delivery visible here until it is delivered and settled.</p><button className="delivery-main-action" onClick={() => advanceActiveDelivery("delivered")} disabled={!!deliveryAction}>{deliveryAction === "status" ? "UPDATING…" : "MARK DELIVERED"}</button></div>}
+          {String(activeDelivery.status || "pending").toLowerCase() === "delivered" && String(activeDelivery.settlement_status || "pending").toLowerCase() !== "settled" && <div className="delivery-action-card"><h3>Delivery Delivered • Settlement Pending</h3><div className="delivery-amount-grid"><label>Cash<input value={normalizeInputValue(deliveryCash)} onChange={e => setDeliveryCash(e.target.value)} inputMode="decimal" placeholder="0"/></label><label>UPI<input value={normalizeInputValue(deliveryUpi)} onChange={e => setDeliveryUpi(e.target.value)} inputMode="decimal" placeholder="0"/></label><label>Card<input value={normalizeInputValue(deliveryCard)} onChange={e => setDeliveryCard(e.target.value)} inputMode="decimal" placeholder="0"/></label></div><div className="delivery-settle-total"><span>Expected</span><b>{money(activeDelivery.collection_expected ?? activeDelivery.expected_amount)}</b><span>Collected</span><b>{money(Number(deliveryCash || 0) + Number(deliveryUpi || 0) + Number(deliveryCard || 0))}</b></div><input value={normalizeInputValue(deliveryNote)} onChange={e => setDeliveryNote(e.target.value)} placeholder="Settlement note (optional)"/><button className="delivery-main-action" onClick={settleActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "settle" ? "SETTLING…" : "SETTLE PAYMENT"}</button></div>}
+          {String(activeDelivery.settlement_status || "pending").toLowerCase() === "settled" && <div className="delivery-action-card"><h3>✓ Delivered & Settled</h3><p>Delivery collection is settled. Complete the delivery order now to move it into the same-page Billing / Finalize flow.</p><div className="delivery-settle-total"><span>Collected</span><b>{money(activeDelivery.collection_received ?? activeDelivery.collection_expected ?? activeDelivery.expected_amount)}</b><span>Difference</span><b>{money(activeDelivery.settlement_difference ?? activeDelivery.collection_difference ?? 0)}</b></div><button className="delivery-main-action" onClick={completeActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "complete" ? "COMPLETING…" : "MARK DONE & OPEN BILL"}</button></div>}
+        </div>
+        <div className="delivery-flow-footer"><button className="kot-action" onClick={() => { setDeliveryPopupOpen(false); setPosView("order") }}>KEEP ON ORDER PAGE</button><span>Delivery popup stays active through Delivered + Settled. After Mark Done, billing opens here.</span></div>
+      </div></div>}
+
+      {activeDelivery && String(activeDelivery.settlement_status || "pending").toLowerCase() === "settled" && currentOrder?.id === activeDelivery.order_id && !finalizedBill && <div className="delivery-settled-banner"><div><small>DELIVERY SETTLED</small><strong>{activeDelivery.slip_no || "Delivery"} • Ready for final billing</strong></div><button className="finalize" onClick={completeActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "complete" ? "UPDATING…" : "MARK DONE & OPEN BILL"}</button></div>}
+
+      {printerPrompt && <div className="modal-backdrop" onClick={() => setPrinterPrompt(null)}><div className="modal printer-prompt" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>THERMAL PRINTING</small><h2>{printerPrompt.title}</h2></div><button onClick={() => setPrinterPrompt(null)}>×</button></div><p className="printer-prompt-text">{printerPrompt.message}</p>{typeof window !== "undefined" && <div className="local-printer-box"><div className="local-printer-head"><strong>WINDOWS MPT-III / COM</strong><button className="mini" onClick={refreshLocalPrinters} disabled={localPrinterLoading}>{localPrinterLoading ? "…" : "↻"}</button></div>{localPrinters.length ? <><select value={selectedLocalPort} onChange={e => setSelectedLocalPort(e.target.value)}>{localPrinters.map(p => <option key={p.port} value={p.port}>{p.port} — {p.name || p.description || "Serial/Bluetooth"}</option>)}</select><small>Pair MPT-III in Windows Bluetooth. The correct entry normally appears under Device Manager → Ports (COM & LPT) as a Bluetooth/Serial COM port.</small></> : <><div className="local-empty">No COM printer port detected yet.</div><small>Click ↻ to scan again. Pair MPT-III in Windows Bluetooth first and confirm a Standard Serial over Bluetooth Link COM port exists in Device Manager → Ports (COM & LPT).</small></>}<div className="local-printer-actions"><button className="save" onClick={connectSelectedLocalPrinter} disabled={printerConnecting || !selectedLocalPort}>{printerConnecting ? "CONNECTING…" : "CONNECT MPT-III"}</button><button className="kot-action" onClick={testSelectedLocalPrinter} disabled={printerConnecting || !selectedLocalPort}>TEST PRINT</button></div></div>}{<div className="printer-prompt-actions">{printerPrompt?.allowBle && <button className="save" onClick={connectWebBluetoothFromUserGesture} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT BLUETOOTH (BLE)"}</button>}{printerPrompt.native && <button className="kot-action" onClick={async () => { try { await openNativeBluetoothSettings() } catch (e) { alert(e.message) } }}>OPEN BLUETOOTH SETTINGS</button>}<button className="finalize" onClick={() => setPrinterPrompt(null)}>CLOSE</button></div>}</div></div>}
 
       {newKitchenOrder && <div className="modal-backdrop kitchen-alert-backdrop" onClick={() => setNewKitchenOrder(null)}><div className="modal kitchen-alert" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>NEW KITCHEN ORDER</small><h2>{newKitchenOrder.display || "New Order"}</h2></div><button onClick={() => setNewKitchenOrder(null)}>×</button></div><div className="new-order-summary">{(newKitchenOrder.items || []).map((i, idx) => <div key={idx}><span>{i.quantity || i.qty || 1}× {i.name || i.item_name}</span><b>{money(i.line_total ?? ((i.quantity || i.qty || 1) * Number(i.unit_price || 0)))}</b></div>)}</div><div className="new-order-actions"><button className="save" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "preparing") }}>PREPARE</button><button className="done-popup" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "done") }}>MARK DONE</button><button className="finalize" onClick={() => openKitchenOrder(newKitchenOrder)}>OPEN ORDER</button></div></div></div>}
 
@@ -844,6 +1129,9 @@ export default function OrderPage() {
 
       <style jsx global>{`
         *{box-sizing:border-box}
+        .floor-dashboard,.running-dashboard,.billing-dashboard{padding:20px 22px;background:var(--background);min-height:calc(100vh - 106px)}
+        .billing-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.billing-card{border:1px solid rgba(var(--primary-rgb),.15);background:var(--surface);border-radius:12px;padding:13px;box-shadow:0 8px 24px rgba(0,0,0,.12)}.billing-card-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.billing-card-top>div{display:flex;flex-direction:column;gap:3px}.billing-card-top strong{font-size:11px}.billing-card-top span{font-size:7px;color:rgba(255,255,255,.48)}.billing-payment{font-size:7px;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.1);color:var(--primary)}.billing-payment.partial{color:#f59e0b}.billing-card-items{display:flex;flex-direction:column;gap:4px;margin:12px 0;color:rgba(255,255,255,.62);font-size:8px}.billing-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid rgba(var(--primary-rgb),.1);padding-top:10px}.billing-card-bottom strong{font-size:15px;color:var(--primary)}.billing-card-bottom button{border:0;border-radius:7px;padding:8px 10px;font-size:8px;font-weight:900;cursor:pointer}
+        .floor-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.floor-head small{font-size:8px;letter-spacing:1.4px;font-weight:900;color:var(--primary)}.floor-head h1{margin:4px 0 5px;font-size:24px}.floor-head p{margin:0;color:rgba(255,255,255,.55);font-size:11px}.floor-actions{display:flex;gap:7px;flex-wrap:wrap}.floor-type,.floor-primary{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:8px;padding:9px 12px;font-size:9px;font-weight:900;cursor:pointer}.floor-type.active,.floor-primary{background:var(--primary);color:#111827;border-color:var(--primary)}.floor-legend{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}.floor-legend span{font-size:8px;font-weight:900;color:rgba(255,255,255,.52);display:flex;align-items:center;gap:5px}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.free{background:#4ade80}.dot.occupied{background:#f59e0b}.dot.preparing{background:#ef4444}.table-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.floor-table{min-height:120px;text-align:left;border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:12px;padding:14px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(0,0,0,.12)}.floor-table:hover{transform:translateY(-1px);border-color:var(--primary)}.floor-table .table-no{font-size:10px;font-weight:900;letter-spacing:.5px}.floor-table strong{font-size:15px}.floor-table small{font-size:8px;color:rgba(255,255,255,.5)}.floor-table.free strong{color:#4ade80}.floor-table.occupied strong{color:#fbbf24}.floor-table.preparing{border-color:rgba(239,68,68,.5)}.floor-empty{padding:35px;text-align:center;color:rgba(255,255,255,.45);font-size:11px;border:1px dashed rgba(var(--primary-rgb),.18);border-radius:10px;grid-column:1/-1}.running-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.running-card{border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:11px;padding:13px;text-align:left;cursor:pointer}.running-card:hover{border-color:var(--primary)}.running-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center}.running-card strong{font-size:12px}.running-card p{font-size:9px;color:rgba(255,255,255,.5);line-height:1.5;min-height:28px}.running-card>b{font-size:13px;color:var(--primary)}.running-status{font-size:7px;font-weight:900;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.09);color:var(--primary)}.running-status.preparing{color:#fbbf24}.running-status.done{color:#4ade80}.order-flow-crumb{display:flex;align-items:center;gap:9px;padding:7px 14px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.12);font-size:7px;font-weight:900;color:rgba(255,255,255,.4);overflow:auto;white-space:nowrap}.order-flow-crumb button{border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05);color:var(--primary);border-radius:5px;padding:5px 7px;font-size:7px;font-weight:900;cursor:pointer}.order-flow-crumb b{color:var(--text)}
         .anaira-pos{min-height:100vh;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}
         .pos-topbar{height:58px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.16);display:flex;align-items:center;gap:16px;padding:0 18px;position:sticky;top:0;z-index:20;box-shadow:0 4px 20px rgba(0,0,0,.18)}
         .back-btn{border:1px solid rgba(var(--primary-rgb),.25);background:rgba(var(--primary-rgb),.07);font-weight:800;color:var(--text);font-size:13px;cursor:pointer;border-radius:10px;padding:8px 12px}.back-btn:hover{background:rgba(var(--primary-rgb),.15)}
@@ -856,6 +1144,7 @@ export default function OrderPage() {
         .menu-panel{padding:14px;background:var(--background);min-width:0;overflow:auto}.menu-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:11px}.menu-toolbar small,.cart-title small,.modal-head small,.inline-bill-head small{font-size:8px;font-weight:900;color:rgba(255,255,255,.45);letter-spacing:1px}.menu-toolbar h1,.cart-title h2{margin:2px 0 0;font-size:17px;color:var(--text)}.menu-toolbar input{width:250px;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface);color:var(--text);border-radius:9px;padding:10px 11px;outline:0;font-size:11px}.menu-toolbar input:focus{border-color:rgba(var(--primary-rgb),.55);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.07)}
         .product-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.product-card{position:relative;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface);color:var(--text);border-radius:11px;padding:6px;text-align:left;cursor:pointer;box-shadow:0 5px 16px rgba(0,0,0,.16);transition:.15s;min-width:0}.product-card:hover{transform:translateY(-2px);border-color:rgba(var(--primary-rgb),.55);box-shadow:0 8px 22px rgba(var(--primary-rgb),.10)}.product-photo{width:100%;aspect-ratio:1/.78;border-radius:8px;overflow:hidden;background:linear-gradient(145deg,var(--surface-2),var(--surface));border:1px solid rgba(var(--primary-rgb),.10)}.product-photo img{width:100%;height:100%;object-fit:cover;display:block}.photo-fallback{height:100%;display:grid;place-items:center;font-size:28px;color:var(--primary)}.product-meta{padding:7px 3px 3px;display:flex;flex-direction:column;gap:3px}.product-meta strong{font-size:11px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.product-meta span{font-size:11px;font-weight:900;color:var(--primary)}.customizable{position:absolute;right:8px;top:8px;background:var(--surface);border:1px solid rgba(var(--primary-rgb),.35);border-radius:5px;padding:3px 5px;font-size:6px;font-weight:900;color:var(--primary);box-shadow:0 2px 8px rgba(0,0,0,.25)}.empty-menu,.empty-cart{padding:50px 10px;text-align:center;color:rgba(255,255,255,.42);font-size:11px}.empty-cart span{font-size:9px}
         .cart-panel{background:var(--surface);border-left:1px solid rgba(var(--primary-rgb),.16);display:flex;flex-direction:column;min-width:0}.cart-title{padding:10px 12px;border-bottom:1px solid rgba(var(--primary-rgb),.13);display:flex;justify-content:space-between;align-items:center}.cart-status{display:block!important;margin-top:3px;font-size:7px!important;color:var(--primary)!important;font-weight:900!important;letter-spacing:.6px}.cart-status.preparing{color:#fbbf24!important}.cart-status.done{color:#4ade80!important}.cart-title-actions{display:flex;align-items:center;gap:5px}.cart-title-actions>span{background:rgba(var(--primary-rgb),.12);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.18);border-radius:12px;padding:4px 7px;font-size:9px;font-weight:900}.cart-title-actions button{border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.06);color:var(--primary);border-radius:5px;padding:5px 6px;font-size:6px;font-weight:900;cursor:pointer}.cart-title-actions .done-mini{color:#4ade80;border-color:rgba(74,222,128,.25);background:rgba(74,222,128,.08)}.cart-title>span{background:rgba(var(--primary-rgb),.12);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.18);border-radius:12px;padding:4px 7px;font-size:9px;font-weight:900}.cart-list{padding:8px;overflow:auto;max-height:calc(100vh - 430px)}.cart-item{display:grid;grid-template-columns:42px minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,.06)}.cart-thumb{width:42px;height:42px;border-radius:7px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center;color:var(--primary)}.cart-thumb img{width:100%;height:100%;object-fit:cover}.cart-info{min-width:0;display:flex;flex-direction:column;gap:2px}.cart-info strong{font-size:10px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cart-info small{font-size:8px;color:rgba(255,255,255,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cart-info span{font-size:9px;font-weight:900;color:var(--primary)}.qty{display:flex;align-items:center;gap:3px}.qty button,.delete{width:22px;height:22px;border:1px solid rgba(var(--primary-rgb),.20);background:rgba(var(--primary-rgb),.05);color:var(--text);border-radius:5px;cursor:pointer;font-weight:900}.qty button:hover{border-color:var(--primary)}.qty b{font-size:9px;min-width:14px;text-align:center}.delete{color:#f87171}.delivery-mini{padding:8px 10px;border-top:1px solid rgba(var(--primary-rgb),.12);display:flex;gap:8px;align-items:center}.delivery-mini select{flex:1;border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);color:var(--text);border-radius:6px;padding:7px;font-size:9px}.delivery-mini span{font-size:8px;font-weight:800;color:var(--primary)}
+        .delivery-flow-backdrop{z-index:70}.delivery-flow-modal{width:min(650px,calc(100vw - 24px));max-width:650px}.delivery-flow-customer{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.delivery-flow-customer>div{background:var(--surface-2);border:1px solid rgba(var(--primary-rgb),.14);border-radius:9px;padding:10px;display:flex;flex-direction:column;gap:4px}.delivery-flow-customer b{font-size:12px}.delivery-flow-customer span{font-size:9px;color:rgba(255,255,255,.52);line-height:1.4}.delivery-steps{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:14px}.delivery-step{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;color:rgba(255,255,255,.32)}.delivery-step span{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.12);font-size:8px;font-weight:900}.delivery-step b{font-size:6px;line-height:1.2}.delivery-step.done{color:#4ade80}.delivery-step.done span{border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.10)}.delivery-step.current{color:var(--primary)}.delivery-step.current span{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.08)}.delivery-action-card{border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:9px}.delivery-action-card h3{margin:0;font-size:13px}.delivery-action-card p{margin:0;font-size:9px;color:rgba(255,255,255,.55);line-height:1.5}.delivery-action-card select,.delivery-action-card input{width:100%;box-sizing:border-box;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface);color:var(--text);border-radius:7px;padding:9px;font-size:9px;outline:0}.delivery-choice{display:grid;grid-template-columns:1fr 1fr;gap:6px}.delivery-choice button{border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05);color:var(--text);border-radius:7px;padding:8px;font-size:8px;font-weight:900;cursor:pointer}.delivery-choice button.active{background:var(--primary);color:#111827}.delivery-owner-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px}.delivery-main-action{border:0;border-radius:8px;padding:11px;background:var(--primary);color:#111827;font-size:9px;font-weight:900;cursor:pointer}.delivery-main-action:disabled{opacity:.55;cursor:wait}.delivery-amount-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.delivery-amount-grid label{display:flex;flex-direction:column;gap:4px;font-size:8px;font-weight:800;color:rgba(255,255,255,.5)}.delivery-settle-total{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;padding:8px;border-radius:7px;background:rgba(var(--primary-rgb),.05);font-size:8px}.delivery-settle-total b{font-size:11px;color:var(--primary)}.delivery-flow-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}.delivery-flow-footer span{font-size:7px;color:rgba(255,255,255,.4);text-align:right}.delivery-settled-banner{margin:10px 14px;padding:11px;border:1px solid rgba(74,222,128,.25);background:rgba(74,222,128,.07);border-radius:9px;display:flex;justify-content:space-between;align-items:center;gap:10px}.delivery-settled-banner>div{display:flex;flex-direction:column;gap:3px}.delivery-settled-banner small{font-size:7px;color:#4ade80;font-weight:900}.delivery-settled-banner strong{font-size:10px}.delivery-settled-banner button{border:0;border-radius:7px;padding:9px 11px;font-size:8px;font-weight:900;cursor:pointer}@media(max-width:800px){.delivery-flow-customer,.delivery-owner-fields{grid-template-columns:1fr}.delivery-steps{gap:2px}.delivery-step b{font-size:5px}.delivery-amount-grid{grid-template-columns:1fr}.delivery-flow-footer{flex-direction:column;align-items:stretch}.delivery-flow-footer span{text-align:center}.delivery-settled-banner{flex-direction:column;align-items:stretch}}
         .printer-prompt-text{margin:0 0 14px;padding:0 2px;color:rgba(255,255,255,.72);font-size:10px;line-height:1.55}.printer-prompt-actions{display:grid;grid-template-columns:1fr;gap:7px}.printer-prompt-actions button{min-height:38px}.printer-prompt{max-width:430px}
         .printer-btn{border:1px solid rgba(var(--primary-rgb),.22);background:rgba(var(--primary-rgb),.06);color:var(--primary);border-radius:7px;padding:8px 10px;font-size:8px;font-weight:900;cursor:pointer}.printer-btn:disabled{opacity:.5}.offer-box{margin:0 10px 8px;padding:8px 10px;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.045);border-radius:8px}.offer-head{display:flex;justify-content:space-between;font-size:8px;font-weight:900;color:var(--primary);margin-bottom:6px}.offer-box select{width:100%;border:1px solid rgba(var(--primary-rgb),.16);background:var(--surface-2);color:var(--text);border-radius:5px;padding:7px;font-size:9px}.offer-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.offer-chips span{padding:4px 6px;border-radius:5px;background:rgba(var(--accent-rgb),.09);color:var(--accent);font-size:7px;font-weight:800}.bill-summary{margin-top:auto;border-top:1px solid rgba(var(--primary-rgb),.13);padding:10px 12px}.bill-summary>div{display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:9px;color:rgba(255,255,255,.70)}.bill-summary b{color:var(--text)}.bill-summary .discount-line>div{display:flex;align-items:center;gap:2px}.mini{border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.05);color:var(--text);width:22px;height:22px;font-size:8px;font-weight:900;cursor:pointer}.mini.active{background:var(--primary);color:#111827;border-color:var(--primary)}.discount-line input{width:54px;height:22px;border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);color:var(--text);border-radius:4px;padding:3px;font-size:9px}.grand{margin:8px -12px -10px!important;padding:12px;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827!important;font-size:15px!important}.grand span,.grand b{color:#111827!important}.grand b{font-size:17px}
         .pos-buttons{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:7px;padding:10px 12px;background:var(--surface);border-top:1px solid rgba(var(--primary-rgb),.13)}.pos-buttons button{border:0;border-radius:8px;padding:11px 6px;font-size:9px;font-weight:900;cursor:pointer}.pos-buttons button:disabled{opacity:.45;cursor:not-allowed}.kot-action{background:rgba(var(--accent-rgb),.08);color:var(--accent);border:1px solid rgba(var(--accent-rgb),.20)!important}.kot-action:hover{filter:brightness(1.05)}.save{background:rgba(var(--primary-rgb),.13);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.25)!important}.finalize{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827}.save:hover,.finalize:hover{filter:brightness(1.05)}
@@ -863,8 +1152,8 @@ export default function OrderPage() {
         .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(5px);z-index:50;display:grid;place-items:center;padding:18px}.modal{width:min(480px,100%);max-height:85vh;overflow:auto;background:var(--surface);color:var(--text);border:1px solid rgba(var(--primary-rgb),.22);border-radius:12px;padding:16px;box-shadow:0 25px 70px rgba(0,0,0,.45)}.modal-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}.modal-head h2{margin:3px 0;font-size:18px}.modal-head button{border:1px solid rgba(var(--primary-rgb),.15);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:5px;font-size:17px;cursor:pointer}.variant-row{display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface-2);border-radius:7px;margin:6px 0}.variant-row span{font-size:11px;font-weight:800}.variant-row small{display:block;color:rgba(255,255,255,.48);font-size:9px;margin-top:2px}.variant-row>div{display:flex;align-items:center;gap:7px}.variant-row button{width:28px;height:28px;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.05);color:var(--text);border-radius:5px}.modifier-group{margin:10px 0}.modifier-group>div:first-child{display:flex;justify-content:space-between;margin-bottom:5px;font-size:11px}.modifier-group>div:first-child small{color:rgba(255,255,255,.45);font-size:8px}.modifier{width:100%;display:flex;justify-content:space-between;border:1px solid rgba(var(--primary-rgb),.13);background:var(--surface-2);color:var(--text);border-radius:7px;padding:9px;margin:4px 0;font-size:10px;cursor:pointer}.modifier.active{border-color:var(--primary);background:rgba(var(--primary-rgb),.10);color:var(--primary)}.modal-primary{width:100%;border:0;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,var(--accent)));color:#111827;border-radius:7px;padding:11px;font-weight:900;font-size:10px;margin-top:8px}
         .pos-loading,.pos-error{min-height:100vh;display:grid;place-items:center;align-content:center;gap:12px;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}.pos-loading{font-weight:800}.pos-error{padding:20px;text-align:center}.pos-error strong{max-width:600px;color:#fca5a5}.pos-error button{border:1px solid rgba(var(--primary-rgb),.28);background:var(--primary);color:#111827;padding:10px 15px;border-radius:8px;font-weight:800}
         @media(max-width:1100px){.pos-grid{grid-template-columns:135px minmax(0,1fr) 325px}.product-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.pos-info-row{grid-template-columns:150px 1fr 150px}.info-cell.wide{grid-column:1/-1}}
-        @media(max-width:800px){.pos-topbar{padding:0 10px}.brand-block span,.live-pill{display:none}.order-mode-bar{overflow:auto;padding-left:8px}.mode{padding:0 16px}.pos-info-row{grid-template-columns:1fr 1fr}.pos-grid{grid-template-columns:1fr;display:block}.category-panel{display:flex;gap:5px;overflow:auto;border-right:0;border-bottom:1px solid rgba(var(--primary-rgb),.13);padding:7px}.panel-title{display:none}.category{width:auto;min-width:max-content;margin:0}.menu-panel{padding:8px}.product-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cart-panel{border-left:0;border-top:1px solid rgba(var(--primary-rgb),.13)}.cart-list{max-height:330px}.back-btn span{display:none}}
-        @media(max-width:520px){.kitchen-order-list{grid-template-columns:1fr}.kitchen-toggle{margin-left:3px!important;padding:0 10px!important}.pos-info-row{grid-template-columns:1fr}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.menu-toolbar{align-items:stretch;flex-direction:column}.menu-toolbar input{width:100%}.cart-item{grid-template-columns:38px minmax(0,1fr) auto}.delete{grid-column:3;grid-row:1}.qty{grid-column:2;justify-self:end;grid-row:1}.cart-info{padding-right:45px}.pos-buttons{position:sticky;bottom:0;z-index:5}.brand-block strong{font-size:13px}}
+        @media(max-width:800px){.floor-dashboard,.running-dashboard,.billing-dashboard{padding:10px}.floor-head{flex-direction:column;gap:10px}.floor-actions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.floor-type,.floor-primary{min-height:44px}.table-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.floor-table{min-height:105px;padding:11px}.order-flow-crumb{gap:5px;overflow:auto;white-space:nowrap;padding:7px 10px}.pos-topbar{height:52px;padding:0 8px;gap:8px;padding-left:58px}.brand-block span,.live-pill{display:none}.brand-block strong{font-size:13px}.order-mode-bar{height:48px;overflow-x:auto;overflow-y:hidden;padding-left:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}.order-mode-bar::-webkit-scrollbar{display:none}.mode{min-width:max-content;padding:0 14px;font-size:10px}.bill-mode-label{display:none}.pos-info-row{grid-template-columns:1fr 1fr;gap:6px;padding:6px 8px}.info-cell{min-height:44px;padding:7px}.pos-grid{display:flex;flex-direction:column;min-height:0}.category-panel{order:0;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid rgba(var(--primary-rgb),.13);padding:7px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}.category-panel::-webkit-scrollbar{display:none}.panel-title{display:none}.category{width:auto;min-width:max-content;margin:0;min-height:42px;padding:8px 12px}.menu-panel{order:1;padding:8px;overflow:visible}.menu-toolbar{position:sticky;top:0;z-index:8;background:var(--background);padding:2px 0 8px;margin:0}.menu-toolbar input{min-height:44px;font-size:13px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.product-card{min-height:132px;padding:8px}.product-card button{min-height:44px}.cart-panel{order:2;border-left:0;border-top:2px solid rgba(var(--primary-rgb),.20);position:sticky;bottom:0;z-index:12;max-height:52dvh;min-height:0;box-shadow:0 -10px 30px rgba(0,0,0,.25)}.cart-list{max-height:26dvh;padding:6px 8px}.cart-item{min-height:54px}.cart-title{min-height:48px;padding:8px}.bill-summary{padding:8px 10px}.pos-buttons{position:sticky;bottom:0;z-index:15;padding:8px;background:var(--surface);padding-bottom:max(8px,env(safe-area-inset-bottom));grid-template-columns:1fr 1fr 1.35fr}.pos-buttons button{min-height:46px;font-size:10px}.back-btn span{display:none}.inline-bill-box{margin:0 8px 7px}.payment-row select,.payment-row input{min-height:42px}.delivery-mini select{min-height:42px}.modal-backdrop{padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}.modal{width:100%;max-width:520px;max-height:92dvh;border-radius:14px;padding:13px}.modal-head h2{font-size:17px}.modal-primary,.delivery-main-action{min-height:46px;font-size:10px}}
+        @media(max-width:520px){.kitchen-order-list{grid-template-columns:1fr}.kitchen-toggle{margin-left:3px!important;padding:0 10px!important;min-height:42px}.pos-info-row{grid-template-columns:1fr}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.product-card{min-height:124px}.menu-toolbar{align-items:stretch;flex-direction:column}.menu-toolbar input{width:100%}.cart-panel{max-height:58dvh}.cart-list{max-height:24dvh}.cart-item{grid-template-columns:38px minmax(0,1fr) auto;gap:6px}.delete{grid-column:3;grid-row:1}.qty{grid-column:2;justify-self:end;grid-row:1}.cart-info{padding-right:45px}.cart-info strong{font-size:11px}.pos-buttons{grid-template-columns:1fr 1fr 1.4fr}.brand-block strong{font-size:13px}.delivery-flow-customer,.delivery-owner-fields{grid-template-columns:1fr}.delivery-steps{grid-template-columns:repeat(5,minmax(46px,1fr));overflow-x:auto}.delivery-step{min-width:46px}.delivery-amount-grid{grid-template-columns:1fr}.delivery-flow-footer{gap:7px}.delivery-flow-footer button{width:100%;min-height:44px}}
         @media print{.pos-topbar,.order-mode-bar,.kitchen-strip,.pos-info-row,.category-panel,.menu-panel,.pos-buttons,.inline-bill-box{display:none!important}.anaira-pos{background:#fff;color:#111}.pos-grid{display:block}.cart-panel{border:0;width:100%;background:#fff;color:#111}.cart-list{max-height:none}.cart-title{border-bottom:1px solid #111}.cart-title h2,.cart-info strong,.bill-summary b{color:#111!important}.bill-summary{color:#111;border-top:1px solid #111}.grand{background:#ddd!important;color:#111!important}.grand span,.grand b{color:#111!important}}
       `}</style>
     </div>

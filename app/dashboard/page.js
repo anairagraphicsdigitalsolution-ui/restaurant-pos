@@ -199,7 +199,7 @@ export default function Dashboard() {
 
       const days = (payload.salesDays || []).map((row) => ({
         key: String(row.day_key || ""),
-        label: formatIndiaDate(new Date(`${row.day_key}T12:00:00`), { weekday: "short" }),
+        label: new Intl.DateTimeFormat("en-IN", { hour: "numeric", hour12: true, timeZone: "Asia/Kolkata" }).format(new Date(`1970-01-01T${String(row.hour ?? 0).padStart(2, "0")}:00:00Z`)),
         total: Number(row.total_sales || 0),
       }))
       setSalesDays(days)
@@ -296,7 +296,7 @@ export default function Dashboard() {
 
         <section className="mainGrid">
           <div className="panel salesPanel">
-            <PanelHeader title="Sales Performance" subtitle="Last 7 days" action={<button className="textBtn" onClick={() => router.push("/billing")}>Open reports →</button>} />
+            <PanelHeader title="Sales Performance" subtitle="Today • Hourly" action={<button className="textBtn" onClick={() => router.push("/billing")}>Open reports →</button>} />
             <div className="chartArea">
               {salesDays.map((day) => (
                 <div className="barCol" key={day.key} title={`${day.label}: ${money(day.total)}`}>

@@ -1,0 +1,7 @@
+Anaira MPT-III V23
+
+Fixes:
+- Localhost development can automatically start the Windows Print Bridge through /api/printing/local-bridge/start.
+- Production domain still uses the independent Windows bridge at 127.0.0.1:3211; Vercel never controls the customer PC.
+- Existing Sofson-style HttpListener bridge and COM/SPP transport preserved.
+- Added CHECK-BRIDGE.bat.
