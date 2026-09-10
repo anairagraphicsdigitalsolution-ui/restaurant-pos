@@ -6,19 +6,19 @@ update public.restaurant_integrations
 set provider = 'payment-accounts',
     display_name = 'Payment Accounts',
     updated_at = now()
-where lower(provider) = 'petpooja-pay'
-   or lower(display_name) like '%petpooja%';
+where lower(provider) = 'Anaira-pay'
+   or lower(display_name) like '%Anaira%';
 
 update public.restaurant_payment_accounts
 set provider = 'payment-accounts',
     display_name = 'Payment Accounts',
     updated_at = now()
-where lower(provider) = 'petpooja-pay'
-   or lower(display_name) like '%petpooja%';
+where lower(provider) = 'Anaira-pay'
+   or lower(display_name) like '%Anaira%';
 
 update public.restaurant_plugins
 set plugin_code = 'payment-accounts'
-where lower(plugin_code) = 'petpooja-pay';
+where lower(plugin_code) = 'Anaira-pay';
 
 -- Feature catalog rows, where this table exists, are normalized as well.
 do $$
@@ -27,7 +27,7 @@ begin
     update public.feature_catalog
     set code = 'payment-accounts',
         name = 'Payment Accounts'
-    where lower(code) = 'petpooja-pay'
-       or lower(name) like '%petpooja%';
+    where lower(code) = 'Anaira-pay'
+       or lower(name) like '%Anaira%';
   end if;
 end $$;

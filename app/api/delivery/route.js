@@ -26,9 +26,97 @@ async function resolveRestaurant(userId) {
   return { restaurantId: restaurant?.id || null, role: profile?.role || "admin" }
 }
 
+function clean(value, maxLen = 200) {
+  return String(value ?? "")
+    .replace(/\r/g, "")
+    .replace(/\n/g, " ")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .trim()
+    .slice(0, maxLen);
+}
+
 function cleanMoney(value) {
   const n = Number(value || 0)
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : 0
+}
+
+async function queueDeliverySlipPrint({ restaurantId, delivery, assignedBy = "cloud" }) {
+  if (!restaurantId || !delivery?.id || !delivery?.order_id) return null
+
+  const [{ data: restaurant }, { data: order }, { data: items }] = await Promise.all([
+    supabaseCloudAdmin.from("restaurants").select("name,address,phone,gst_number").eq("id", restaurantId).maybeSingle(),
+    supabaseCloudAdmin.from("orders").select("id,source_type,source_label,customer_name,customer_phone,delivery_address,subtotal,discount_amount,tax_amount,delivery_charge,total_amount,payment_method,overall_note,created_at").eq("id", delivery.order_id).eq("restaurant_id", restaurantId).maybeSingle(),
+    supabaseCloudAdmin.from("order_items").select("id,item_name,quantity,unit_price,line_total,cooking_request").eq("order_id", delivery.order_id).order("id"),
+  ])
+
+  if (!order) return null
+
+  const itemIds = (items || []).map(item => item.id).filter(Boolean)
+  const { data: modifiers } = itemIds.length
+    ? await supabaseCloudAdmin.from("order_item_modifiers").select("order_item_id,modifier_name,price,quantity").in("order_item_id", itemIds)
+    : { data: [] }
+  const modifierMap = {}
+  ;(modifiers || []).forEach(m => { (modifierMap[m.order_item_id] ||= []).push(m) })
+
+  const lines = [
+    clean(restaurant?.name || "ANAIRA", 80),
+    "DELIVERY SLIP",
+    `SLIP #${clean(delivery.slip_no || delivery.id, 40)}   ORDER #${String(order.id).slice(0, 8).toUpperCase()}`,
+    `CUSTOMER: ${clean(delivery.customer_name || order.customer_name || "Customer", 100)}`,
+    ...(delivery.phone || order.customer_phone ? [`PHONE: ${clean(delivery.phone || order.customer_phone, 40)}`] : []),
+    ...(delivery.address || order.delivery_address ? [`ADDRESS: ${clean(delivery.address || order.delivery_address, 220)}`] : []),
+    ...(delivery.zone ? [`ZONE: ${clean(delivery.zone, 80)}`] : []),
+    `RIDER: ${clean(delivery.delivery_person_name || "Assigned Rider", 80)}`,
+    ...(delivery.delivery_person_phone ? [`RIDER PHONE: ${clean(delivery.delivery_person_phone, 40)}`] : []),
+    `PAYMENT: ${clean(delivery.payment_method || order.payment_method || "cash", 30).toUpperCase()}`,
+    "--------------------------------",
+    ...(items || []).flatMap(item => {
+      const rows = [`${item.item_name || "Item"} x${item.quantity || 0}  ${money(item.line_total)}`]
+      ;(modifierMap[item.id] || []).forEach(m => rows.push(`  + ${clean(m.modifier_name || "Modifier", 100)} x${m.quantity || 1}`))
+      if (item.cooking_request) rows.push(`  Note: ${clean(item.cooking_request, 160)}`)
+      return rows
+    }),
+    "--------------------------------",
+    `Subtotal: ${money(order.subtotal)}`,
+    ...(Number(order.discount_amount || 0) > 0 ? [`Discount: -${money(order.discount_amount)}`] : []),
+    ...(Number(order.tax_amount || 0) > 0 ? [`GST: ${money(order.tax_amount)}`] : []),
+    ...(Number(delivery.delivery_charge ?? order.delivery_charge ?? 0) > 0 ? [`Delivery: ${money(delivery.delivery_charge ?? order.delivery_charge)}`] : []),
+    `TOTAL: ${money(order.total_amount ?? delivery.expected_amount)}`,
+    ...(order.overall_note ? [`Note: ${clean(order.overall_note, 200)}`] : []),
+    "--------------------------------",
+    "COLLECT / DELIVER",
+  ]
+
+  const dedupeKey = `delivery-assignment:${delivery.id}:${delivery.assigned_at || "initial"}`
+  const { data: job, error } = await supabaseCloudAdmin.from("print_jobs").insert({
+    restaurant_id: restaurantId,
+    job_type: "delivery_slip",
+    reference_id: delivery.order_id,
+    dedupe_key: dedupeKey,
+    payload: {
+      delivery_id: delivery.id,
+      order_id: delivery.order_id,
+      slip_no: delivery.slip_no || null,
+      rider_id: delivery.rider_id || null,
+      rider_name: delivery.delivery_person_name || delivery.rider_name || null,
+      assigned_at: delivery.assigned_at || null,
+      assigned_by: assignedBy,
+      content: lines.join("\n"),
+      title: `${restaurant?.name || "ANAIRA"} - DELIVERY SLIP`,
+      footer: "DELIVERY COPY",
+    },
+    status: "queued",
+    attempts: 0,
+  }).select("id,status,created_at,payload").single()
+
+  if (error) {
+    if (error.code === "23505") {
+      const { data: existing } = await supabaseCloudAdmin.from("print_jobs").select("id,status,created_at,payload").eq("restaurant_id", restaurantId).eq("dedupe_key", dedupeKey).maybeSingle()
+      return existing || null
+    }
+    throw error
+  }
+  return job
 }
 
 async function addEvent({ restaurantId, deliveryId, status, note, userId }) {
@@ -639,7 +727,38 @@ export async function POST(req) {
         userId:user.id
       })
 
-      return Response.json({success:true,delivery:updated})
+      let printJob = null
+      try {
+        // Automatic delivery-slip trigger: assignment creates a durable
+        // Supabase print job. The connected Anaira Android printer agent
+        // claims it and prints it over BLE; localhost/3211 is not required.
+        printJob = await queueDeliverySlipPrint({ restaurantId, delivery: updated, assignedBy: user.id })
+      } catch (printError) {
+        console.error("DELIVERY SLIP CLOUD PRINT:", printError?.message || printError)
+      }
+
+      return Response.json({success:true,delivery:updated,print_job:printJob,delivery_slip_queued:!!printJob})
+    }
+
+    if (action === "print_slip") {
+      // Manual/persistent Order Page print option. Reuse the existing cloud job
+      // for this delivery; create it if an older delivery has no print job yet.
+      const existingJob = await supabaseCloudAdmin
+        .from("print_jobs")
+        .select("id,status,created_at,payload")
+        .eq("restaurant_id", restaurantId)
+        .eq("reference_id", delivery.order_id)
+        .eq("job_type", "delivery_slip")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (existingJob.error) return Response.json({ success:false, error:existingJob.error.message }, { status:400 })
+      let printJob = existingJob.data || null
+      if (!printJob) {
+        try { printJob = await queueDeliverySlipPrint({ restaurantId, delivery, assignedBy: user.id }) }
+        catch (e) { return Response.json({ success:false, error:e?.message || "Unable to create delivery slip print job" }, { status:400 }) }
+      }
+      return Response.json({ success:true, print_job:printJob, delivery })
     }
 
     if (action === "status") {

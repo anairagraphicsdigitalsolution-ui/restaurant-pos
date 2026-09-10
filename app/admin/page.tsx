@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
-import { CSSProperties } from "react"
+import type { CSSProperties } from "react"
 
 type MenuItem = {
   id: string
@@ -33,6 +33,15 @@ const [restaurantDescription,setRestaurantDescription]=useState("")
 
   const [tableInput,setTableInput] = useState("")
   const [roomInput,setRoomInput] = useState("")
+  const [floors,setFloors] = useState<Array<{id:string,name:string,display_order:number,active:boolean}>>([])
+  const [tables,setTables] = useState<any[]>([])
+  const [rooms,setRooms] = useState<any[]>([])
+  const [adminSection,setAdminSection] = useState<"overview" | "spaces" | "menu" | "branding">("overview")
+  const [spaceSearch,setSpaceSearch] = useState("")
+  const [expandedFloor,setExpandedFloor] = useState<string | null>(null)
+  const [floorInput,setFloorInput] = useState("")
+  const [selectedFloor,setSelectedFloor] = useState("")
+  const [floorLoading,setFloorLoading] = useState(false)
 
   const [logo,setLogo] = useState<string | null>(null)
   const [logoFile,setLogoFile] = useState<File | null>(null)
@@ -126,10 +135,13 @@ setRestaurantDescription(rest.description || "")
   }
 
   async function loadData(id: string){
-    const [{data: menuData},{data: bannerData},{data: restData}] = await Promise.all([
+    const [{data: menuData},{data: bannerData},{data: restData},{data: floorData},{data: tableData},{data: roomData}] = await Promise.all([
       supabaseCloud.from("menu_items").select("*").eq("restaurant_id", id),
       supabaseCloud.from("restaurant_banners").select("*").eq("restaurant_id", id),
       supabaseCloud.from("restaurants").select("*").eq("id", id).maybeSingle(),
+      supabaseCloud.from("floors").select("id,name,display_order,active").eq("restaurant_id", id).order("display_order").order("name"),
+      supabaseCloud.from("tables").select("id,table_number,floor,restaurant_id").eq("restaurant_id", id).order("table_number"),
+      supabaseCloud.from("rooms").select("id,room_number,floor,restaurant_id").eq("restaurant_id", id).order("room_number"),
     ])
     if (restData) {
       setOpeningTime(restData.opening_time || "")
@@ -139,6 +151,9 @@ setRestaurantDescription(rest.description || "")
     }
     setMenu(menuData || [])
     setBanners(bannerData || [])
+    setFloors(floorData || [])
+    setTables(tableData || [])
+    setRooms(roomData || [])
   }
 
   async function saveItemVariants(itemId: string){
@@ -206,6 +221,53 @@ setDescription((item as any).description || "")
     }
   }
 
+  async function floorRequest(method: "POST" | "PATCH" | "DELETE", body: any){
+    if(!restaurantId) return
+    const { data: sessionData } = await supabaseCloud.auth.getSession()
+    const token = sessionData?.session?.access_token
+    if(!token) throw new Error("Session expired. Please login again.")
+    const response = await fetch("/api/dashboard-floors", {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+    const result = await response.json()
+    if(!response.ok || !result?.success) throw new Error(result?.error || "Floor operation failed")
+    return result
+  }
+
+  async function addFloor(){
+    const name = floorInput.trim()
+    if(!name || !restaurantId) return
+    setFloorLoading(true)
+    try{
+      await floorRequest("POST", { name })
+      setFloorInput("")
+      await loadData(restaurantId)
+    }catch(error){
+      alert(error instanceof Error ? error.message : "Unable to add floor")
+    }finally{ setFloorLoading(false) }
+  }
+
+  async function renameFloor(floor: {id:string,name:string}){
+    const name = window.prompt("Floor name", floor.name)?.trim()
+    if(!name || name === floor.name) return
+    setFloorLoading(true)
+    if(!restaurantId){ alert("Restaurant ID is missing"); return }
+    try{ await floorRequest("PATCH", { id: floor.id, name }); await loadData(restaurantId) }
+    catch(error){ alert(error instanceof Error ? error.message : "Unable to rename floor") }
+    finally{ setFloorLoading(false) }
+  }
+
+  async function deleteFloor(floor: {id:string,name:string}){
+    if(!window.confirm(`Delete "${floor.name}"? Tables assigned to this floor must be moved/deleted first.`)) return
+    setFloorLoading(true)
+    if(!restaurantId){ alert("Restaurant ID is missing"); return }
+    try{ await floorRequest("DELETE", { id: floor.id }); await loadData(restaurantId) }
+    catch(error){ alert(error instanceof Error ? error.message : "Unable to delete floor") }
+    finally{ setFloorLoading(false) }
+  }
+
   async function addTable(){
     if(!tableInput || !restaurantId) return
     try {
@@ -215,7 +277,7 @@ setDescription((item as any).description || "")
       const response = await fetch("/api/dashboard-add-table", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ table_number: Number(tableInput) })
+        body: JSON.stringify({ table_number: Number(tableInput), floor: selectedFloor })
       })
       const result = await response.json()
       if(!response.ok || !result?.success) throw new Error(result?.error || "Unable to add table")
@@ -236,7 +298,7 @@ setDescription((item as any).description || "")
       const response = await fetch("/api/dashboard-add-room", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ room_number: Number(roomInput) })
+        body: JSON.stringify({ room_number: Number(roomInput), floor: selectedFloor })
       })
       const result = await response.json()
       if(!response.ok || !result?.success) throw new Error(result?.error || "Unable to add room")
@@ -406,410 +468,123 @@ try {
     return acc
   },{})
 
+  const filteredFloors = floors.filter(f => !spaceSearch.trim() || String(f.name).toLowerCase().includes(spaceSearch.trim().toLowerCase()))
+  const totalCapacity = tables.reduce((sum, t) => sum + 4, 0) + rooms.reduce((sum, r) => sum + 4, 0)
+  const activeFloors = floors.filter(f => f.active !== false)
+
   return (
-    <div style={layout} className="admin-page">
-
-      <div
-  style={{
-    marginBottom:30,
-    padding:30,
-    borderRadius:28,
-    background:
-      "linear-gradient(135deg,var(--surface),var(--surface-2))",
-    border:
-      "1px solid rgba(var(--primary-rgb),.2)",
-    boxShadow:
-      "0 25px 60px rgba(0,0,0,.4)"
-  }}
->
-  <div
-    style={{
-      color:"var(--primary)",
-      fontSize:13,
-      letterSpacing:2,
-      textTransform:"uppercase"
-    }}
-  >
-    Restaurant Management
-  </div>
-
-  <h1
-    style={{
-      margin:"10px 0",
-      fontSize:42,
-      color:"var(--text)"
-    }}
-  >
-    Admin Control Center
-  </h1>
-
-  <p
-    style={{
-      color:"var(--muted)",
-      margin:0
-    }}
-  >
-    Manage menu, tables, rooms, branding and banners.
-  </p>
-</div>
-<div
-  style={{
-    display:"grid",
-    gridTemplateColumns:
-      "repeat(auto-fit,minmax(220px,1fr))",
-    gap:20,
-    marginBottom:25
-  }}
->
-  <div style={statCard}>
-    <h2>{menu.length}</h2>
-    <p>Menu Items</p>
-  </div>
-
-  <div style={statCard}>
-    <h2>{Object.keys(groupedMenu).length}</h2>
-    <p>Categories</p>
-  </div>
-
-  <div style={statCard}>
-    <h2>{banners.length}</h2>
-    <p>Banners</p>
-  </div>
-</div>
-
-      <div style={topGrid}>
-
-        <Card title="Add Item" glow="var(--success)">
-          
-          <Input value={itemName} set={setItemName} placeholder="Item Name"/>
-          <Input value={price} set={setPrice} placeholder="Price"/>
-          <div style={{marginBottom:12}}>
-            <label style={{display:"block",fontSize:12,fontWeight:800,color:"var(--muted)",marginBottom:7}}>Food Category</label>
-            <select
-              value={selectedCategoryValue}
-              onChange={(e)=>handleCategoryChange(e.target.value)}
-              style={{width:"100%",padding:12,borderRadius:12,background:"var(--surface-2)",color:"var(--text)",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
-            >
-              <option value="">Select category</option>
-              {foodCategories.map((cat)=><option key={cat} value={cat}>{cat}</option>)}
-              <option value="__new__">＋ Create new category</option>
-            </select>
-            {categoryMode === "new" && (
-              <input
-                value={newCategory}
-                onChange={(e)=>setNewCategory(e.target.value)}
-                placeholder="Enter new food category"
-                autoFocus
-                style={{width:"100%",padding:12,borderRadius:12,marginTop:8,background:"var(--surface-2)",color:"var(--text)",border:"1px solid rgba(var(--primary-rgb),.2)",outline:"none"}}
-              />
-            )}
-            {!!foodCategories.length && categoryMode !== "new" && (
-              <small style={{display:"block",marginTop:6,color:"var(--muted)"}}>Existing categories are saved from your menu and can be selected again.</small>
-            )}
+    <main className="admin-page admin-pro-page">
+      <div className="admin-pro-shell">
+        <header className="admin-pro-hero">
+          <div className="admin-pro-breadcrumb">ADMIN <span>›</span> RESTAURANT MANAGEMENT</div>
+          <div className="admin-pro-hero-row">
+            <div>
+              <div className="admin-pro-kicker">RESTAURANT ADMIN</div>
+              <h1>Restaurant Control Center</h1>
+              <p>Manage your restaurant operations, dining spaces, menu, branding and guest-facing content from one place.</p>
+            </div>
+            <div className="admin-pro-hero-badge">✦ ANAIRA POS<br/><small>Restaurant Admin</small></div>
           </div>
-          <textarea
+        </header>
 
-value={description}
+        <nav className="admin-pro-tabs" aria-label="Admin sections">
+          {[
+            ["overview","Overview","⌂"],
+            ["spaces","Floor, Room & Table","▦"],
+            ["menu","Menu Management","☷"],
+            ["branding","Restaurant & Branding","✦"],
+          ].map(([key,label,icon]) => (
+            <button key={key} className={adminSection === key ? "active" : ""} onClick={() => setAdminSection(key as any)}>
+              <span>{icon}</span>{label}
+            </button>
+          ))}
+        </nav>
 
-onChange={(e)=>setDescription(e.target.value)}
+        {adminSection === "overview" && (
+          <section>
+            <div className="admin-stat-grid">
+              <div className="admin-stat-card"><span className="admin-stat-icon">🍽</span><div><b>{menu.length}</b><small>Menu Items</small></div></div>
+              <div className="admin-stat-card"><span className="admin-stat-icon">▦</span><div><b>{activeFloors.length}</b><small>Active Floors</small></div></div>
+              <div className="admin-stat-card"><span className="admin-stat-icon">🪑</span><div><b>{tables.length}</b><small>Tables</small></div></div>
+              <div className="admin-stat-card"><span className="admin-stat-icon">🚪</span><div><b>{rooms.length}</b><small>Rooms</small></div></div>
+              <div className="admin-stat-card"><span className="admin-stat-icon">👥</span><div><b>{totalCapacity}</b><small>Estimated Capacity</small></div></div>
+            </div>
+            <div className="admin-quick-grid">
+              <button onClick={() => setAdminSection("spaces")} className="admin-quick-card"><strong>▦ Floor, Room & Table</strong><span>Create floors, assign rooms and organize tables.</span><em>OPEN →</em></button>
+              <button onClick={() => setAdminSection("menu")} className="admin-quick-card"><strong>☷ Menu Management</strong><span>Add items, categories, variants, prices and images.</span><em>OPEN →</em></button>
+              <button onClick={() => setAdminSection("branding")} className="admin-quick-card"><strong>✦ Restaurant Branding</strong><span>Update restaurant details, logo and banners.</span><em>OPEN →</em></button>
+            </div>
+          </section>
+        )}
 
-placeholder="Food Description"
+        {adminSection === "spaces" && (
+          <section>
+            <div className="admin-section-head">
+              <div><div className="admin-pro-kicker">RESTAURANT LAYOUT</div><h2>Floor, Room & Table Management</h2><p>Every floor belongs to this restaurant. Rooms and tables can be organized under the same floor and will appear in the POS.</p></div>
+              <button className="admin-primary" onClick={() => document.getElementById("floor-name-input")?.focus()}>＋ Add Floor</button>
+            </div>
 
-style={{
-width:"100%",
-padding:12,
-borderRadius:12,
-marginBottom:12
-}}
-/>
+            <div className="admin-space-summary">
+              <div><b>{floors.length}</b><span>Floors</span></div><div><b>{rooms.length}</b><span>Rooms</span></div><div><b>{tables.length}</b><span>Tables</span></div><div><b>{totalCapacity}</b><span>Capacity</span></div>
+              <input value={spaceSearch} onChange={e => setSpaceSearch(e.target.value)} placeholder="Search floors…" />
+            </div>
 
-          <div style={{marginBottom:12,padding:14,border:"1px solid rgba(var(--primary-rgb),.16)",borderRadius:14,background:"rgba(var(--surface-2-rgb),.65)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><b style={{fontSize:12}}>Variants (optional)</b><button type="button" onClick={()=>setItemVariants(v=>[...v,{name:"",price_delta:"0",active:true}])} style={{...uploadBtn,width:"auto",marginTop:0,padding:"8px 12px"}}>＋ Add Variant</button></div>
-            {itemVariants.map((v,index)=><div key={v.id||index} style={{display:"grid",gridTemplateColumns:"1fr 130px auto",gap:8,marginBottom:8}}><input value={v.name} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,name:e.target.value}:x))} placeholder="Variant name" style={{...fileInput,marginTop:0}}/><input type="number" step="0.01" value={v.price_delta} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,price_delta:e.target.value}:x))} placeholder="+ / −" style={{...fileInput,marginTop:0}}/><button type="button" onClick={()=>setItemVariants(prev=>prev.filter((_,i)=>i!==index))} style={deleteBtn}>✕</button></div>)}
-            <small style={{color:"var(--muted)"}}>Final variant price = base price + adjustment. Existing items remain unchanged when no variants are added.</small>
-          </div>
+            <div className="admin-space-create-grid">
+              <div className="admin-create-card accent-gold"><div className="admin-card-icon">▦</div><div><h3>Create Floor</h3><p>Add a dining floor such as Ground Floor, First Floor or Terrace.</p></div><input id="floor-name-input" value={floorInput} onChange={e => setFloorInput(e.target.value)} placeholder="e.g. Ground Floor" /><button className="admin-primary" onClick={addFloor} disabled={floorLoading}>{floorLoading ? "Saving…" : "Add Floor"}</button></div>
+              <div className="admin-create-card accent-blue"><div className="admin-card-icon">🪑</div><div><h3>Create Table</h3><p>Assign every table to a floor so the POS floor map stays organized.</p></div><div className="admin-inline-fields"><input value={tableInput} onChange={e => setTableInput(e.target.value)} placeholder="Table No" /><select value={selectedFloor} onChange={e => setSelectedFloor(e.target.value)}><option value="">Select floor</option>{floors.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}</select></div><button className="admin-outline" onClick={addTable}>＋ Add Table</button></div>
+              <div className="admin-create-card accent-purple"><div className="admin-card-icon">🚪</div><div><h3>Create Room</h3><p>Rooms also use the same floor structure for a clean POS layout.</p></div><div className="admin-inline-fields"><input value={roomInput} onChange={e => setRoomInput(e.target.value)} placeholder="Room No" /><select value={selectedFloor} onChange={e => setSelectedFloor(e.target.value)}><option value="">Select floor</option>{floors.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}</select></div><button className="admin-outline" onClick={addRoom}>＋ Add Room</button></div>
+            </div>
 
-          <input type="file" onChange={handleItemImage} style={fileInput}/>
+            <div className="admin-floor-list">
+              {filteredFloors.map((floor, index) => {
+                const floorTables = tables.filter(t => String(t.floor || "") === String(floor.name))
+                const floorRooms = rooms.filter(r => String(r.floor || "") === String(floor.name))
+                const expanded = expandedFloor === floor.id
+                return <article className={`admin-floor-card ${expanded ? "expanded" : ""}`} key={floor.id}>
+                  <div className="admin-floor-header" onClick={() => setExpandedFloor(expanded ? null : floor.id)}>
+                    <div className="admin-floor-mark">▦</div><div className="admin-floor-title"><h3>{floor.name}</h3><span>Floor {index + 1} · {floor.active === false ? "Inactive" : "Active"}</span></div>
+                    <div className="admin-floor-metrics"><span>🪑 <b>{floorTables.length}</b> Tables</span><span>🚪 <b>{floorRooms.length}</b> Rooms</span></div>
+                    <div className="admin-floor-actions"><button onClick={e => { e.stopPropagation(); renameFloor(floor) }}>Edit</button><button className="danger" onClick={e => { e.stopPropagation(); deleteFloor(floor) }}>Delete</button><span className="admin-chevron">{expanded ? "⌃" : "⌄"}</span></div>
+                  </div>
+                  {expanded && <div className="admin-floor-body">
+                    <div className="admin-subsection"><div className="admin-subhead"><h4>Tables <span>{floorTables.length}</span></h4><button onClick={() => { setSelectedFloor(floor.name); setTableInput(""); document.getElementById("table-create")?.scrollIntoView({behavior:"smooth"}) }}>＋ Add Table</button></div><div className="admin-chip-grid">{floorTables.map(t => <div className="admin-space-chip" key={t.id}><b>Table {t.table_number}</b><span>4 Seats</span></div>)}{!floorTables.length && <div className="admin-empty-chip">No tables on this floor yet.</div>}</div></div>
+                    <div className="admin-subsection"><div className="admin-subhead"><h4>Rooms <span>{floorRooms.length}</span></h4><button onClick={() => { setSelectedFloor(floor.name); setRoomInput(""); document.getElementById("room-create")?.scrollIntoView({behavior:"smooth"}) }}>＋ Add Room</button></div><div className="admin-chip-grid">{floorRooms.map(r => <div className="admin-space-chip room" key={r.id}><b>Room {r.room_number}</b><span>On {floor.name}</span></div>)}{!floorRooms.length && <div className="admin-empty-chip">No rooms on this floor yet.</div>}</div></div>
+                  </div>}
+                </article>
+              })}
+              {!filteredFloors.length && <div className="admin-empty-state"><div>▦</div><h3>No floors configured</h3><p>Create your first floor above. Once added, assign tables and rooms to it.</p></div>}
+            </div>
+          </section>
+        )}
 
-          <Button onClick={addItem}>
-{editingId ? "Update Item" : "Add Item"}
-</Button>
-        </Card>
+        {adminSection === "menu" && (
+          <section>
+            <div className="admin-section-head"><div><div className="admin-pro-kicker">MENU MANAGEMENT</div><h2>Menu, Categories & Variants</h2><p>Your existing menu tools are preserved here with a cleaner workspace.</p></div></div>
+            <div className="admin-menu-layout">
+              <Card title={editingId ? "Edit Item" : "Add Item"} glow="var(--success)">
+                <Input value={itemName} set={setItemName} placeholder="Item Name"/><Input value={price} set={setPrice} placeholder="Price"/>
+                <div className="admin-field"><label>Food Category</label><select value={selectedCategoryValue} onChange={e=>handleCategoryChange(e.target.value)}><option value="">Select category</option>{foodCategories.map(cat=><option key={cat} value={cat}>{cat}</option>)}<option value="__new__">＋ Create new category</option></select>{categoryMode === "new" && <input value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Enter new food category"/>}</div>
+                <textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="Food Description" className="admin-textarea"/>
+                <div className="admin-variant-box"><div><b>Variants</b><button type="button" onClick={()=>setItemVariants(v=>[...v,{name:"",price_delta:"0",active:true}])}>＋ Add Variant</button></div>{itemVariants.map((v,index)=><div className="admin-variant-row" key={v.id||index}><input value={v.name} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,name:e.target.value}:x))} placeholder="Variant name"/><input type="number" step="0.01" value={v.price_delta} onChange={e=>setItemVariants(prev=>prev.map((x,i)=>i===index?{...x,price_delta:e.target.value}:x))} placeholder="+ / −"/><button type="button" onClick={()=>setItemVariants(prev=>prev.filter((_,i)=>i!==index))}>✕</button></div>)}</div>
+                <input type="file" onChange={handleItemImage} style={fileInput}/><Button onClick={addItem}>{editingId ? "Update Item" : "Add Item"}</Button>
+              </Card>
+              <div className="admin-menu-list"><div className="admin-menu-list-head"><h3>Menu Items <span>{menu.length}</span></h3></div>{Object.entries(groupedMenu).map(([cat,items])=><div className="admin-menu-category" key={cat}><button className="admin-category-head" onClick={()=>setOpenCategory(openCategory===cat?null:cat)}><span>🍽 {cat}</span><b>{items.length} {openCategory===cat?"−":"+"}</b></button>{openCategory===cat && items.map(i=><div className="admin-menu-item" key={i.id}>{i.image ? <img src={i.image} alt=""/> : <div className="admin-menu-placeholder">🍽</div>}<div><strong>{i.name}</strong><span>₹{i.price}</span><small>{(i as any).description || "No description"}</small></div><div><button onClick={()=>editItem(i)}>Edit</button><button className="danger" onClick={()=>deleteItem(i.id)}>Delete</button></div></div>)}</div>)}</div>
+            </div>
+          </section>
+        )}
 
-        <Card title="Add Table" glow="var(--info)">
-          <Input value={tableInput} set={setTableInput} placeholder="Table No"/>
-          <Button onClick={addTable}>Add Table</Button>
-        </Card>
-
-        <Card title="Add Room" glow="var(--accent)">
-          <Input value={roomInput} set={setRoomInput} placeholder="Room No"/>
-          <Button onClick={addRoom}>Add Room</Button>
-        </Card>
-
-        <Card title="Upload Logo" glow="var(--danger)">
-          <Card title="Restaurant Details" glow="#06b6d4">
-
-<Input
-
-value={openingTime}
-
-set={setOpeningTime}
-
-placeholder="Opening Time"
-/>
-
-<Input
-
-value={cuisine}
-
-set={setCuisine}
-
-placeholder="Cuisine"
-/>
-
-<textarea
-
-value={restaurantDescription}
-
-onChange={(e)=>
-setRestaurantDescription(e.target.value)
-}
-
-placeholder="Restaurant Description"
-
-style={{
-width:"100%",
-padding:12,
-borderRadius:12,
-marginBottom:12
-}}
-/>
-
-<Button
-onClick={saveRestaurantInfo}
->
-Save Details
-</Button>
-
-</Card>
-          <input type="file" onChange={handleLogo} style={fileInput}/>
-          {logo && <img src={logo} style={logoStyle}/>}
-
-          <button
-  onClick={uploadLogo}
-  style={uploadBtn}
-  onMouseEnter={(e)=>{
-    e.currentTarget.style.background="var(--primary)"
-    e.currentTarget.style.color="var(--surface)"
-  }}
-  onMouseLeave={(e)=>{
-    e.currentTarget.style.background="transparent"
-    e.currentTarget.style.color="var(--primary)"
-  }}
->
-  Upload Logo
-</button>
-        </Card>
-        <Card
-  title="Upload Banners"
-  glow="var(--primary)"
->
-  <input
-    type="file"
-    multiple
-    onChange={handleBanners}
-    style={fileInput}
-  />
-
-  <div
-    style={{
-      display:"grid",
-      gridTemplateColumns:
-      "repeat(auto-fill,minmax(120px,1fr))",
-      gap:10,
-      marginTop:10
-    }}
-  >
-
-    {bannerPreview.map(img => (
-
-      <img
-        key={img}
-        src={img}
-        style={{
-          width:"100%",
-          height:90,
-          objectFit:"cover",
-          borderRadius:10
-        }}
-      />
-
-    ))}
-
-  </div>
-
-  <button
-  onClick={uploadBanners}
-  style={uploadBtn}
-  onMouseEnter={(e)=>{
-    e.currentTarget.style.background="var(--primary)"
-    e.currentTarget.style.color="var(--surface)"
-  }}
-  onMouseLeave={(e)=>{
-    e.currentTarget.style.background="transparent"
-    e.currentTarget.style.color="var(--primary)"
-  }}
->
-  Upload Banners
-</button>
-
-</Card>
-
-
+        {adminSection === "branding" && (
+          <section>
+            <div className="admin-section-head"><div><div className="admin-pro-kicker">RESTAURANT PROFILE</div><h2>Restaurant Details & Branding</h2><p>Update the information customers see across your restaurant experience.</p></div></div>
+            <div className="admin-brand-grid">
+              <Card title="Restaurant Details" glow="#06b6d4"><Input value={openingTime} set={setOpeningTime} placeholder="Opening Time"/><Input value={cuisine} set={setCuisine} placeholder="Cuisine"/><textarea value={restaurantDescription} onChange={e=>setRestaurantDescription(e.target.value)} placeholder="Restaurant Description" className="admin-textarea"/><Button onClick={saveRestaurantInfo}>Save Details</Button></Card>
+              <Card title="Restaurant Logo" glow="var(--danger)"><input type="file" onChange={handleLogo} style={fileInput}/>{logo && <img src={logo} style={logoStyle}/>}<button onClick={uploadLogo} style={uploadBtn}>Upload Logo</button></Card>
+              <Card title="Restaurant Banners" glow="var(--primary)"><input type="file" multiple onChange={handleBanners} style={fileInput}/><div className="admin-banner-grid">{bannerPreview.map(img=><img key={img} src={img} alt=""/>)}{banners.map(b=><img key={b.id || b.image_url} src={b.image_url} alt=""/>)}</div><button onClick={uploadBanners} style={uploadBtn}>Upload Banners</button></Card>
+            </div>
+          </section>
+        )}
       </div>
-
-      <div style={glassBox}>
-        <h2 style={{marginBottom:10}}>📋 Menu</h2>
-
-        {Object.entries(groupedMenu).map(([cat,items])=>(
-          <div key={cat} style={{marginBottom:20}}>
-
-            <h3
-  onClick={()=>
-    setOpenCategory(
-      openCategory===cat
-      ? null
-      : cat
-    )
-  }
-  style={{
-    color:"var(--primary)",
-    fontSize:20,
-    marginBottom:14,
-    borderBottom:
-      "1px solid rgba(var(--primary-rgb),.15)",
-    paddingBottom:10,
-
-    cursor:"pointer",
-
-    display:"flex",
-    justifyContent:"space-between",
-    alignItems:"center"
-  }}
->
-  <span>🍽 {cat}</span>
-
-  <span>
-    {openCategory===cat ? "−" : "+"}
-  </span>
-</h3>
-
-            {openCategory===cat && items.map((i)=>(
-              <div key={i.id} style={menuCard}>
-                <div
-  style={{
-    display:"flex",
-    alignItems:"center",
-    gap:12
-  }}
->
-  {i.image && (
-    <img
-      src={i.image}
-      alt=""
-      style={{
-        width:80,
-height:80,
-borderRadius:18,
-objectFit:"cover",
-
-border:
-  "2px solid rgba(var(--primary-rgb),.35)",
-
-boxShadow:
-  "0 12px 30px rgba(0,0,0,.4)"
-      }}
-    />
-  )}
-
-  <div>
-    <strong>{i.name}</strong>
-
-    <div
-style={{
-opacity:.7,
-marginTop:4
-}}
->
-
-₹{i.price}
-
-</div>
-
-<div
-style={{
-fontSize:13,
-opacity:.7,
-marginTop:6
-}}
->
-
-{(i as any).description}
-
-</div>
-  </div>
-                </div>
-
-                <div
-style={{
-display:"flex",
-gap:10
-}}
->
-
-<button
-
-onClick={()=>editItem(i)}
-
-style={{
-background:"linear-gradient(135deg,var(--surface),var(--surface-2))",
-border:"1px solid rgba(var(--primary-rgb),.35)",
-color:"var(--text)",
-padding:"10px 18px",
-borderRadius:12,
-cursor:"pointer",
-fontWeight:"bold",
-boxShadow:"0 10px 25px rgba(0,0,0,.35)",
-transition:"all .3s"
-}}
-
->
-
-Edit
-
-</button>
-
-<button
-
-onClick={()=>deleteItem(i.id)}
-
-style={deleteBtn}
-
->
-
-Delete
-
-</button>
-
-</div>
-              </div>
-            ))}
-
-          </div>
-        ))}
-      </div>
-
-    </div>
+    </main>
   )
 }
 

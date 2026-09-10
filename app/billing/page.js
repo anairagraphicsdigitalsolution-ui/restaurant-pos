@@ -9,7 +9,7 @@ import ItemChart from "@/components/ItemChart"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 import { printHtmlInFrame } from "@/lib/printUtils"
-import { sendThermalPrint } from "@/lib/thermalPrintClient"
+import { sendThermalPrint, makeEscPosInvoice } from "@/lib/thermalPrintClient"
 
 function indiaDateKey(value) {
   if (!value) return ""
@@ -2149,10 +2149,41 @@ export default function BillingPage() {
     try {
       const el = document.getElementById("bill-print")
       if (!el) throw new Error("Invoice preview not found")
+      const size = printSize === "THERMAL_58" ? "58mm" : "80mm"
+      const invoiceItems = (items || []).map(i => ({
+        name: i.menu_items?.name || i.item_name || "Item",
+        quantity: Number(i.quantity || 0),
+        line_total: Number(i.line_total || (Number(i.menu_items?.price || 0) * Number(i.quantity || 0))),
+        modifiers: Array.isArray(i.modifiers) ? i.modifiers : [],
+        cooking_request: i.cooking_request || ""
+      }))
+      const escpos = makeEscPosInvoice({
+        restaurant: {
+          name: restaurant?.name || "ANAIRA",
+          address: restaurant?.address || "",
+          phone: restaurant?.phone || "",
+          gst_number: restaurant?.gst_enabled ? (restaurant?.gst_number || "") : ""
+        },
+        order: currentOrder || {},
+        items: invoiceItems,
+        subtotal,
+        discount: combinedDiscountAmount || 0,
+        gst,
+        deliveryCharge,
+        total,
+        paymentMethod: currentOrder?.payment_method || paymentMethod || "",
+        paidAmount: Number(currentOrder?.paid_amount || total || 0),
+        customerName: customerName || currentOrder?.customer_name || "",
+        customerPhone: customerPhone || currentOrder?.customer_phone || "",
+        offerName: selectedOffer?.title || selectedOffer?.name || "",
+        invoiceNo: currentOrder?.invoice_no || finalizedBill?.invoice_no || selectedOrder,
+        size
+      })
       await sendThermalPrint({
         type: "receipt",
         content: el.innerText || el.textContent || "",
-        data: { order_id: selectedOrder, size: printSize === "THERMAL_58" ? "58mm" : "80mm" }
+        escpos,
+        data: { order_id: selectedOrder, size }
       })
     } catch (e) {
       alert(e.message || "Thermal invoice print failed")

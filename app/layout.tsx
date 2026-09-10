@@ -9,6 +9,7 @@ import RealtimeNotificationProvider from "@/components/RealtimeNotificationProvi
 import OrderNotificationListener from "@/components/OrderNotificationListener"
 import CallingRuntimeProvider from "@/components/CallingRuntimeProvider"
 import CloudOnlyCleanup from "@/components/CloudOnlyCleanup"
+import CloudPrintAgent from "@/components/CloudPrintAgent"
 import "./globals.css"
 
 export const viewport = {
@@ -39,6 +40,7 @@ export default function RootLayout({
             <OrderNotificationListener />
             <CallingRuntimeProvider />
             <CloudOnlyCleanup />
+            <CloudPrintAgent />
             {children}
           </ThemeProvider>
         </AuthProvider>

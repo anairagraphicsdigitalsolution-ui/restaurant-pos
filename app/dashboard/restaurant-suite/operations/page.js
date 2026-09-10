@@ -390,7 +390,7 @@ export default function AnairaOperationsHub() {
 
   return <main className="pp-wrap">
     <header className="pp-hero">
-      <div><small>RESTAURANT OPERATIONS</small><h1>Anaira Operations Hub</h1><p>Tables → Order → KOT → KDS → Token → Delivery → Payment → CRM → Reports</p><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/command">Open Command Center →</a></div></div>
+      <div><small>RESTAURANT OPERATIONS</small><h1>Anaira Operations Hub</h1><p>Tables → Order → KOT → KDS → Token → Delivery → Payment → CRM → Reports</p><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/command">Open Command Center →</a></div><div className="pp-actions"><a className="pp-button" href="/dashboard/restaurant-suite/Anaira">Open Anaira Restaurant Suite →</a></div></div>
       <div className="pp-badge">{role || "staff"} • {busy ? "Working…" : "Live"}</div>
     </header>
 

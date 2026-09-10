@@ -91,6 +91,7 @@ try {
       if($ctx.Request.HttpMethod -eq "OPTIONS"){Send-Json $ctx ([pscustomobject]@{success=$true});continue}
       $path=$ctx.Request.Url.AbsolutePath.TrimEnd('/'); if($path -eq ''){$path='/status'}
       switch($path){
+        '/health' { $ports=@(Get-SerialPrinters); $connected=[bool]($script:Serial -and $script:Serial.IsOpen); Send-Json $ctx ([pscustomobject]@{success=$true;ok=$true;running=$true;connected=$connected;saved_port=$script:ConnectedPort;port=$script:ConnectedPort;printer=$script:ConnectedPrinter;ports=@($ports|ForEach-Object {$_.port})}); break }
         '/status' {
           $ports=@(Get-SerialPrinters); $connected=[bool]($script:Serial -and $script:Serial.IsOpen)
           Send-Json $ctx ([pscustomobject]@{success=$true;running=$true;available=$true;connected=$connected;port=$script:ConnectedPort;printer=$script:ConnectedPrinter;ports=@($ports|ForEach-Object {$_.port})}); break

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import { connectBluetoothThermalPrinter, disconnectBluetoothThermalPrinter, disconnectNativeBluetoothThermalPrinter, disconnectLocalPrinter, getBluetoothThermalName, isBluetoothThermalConnected, isBluetoothThermalSupported, isNativeBluetoothPrinterAvailable, listNativeBluetoothPrinters, connectNativeBluetoothThermalPrinter, openNativeBluetoothSettings, makeEscPosReceipt, printBluetoothThermal, sendThermalPrint, connectLocalPrinter, listLocalPrinters, testLocalPrinter, getLocalBridgeStatus, startLocalPrintBridge, printLocalBridge } from "@/lib/thermalPrintClient"
+import { enqueueCloudPrintJob } from "@/lib/cloudPrintQueue"
 
 const money = (value) => `₹${Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -19,12 +20,15 @@ export default function OrderPage() {
   const [menu, setMenu] = useState([])
   const [tables, setTables] = useState([])
   const [rooms, setRooms] = useState([])
+  const [floors, setFloors] = useState([])
+  const [activeFloor, setActiveFloor] = useState("All Floors")
   const [deliveryZones, setDeliveryZones] = useState([])
   const [offers, setOffers] = useState([])
   const [selectedOfferId, setSelectedOfferId] = useState("")
   const [printerName, setPrinterName] = useState("")
   const [printerConnecting, setPrinterConnecting] = useState(false)
   const [printerPrompt, setPrinterPrompt] = useState(null)
+  const [deliveryPrintPrompt, setDeliveryPrintPrompt] = useState(null)
   const [localPrinters, setLocalPrinters] = useState([])
   const [localPrinterLoading, setLocalPrinterLoading] = useState(false)
   const [selectedLocalPort, setSelectedLocalPort] = useState("")
@@ -141,11 +145,12 @@ export default function OrderPage() {
       if (rest) { setRestaurant(rest); setRestaurantName(rest.name || "") }
     }
     const empty = { data: [], error: null }
-    const [menuResult, variantResult, tableResult, roomResult, zoneResult, offerResult, groupResult, modifierResult, linkResult] = await Promise.all([
+    const [menuResult, variantResult, tableResult, roomResult, floorResult, zoneResult, offerResult, groupResult, modifierResult, linkResult] = await Promise.all([
       supabaseCloud.from("menu_items").select("*").eq("restaurant_id", rid).order("name"),
       supabaseCloud.from("menu_variants").select("id,menu_item_id,name,price_delta,active").eq("restaurant_id", rid).eq("active", true).order("created_at"),
       supabaseCloud.from("tables").select("*").eq("restaurant_id", rid).order("table_number"),
       supabaseCloud.from("rooms").select("*").eq("restaurant_id", rid).order("room_number"),
+      supabaseCloud.from("floors").select("id,name,display_order,active").eq("restaurant_id", rid).eq("active", true).order("display_order").order("name"),
       supabaseCloud.from("delivery_zones").select("*").eq("restaurant_id", rid).eq("active", true).order("name"),
       supabaseCloud.from("offers").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at", { ascending: false }),
       hubOn ? supabaseCloud.from("modifier_groups").select("*").eq("restaurant_id", rid).eq("active", true).order("created_at") : Promise.resolve(empty),
@@ -172,6 +177,19 @@ export default function OrderPage() {
     setModifierLinks(linkResult.data || [])
   }
 
+  const tableFloors = useMemo(() => {
+    const names = floors.map(f => String(f.name || "").trim()).filter(Boolean)
+    const legacy = tables.map(t => String(t.floor || "").trim()).filter(Boolean)
+    return [...new Set([...names, ...legacy])]
+  }, [floors, tables])
+  const visibleTables = useMemo(() => {
+    if (activeFloor === "All Floors") return tables
+    return tables.filter(t => String(t.floor || "Ground Floor") === activeFloor)
+  }, [tables, activeFloor])
+  const visibleRooms = useMemo(() => {
+    if (activeFloor === "All Floors") return rooms
+    return rooms.filter(r => String(r.floor || "Ground Floor") === activeFloor)
+  }, [rooms, activeFloor])
   const categories = useMemo(() => ["All", ...new Set(menu.map(i => String(i.category || "Other").trim() || "Other"))], [menu])
   const visibleItems = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -397,7 +415,141 @@ export default function OrderPage() {
         rider_phone: deliveryPersonType === "rider" ? rider?.phone : undefined,
       })
       hydrateDeliveryPopup(result.delivery, { open: true })
+      if (result.delivery_slip_queued) {
+        // Assignment itself is the trigger. If this browser already has a BLE
+        // printer connected, claim this exact cloud job and print it now. If
+        // not, keep the cloud job queued and show a small popup with an
+        // explicit Print option instead of forcing the user to visit Delivery.
+        let autoPrinted = false
+        if (result.print_job?.id && isBluetoothThermalConnected()) {
+          try {
+            const token = await authToken()
+            const claimResponse = await fetch("/api/printing/claim-job", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ job_id: result.print_job.id })
+            })
+            const claim = await claimResponse.json().catch(() => ({}))
+            if (claimResponse.ok && claim?.success && claim?.job?.payload?.content) {
+              const bytes = makeEscPosReceipt({
+                title: "DELIVERY SLIP",
+                lines: String(claim.job.payload.content).split(/\r?\n/).filter(Boolean),
+                footer: "DELIVERY COPY"
+              })
+              await printBluetoothThermal(bytes)
+              await fetch("/api/printing/complete-job", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ job_id: result.print_job.id, success: true })
+              }).catch(() => {})
+              autoPrinted = true
+            }
+          } catch (printError) {
+            console.warn("AUTO DELIVERY SLIP PRINT:", printError)
+            try {
+              const token = await authToken()
+              await fetch("/api/printing/complete-job", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ job_id: result.print_job.id, success: false })
+              })
+            } catch (_) {}
+          }
+        }
+        if (autoPrinted) {
+          setDeliveryPrintPrompt({ type: "success", title: "DELIVERY SLIP PRINTED", message: `Delivery ${result.delivery?.slip_no || "slip"} assigned and the delivery slip was printed automatically.` })
+        } else {
+          setDeliveryPrintPrompt({
+            type: "ready",
+            title: "DELIVERY SLIP READY",
+            message: `Delivery ${result.delivery?.slip_no || "slip"} assigned. The slip is saved in Supabase print queue. Print it now from this popup or leave it queued for the connected Anaira printer agent.`,
+            jobId: result.print_job?.id || null,
+            content: result.print_job?.payload?.content || ""
+          })
+        }
+      } else {
+        setDeliveryPrintPrompt({ type: "error", title: "DELIVERY SLIP NOT QUEUED", message: `Delivery ${result.delivery?.slip_no || "slip"} was assigned, but the cloud print job could not be created.`, jobId: null })
+      }
     } catch (e) { alert(e.message || "Unable to assign delivery") }
+  }
+
+  async function requestDeliverySlipPrint(delivery) {
+    if (!delivery?.id) return
+    try {
+      const token = await authToken()
+      const response = await fetch("/api/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "print_slip", delivery_id: delivery.id })
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.success || !result?.print_job?.id) {
+        throw new Error(result?.error || "Unable to create delivery slip print job.")
+      }
+
+      const job = result.print_job
+      const content = job?.payload?.content || ""
+
+      // If this browser already has the BLE thermal printer connected, print
+      // the exact cloud job immediately. Otherwise keep it queued and show the
+      // Order Page popup so the user can connect/print without visiting
+      // Dashboard > Delivery.
+      if (isBluetoothThermalConnected() && content) {
+        await printQueuedDeliverySlip(job.id, content)
+        return
+      }
+
+      setDeliveryPrintPrompt({
+        type: "ready",
+        title: "DELIVERY SLIP READY",
+        message: `${delivery.slip_no || "Delivery slip"} is saved in the Supabase print queue. Connect the Bluetooth printer and print it from here.`,
+        jobId: job.id,
+        content,
+      })
+    } catch (e) {
+      setDeliveryPrintPrompt({
+        type: "error",
+        title: "DELIVERY SLIP PRINT FAILED",
+        message: e?.message || "Unable to prepare the delivery slip for printing.",
+        jobId: null,
+        content: "",
+      })
+    }
+  }
+
+  async function printQueuedDeliverySlip(jobId, content) {
+    if (!jobId || !content) return
+    try {
+      if (!isBluetoothThermalConnected()) {
+        throw new Error("Bluetooth printer is not connected. Connect the printer first, then try again.")
+      }
+      const token = await authToken()
+      const claimResponse = await fetch("/api/printing/claim-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ job_id: jobId })
+      })
+      const claim = await claimResponse.json().catch(() => ({}))
+      if (!claimResponse.ok || !claim?.success || !claim?.job?.payload?.content) throw new Error(claim?.error || "Delivery slip is already being handled by another printer agent.")
+      const bytes = makeEscPosReceipt({ title: "DELIVERY SLIP", lines: String(claim.job.payload.content).split(/\r?\n/).filter(Boolean), footer: "DELIVERY COPY" })
+      await printBluetoothThermal(bytes)
+      await fetch("/api/printing/complete-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ job_id: jobId, success: true })
+      })
+      setDeliveryPrintPrompt({ type: "success", title: "DELIVERY SLIP PRINTED", message: "Delivery slip printed successfully." })
+    } catch (e) {
+      try {
+        const token = await authToken()
+        await fetch("/api/printing/complete-job", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ job_id: jobId, success: false })
+        })
+      } catch (_) {}
+      setDeliveryPrintPrompt(prev => ({ ...(prev || {}), type: "error", title: "DELIVERY SLIP PRINT FAILED", message: e?.message || "Unable to print delivery slip." }))
+    }
   }
 
   async function advanceActiveDelivery(nextStatus) {
@@ -616,18 +768,16 @@ export default function OrderPage() {
   }
 
   async function openPrinterChooser() {
-    const local = true
+    const native = isNativeBluetoothPrinterAvailable()
+    const bleAvailable = typeof window !== "undefined" && typeof navigator !== "undefined" && !!navigator.bluetooth && window.isSecureContext
     setPrinterPrompt({
       title: "CONNECT PRINTER",
-      message: local
-        ? "MPT-III uses classic Bluetooth/COM on Windows. Select the MPT-III COM port below and connect it. The browser Bluetooth button is only for BLE ESC/POS printers."
-        : "CONNECT BLUETOOTH opens the browser Bluetooth chooser for a supported BLE ESC/POS printer."
+      message: native
+        ? "Cloud printing is active. Scan for the BLE thermal printer in this Anaira Android app. Print jobs are stored in Supabase and delivered to this connected printer."
+        : "Cloud printing is active. This browser can print directly only when Web Bluetooth supports your BLE ESC/POS printer. Otherwise print jobs are queued in Supabase for the connected Anaira Android printer app.",
+      allowBle: bleAvailable,
+      native,
     })
-    if (local) {
-      try { await refreshLocalPrinters() } catch (e) {
-        setPrinterPrompt(prev => ({ ...prev, message: `Windows print bridge: ${e?.message || "not running"}. Pair MPT-III in Windows Bluetooth and make sure a COM port exists. The MPT-III uses classic Bluetooth/COM, not Web Bluetooth BLE.` }))
-      }
-    }
   }
 
   async function connectSelectedLocalPrinter() {
@@ -659,36 +809,25 @@ export default function OrderPage() {
     setPrinterConnecting(true)
     try {
       if (isNativeBluetoothPrinterAvailable()) {
-        const paired = await listNativeBluetoothPrinters()
-        if (!paired.length) {
-          setPrinterPrompt({ title: "CONNECT PRINTER", message: "No paired Bluetooth printer was found. Pair your MPT-III / thermal printer first, then print again.", native: true })
-          if (!silent && confirm("No paired Bluetooth printer found. Open Android Bluetooth settings to pair the printer now?")) await openNativeBluetoothSettings()
+        const found = await listNativeBluetoothPrinters()
+        if (!found.length) {
+          setPrinterPrompt({ title: "BLUETOOTH PRINTER", message: "No BLE printer found. Turn Bluetooth on, keep the thermal printer powered on and nearby, then scan again.", native: true })
           return false
         }
-        const preferred = paired.find(p => /MPT|MTP|thermal|printer|pos/i.test(p.name || "")) || paired[0]
-        const result = await connectNativeBluetoothThermalPrinter(preferred.address)
+        const preferred = found.find(p => /MPT|MTP|thermal|printer|pos/i.test(p.name || "")) || found[0]
+        const result = await connectNativeBluetoothThermalPrinter(preferred.address, { ble: true })
         setPrinterName(result.name || preferred.name || "Bluetooth Thermal Printer")
-        if (!silent) alert(`Printer connected: ${result.name || preferred.name}`)
+        setPrinterPrompt(null)
+        if (!silent) alert(`Bluetooth printer connected: ${result.name || preferred.name}`)
         return true
       }
 
-      // On Windows localhost, MPT-III classic Bluetooth is exposed as a COM port.
-      // Prefer the local Anaira bridge over Chrome Web Bluetooth.
-      if (typeof window !== "undefined") {
-        try {
-          const result = await connectLocalPrinter()
-          const connectedPort = result.port || result.printer?.port || result.printer?.name || "MPT-III"
-          setPrinterName(connectedPort)
-          if (!silent) alert(`Printer connected: ${connectedPort}`)
-          return true
-        } catch (localError) {
-          if (!silent) setPrinterPrompt({ title: "MPT-III NOT CONNECTED", message: `${localError?.message || "Windows local printer bridge could not connect to MPT-III."} Pair MPT-III in Windows Bluetooth, confirm its COM port in Device Manager, and keep Anaira Print Bridge running.` })
-          return false
-        }
-      }
+      // Cloud-first mode: never require the localhost print bridge. On Windows,
+      // use browser BLE when supported; otherwise print jobs remain in Supabase
+      // for the connected Anaira Android printer agent.
 
       if (!isBluetoothThermalSupported()) {
-        setPrinterPrompt({ title: "CONNECT BLUETOOTH PRINTER", message: "Chrome Web Bluetooth needs a supported BLE ESC/POS printer and HTTPS. Classic MPT-III Bluetooth uses the Anaira Windows local bridge or Android app." })
+        setPrinterPrompt({ title: "CONNECT BLUETOOTH PRINTER", message: "This browser cannot connect to the BLE printer directly. The print job can still be queued in Supabase and printed by a connected Anaira Android printer agent." })
         return false
       }
       const result = await connectBluetoothThermalPrinter()
@@ -717,23 +856,14 @@ export default function OrderPage() {
     })
     if (kind === "kot") {
       const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - KOT`, lines, footer: "KITCHEN COPY" })
-      if (typeof window !== "undefined") {
-        try {
-          const bridgeStatus = await getLocalBridgeStatus()
-          if (bridgeStatus.running && bridgeStatus.saved_port) {
-            return await printLocalBridge({ bytes, type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } })
-          }
-        } catch (_) {}
-      }
-      if (!isBluetoothThermalConnected()) {
-        const connected = await connectPrinter({ silent: true })
-        if (!connected) {
-          setPrinterPrompt({ title: "CONNECT PRINTER", message: "Printer is not connected. Connect the Windows MPT-III local printer or choose a supported BLE ESC/POS printer from the Bluetooth chooser, then print again.", showBluetooth: true })
-          return { success: false, requiresConnection: true }
-        }
-      }
       if (isBluetoothThermalConnected()) return printBluetoothThermal(bytes)
-      return sendThermalPrint({ type: "kot", content: lines.join("\n"), data: { order_id: order.id, items: printItems } })
+      try {
+        const job = await enqueueCloudPrintJob({ restaurantId, jobType: "kot", referenceId: order.id, content: lines.join("\n"), data: { order_id: order.id, items: printItems, title: `${restaurantName || "ANAIRA"} - KOT`, footer: "KITCHEN COPY" } })
+        return { success: true, queued: true, cloud: true, job_id: job.id }
+      } catch (queueError) {
+        console.warn("Cloud print queue failed:", queueError)
+      }
+      throw new Error("Cloud print queue is unavailable. Check your Supabase connection and try again.")
     }
     lines.push("--------------------------------", `Subtotal: ${money(subtotal)}`)
     if (activeOffer) lines.push(`Offer ${activeOffer.title || activeOffer.name || "Discount"}: -${money(offerDiscount)}`)
@@ -744,25 +874,14 @@ export default function OrderPage() {
     if (bill?.invoice_no) lines.push(`Invoice: ${bill.invoice_no}`)
     lines.push(`Payment: ${bill?.payment_method || paymentMethod}`)
     const bytes = makeEscPosReceipt({ title: `${restaurantName || "ANAIRA"} - BILL`, lines, footer: bill?.payment_status === "paid" ? "PAID - THANK YOU" : "THANK YOU" })
-    if (typeof window !== "undefined") {
-      try {
-        const bridgeStatus = await getLocalBridgeStatus()
-        if (bridgeStatus.running && bridgeStatus.saved_port) return await printLocalBridge({ bytes, type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } })
-      } catch (_) {}
-    }
-    if (!isBluetoothThermalConnected()) {
-      const connected = await connectPrinter({ silent: true })
-      if (!connected) {
-        setPrinterPrompt({
-          title: "CONNECT PRINTER",
-          message: "Bill is ready, but no thermal printer is connected. Select your Windows MPT-III COM port or choose a supported BLE ESC/POS printer, then print again.",
-          allowBle: true,
-        })
-        return { success: false, requiresConnection: true }
-      }
-    }
     if (isBluetoothThermalConnected()) return printBluetoothThermal(bytes)
-    return sendThermalPrint({ type: "receipt", content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total } })
+    try {
+      const job = await enqueueCloudPrintJob({ restaurantId, jobType: "bill", referenceId: order.id, content: lines.join("\n"), data: { order_id: order.id, bill, items: printItems, subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, gst, delivery_charge: deliveryCharge, total, title: `${restaurantName || "ANAIRA"} - BILL`, footer: bill?.payment_status === "paid" ? "PAID - THANK YOU" : "THANK YOU" } })
+      return { success: true, queued: true, cloud: true, job_id: job.id }
+    } catch (queueError) {
+      console.warn("Cloud print queue failed:", queueError)
+    }
+    throw new Error("Cloud print queue is unavailable. Check your Supabase connection and try again.")
   }
 
   async function printKot(orderId = currentOrder?.id) {
@@ -771,7 +890,7 @@ export default function OrderPage() {
       const order = currentOrder?.id === orderId ? currentOrder : kitchenOrders.find(o => String(o.id) === String(orderId))
       const result = await printThermal("kot", order || { id: orderId })
       if (result?.requiresConnection) return
-      alert("KOT printed successfully.")
+      alert(result?.queued ? "KOT cloud print queue mein bhej diya gaya. Connected Anaira printer app ise print karega." : "KOT printed successfully.")
     } catch (e) { console.error("KOT PRINT:", e); alert(e.message || "KOT print failed") }
   }
 
@@ -1006,8 +1125,12 @@ export default function OrderPage() {
       {posView === "floor" && screen === "order" && <section className="floor-dashboard">
         <div className="floor-head"><div><small>ANAIRA POS • TABLE MANAGEMENT</small><h1>{type === "room" ? "Rooms & Running Orders" : "Restaurant Floor"}</h1><p>Tap a table to open its running order, or start a new order.</p></div><div className="floor-actions"><button className={type === "table" ? "floor-type active" : "floor-type"} onClick={() => { setType("table"); setSelected(null) }}>TABLES</button><button className={type === "room" ? "floor-type active" : "floor-type"} onClick={() => { setType("room"); setSelected(null) }}>ROOMS</button><button className="floor-type" onClick={() => { setType("takeaway"); setSelected(null); setPosView("order") }}>TAKEAWAY</button><button className="floor-type" onClick={() => { setType("delivery"); setSelected(null); setPosView("order") }}>DELIVERY</button></div></div>
         <div className="floor-legend"><span><i className="dot free"/> AVAILABLE</span><span><i className="dot occupied"/> RUNNING</span><span><i className="dot preparing"/> KITCHEN</span></div>
+        {(type === "table" || type === "room") && <div className="pos-floor-tabs">
+          <button className={activeFloor === "All Floors" ? "active" : ""} onClick={() => setActiveFloor("All Floors")}>All Floors</button>
+          {tableFloors.map(name => <button key={name} className={activeFloor === name ? "active" : ""} onClick={() => setActiveFloor(name)}>{name}</button>)}
+        </div>}
         <div className="table-grid">
-          {(type === "room" ? rooms : tables).map(x => {
+          {(type === "room" ? visibleRooms : visibleTables).map(x => {
             const number = type === "room" ? x.room_number : x.table_number
             const active = kitchenOrders.find(o => String(o.source_type || o.order_type).toLowerCase() === type && String(o.source_id) === String(x.id))
             const status = String(active?.status || "").toLowerCase()
@@ -1015,7 +1138,7 @@ export default function OrderPage() {
               <span className="table-no">{type === "room" ? "ROOM" : "TABLE"} {number}</span><strong>{active ? "RUNNING" : "AVAILABLE"}</strong>{active && <small>{status.toUpperCase()} • {money(active.total_amount)}</small>}
             </button>
           })}
-          {!(type === "room" ? rooms : tables).length && <div className="floor-empty">No {type === "room" ? "rooms" : "tables"} configured yet.</div>}
+          {!(type === "room" ? visibleRooms : visibleTables).length && <div className="floor-empty">No {type === "room" ? "rooms" : "tables"} configured on this floor.</div>}
         </div>
       </section>}
 
@@ -1108,6 +1231,7 @@ export default function OrderPage() {
         <div className="delivery-flow-customer"><div><b>{activeDelivery.customer_name || customerName || "Customer"}</b><span>{activeDelivery.phone || customerPhone || "No phone"}</span></div><div><b>{money(activeDelivery.collection_expected ?? activeDelivery.expected_amount)}</b><span>{activeDelivery.address || deliveryAddress || "No address"}</span></div></div>
         <div className="delivery-steps">{[["pending","ORDER"],["assigned","ASSIGNED"],["out_for_delivery","OUT FOR DELIVERY"],["delivered","DELIVERED"],["settled","SETTLED"]].map(([key,label], idx) => { const status = String(activeDelivery.status || "pending").toLowerCase(); const order = ["pending","assigned","out_for_delivery","delivered","settled"]; const current = order.indexOf(status); const done = idx <= current; return <div key={key} className={`delivery-step ${done ? "done" : ""} ${status === key ? "current" : ""}`}><span>{done ? "✓" : idx + 1}</span><b>{label}</b></div> })}</div>
         <div className="delivery-flow-body">
+          <div className="delivery-slip-action-bar"><button className="save" onClick={() => requestDeliverySlipPrint(activeDelivery)} disabled={!!deliveryAction}>🖨 PRINT DELIVERY SLIP</button><span>Prints the saved Supabase delivery slip.</span></div>
           {String(activeDelivery.status || "pending").toLowerCase() === "pending" && <div className="delivery-action-card"><h3>Assign Delivery Person</h3><div className="delivery-choice"><button className={deliveryPersonType === "rider" ? "active" : ""} onClick={() => setDeliveryPersonType("rider")}>RIDER</button><button className={deliveryPersonType === "owner" ? "active" : ""} onClick={() => setDeliveryPersonType("owner")}>OWNER / SELF</button></div>{deliveryPersonType === "rider" ? <select value={normalizeInputValue(deliveryRiderId)} onChange={e => setDeliveryRiderId(e.target.value)}><option value="">Select rider</option>{deliveryRiders.filter(r => r.active !== false).map(r => <option key={r.id} value={r.id}>{r.name}{r.phone ? ` • ${r.phone}` : ""}</option>)}</select> : <div className="delivery-owner-fields"><input value={normalizeInputValue(deliveryOwnerName)} onChange={e => setDeliveryOwnerName(e.target.value)} placeholder="Owner name"/><input value={normalizeInputValue(deliveryOwnerPhone)} onChange={e => setDeliveryOwnerPhone(e.target.value)} placeholder="Phone" inputMode="tel"/></div>}<button className="delivery-main-action" onClick={assignActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "assign" ? "ASSIGNING…" : "ASSIGN & CONTINUE"}</button></div>}
           {String(activeDelivery.status || "pending").toLowerCase() === "assigned" && <div className="delivery-action-card"><h3>Rider Assigned</h3><p>{activeDelivery.delivery_person_name || activeDelivery.rider_name || "Delivery person"}{activeDelivery.delivery_person_phone ? ` • ${activeDelivery.delivery_person_phone}` : ""}</p><button className="delivery-main-action" onClick={() => advanceActiveDelivery("out_for_delivery")} disabled={!!deliveryAction}>{deliveryAction === "status" ? "UPDATING…" : "OUT FOR DELIVERY"}</button></div>}
           {String(activeDelivery.status || "pending").toLowerCase() === "out_for_delivery" && <div className="delivery-action-card"><h3>Delivery In Progress</h3><p>Rider has left the restaurant. Keep this delivery visible here until it is delivered and settled.</p><button className="delivery-main-action" onClick={() => advanceActiveDelivery("delivered")} disabled={!!deliveryAction}>{deliveryAction === "status" ? "UPDATING…" : "MARK DELIVERED"}</button></div>}
@@ -1119,6 +1243,7 @@ export default function OrderPage() {
 
       {activeDelivery && String(activeDelivery.settlement_status || "pending").toLowerCase() === "settled" && currentOrder?.id === activeDelivery.order_id && !finalizedBill && <div className="delivery-settled-banner"><div><small>DELIVERY SETTLED</small><strong>{activeDelivery.slip_no || "Delivery"} • Ready for final billing</strong></div><button className="finalize" onClick={completeActiveDelivery} disabled={!!deliveryAction}>{deliveryAction === "complete" ? "UPDATING…" : "MARK DONE & OPEN BILL"}</button></div>}
 
+      {deliveryPrintPrompt && <div className="modal-backdrop" onClick={() => setDeliveryPrintPrompt(null)}><div className="modal printer-prompt" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>DELIVERY PRINTING</small><h2>{deliveryPrintPrompt.title}</h2></div><button onClick={() => setDeliveryPrintPrompt(null)}>×</button></div><p className="printer-prompt-text">{deliveryPrintPrompt.message}</p><div className="printer-prompt-actions">{deliveryPrintPrompt.jobId && deliveryPrintPrompt.type !== "success" && <button className="save" onClick={() => printQueuedDeliverySlip(deliveryPrintPrompt.jobId, deliveryPrintPrompt.content)} disabled={printerConnecting}>{printerConnecting ? "PRINTING…" : "🖨 PRINT DELIVERY SLIP"}</button>}<button className="finalize" onClick={() => setDeliveryPrintPrompt(null)}>CLOSE</button></div></div></div>}
       {printerPrompt && <div className="modal-backdrop" onClick={() => setPrinterPrompt(null)}><div className="modal printer-prompt" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>THERMAL PRINTING</small><h2>{printerPrompt.title}</h2></div><button onClick={() => setPrinterPrompt(null)}>×</button></div><p className="printer-prompt-text">{printerPrompt.message}</p>{typeof window !== "undefined" && <div className="local-printer-box"><div className="local-printer-head"><strong>WINDOWS MPT-III / COM</strong><button className="mini" onClick={refreshLocalPrinters} disabled={localPrinterLoading}>{localPrinterLoading ? "…" : "↻"}</button></div>{localPrinters.length ? <><select value={selectedLocalPort} onChange={e => setSelectedLocalPort(e.target.value)}>{localPrinters.map(p => <option key={p.port} value={p.port}>{p.port} — {p.name || p.description || "Serial/Bluetooth"}</option>)}</select><small>Pair MPT-III in Windows Bluetooth. The correct entry normally appears under Device Manager → Ports (COM & LPT) as a Bluetooth/Serial COM port.</small></> : <><div className="local-empty">No COM printer port detected yet.</div><small>Click ↻ to scan again. Pair MPT-III in Windows Bluetooth first and confirm a Standard Serial over Bluetooth Link COM port exists in Device Manager → Ports (COM & LPT).</small></>}<div className="local-printer-actions"><button className="save" onClick={connectSelectedLocalPrinter} disabled={printerConnecting || !selectedLocalPort}>{printerConnecting ? "CONNECTING…" : "CONNECT MPT-III"}</button><button className="kot-action" onClick={testSelectedLocalPrinter} disabled={printerConnecting || !selectedLocalPort}>TEST PRINT</button></div></div>}{<div className="printer-prompt-actions">{printerPrompt?.allowBle && <button className="save" onClick={connectWebBluetoothFromUserGesture} disabled={printerConnecting}>{printerConnecting ? "CONNECTING…" : "CONNECT BLUETOOTH (BLE)"}</button>}{printerPrompt.native && <button className="kot-action" onClick={async () => { try { await openNativeBluetoothSettings() } catch (e) { alert(e.message) } }}>OPEN BLUETOOTH SETTINGS</button>}<button className="finalize" onClick={() => setPrinterPrompt(null)}>CLOSE</button></div>}</div></div>}
 
       {newKitchenOrder && <div className="modal-backdrop kitchen-alert-backdrop" onClick={() => setNewKitchenOrder(null)}><div className="modal kitchen-alert" onClick={e => e.stopPropagation()}><div className="modal-head"><div><small>NEW KITCHEN ORDER</small><h2>{newKitchenOrder.display || "New Order"}</h2></div><button onClick={() => setNewKitchenOrder(null)}>×</button></div><div className="new-order-summary">{(newKitchenOrder.items || []).map((i, idx) => <div key={idx}><span>{i.quantity || i.qty || 1}× {i.name || i.item_name}</span><b>{money(i.line_total ?? ((i.quantity || i.qty || 1) * Number(i.unit_price || 0)))}</b></div>)}</div><div className="new-order-actions"><button className="save" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "preparing") }}>PREPARE</button><button className="done-popup" onClick={() => { openKitchenOrder(newKitchenOrder); updateKitchenStatus(newKitchenOrder, "done") }}>MARK DONE</button><button className="finalize" onClick={() => openKitchenOrder(newKitchenOrder)}>OPEN ORDER</button></div></div></div>}
@@ -1131,7 +1256,7 @@ export default function OrderPage() {
         *{box-sizing:border-box}
         .floor-dashboard,.running-dashboard,.billing-dashboard{padding:20px 22px;background:var(--background);min-height:calc(100vh - 106px)}
         .billing-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.billing-card{border:1px solid rgba(var(--primary-rgb),.15);background:var(--surface);border-radius:12px;padding:13px;box-shadow:0 8px 24px rgba(0,0,0,.12)}.billing-card-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.billing-card-top>div{display:flex;flex-direction:column;gap:3px}.billing-card-top strong{font-size:11px}.billing-card-top span{font-size:7px;color:rgba(255,255,255,.48)}.billing-payment{font-size:7px;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.1);color:var(--primary)}.billing-payment.partial{color:#f59e0b}.billing-card-items{display:flex;flex-direction:column;gap:4px;margin:12px 0;color:rgba(255,255,255,.62);font-size:8px}.billing-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid rgba(var(--primary-rgb),.1);padding-top:10px}.billing-card-bottom strong{font-size:15px;color:var(--primary)}.billing-card-bottom button{border:0;border-radius:7px;padding:8px 10px;font-size:8px;font-weight:900;cursor:pointer}
-        .floor-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.floor-head small{font-size:8px;letter-spacing:1.4px;font-weight:900;color:var(--primary)}.floor-head h1{margin:4px 0 5px;font-size:24px}.floor-head p{margin:0;color:rgba(255,255,255,.55);font-size:11px}.floor-actions{display:flex;gap:7px;flex-wrap:wrap}.floor-type,.floor-primary{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:8px;padding:9px 12px;font-size:9px;font-weight:900;cursor:pointer}.floor-type.active,.floor-primary{background:var(--primary);color:#111827;border-color:var(--primary)}.floor-legend{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}.floor-legend span{font-size:8px;font-weight:900;color:rgba(255,255,255,.52);display:flex;align-items:center;gap:5px}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.free{background:#4ade80}.dot.occupied{background:#f59e0b}.dot.preparing{background:#ef4444}.table-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.floor-table{min-height:120px;text-align:left;border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:12px;padding:14px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(0,0,0,.12)}.floor-table:hover{transform:translateY(-1px);border-color:var(--primary)}.floor-table .table-no{font-size:10px;font-weight:900;letter-spacing:.5px}.floor-table strong{font-size:15px}.floor-table small{font-size:8px;color:rgba(255,255,255,.5)}.floor-table.free strong{color:#4ade80}.floor-table.occupied strong{color:#fbbf24}.floor-table.preparing{border-color:rgba(239,68,68,.5)}.floor-empty{padding:35px;text-align:center;color:rgba(255,255,255,.45);font-size:11px;border:1px dashed rgba(var(--primary-rgb),.18);border-radius:10px;grid-column:1/-1}.running-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.running-card{border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:11px;padding:13px;text-align:left;cursor:pointer}.running-card:hover{border-color:var(--primary)}.running-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center}.running-card strong{font-size:12px}.running-card p{font-size:9px;color:rgba(255,255,255,.5);line-height:1.5;min-height:28px}.running-card>b{font-size:13px;color:var(--primary)}.running-status{font-size:7px;font-weight:900;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.09);color:var(--primary)}.running-status.preparing{color:#fbbf24}.running-status.done{color:#4ade80}.order-flow-crumb{display:flex;align-items:center;gap:9px;padding:7px 14px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.12);font-size:7px;font-weight:900;color:rgba(255,255,255,.4);overflow:auto;white-space:nowrap}.order-flow-crumb button{border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05);color:var(--primary);border-radius:5px;padding:5px 7px;font-size:7px;font-weight:900;cursor:pointer}.order-flow-crumb b{color:var(--text)}
+        .floor-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.floor-head small{font-size:8px;letter-spacing:1.4px;font-weight:900;color:var(--primary)}.floor-head h1{margin:4px 0 5px;font-size:24px}.floor-head p{margin:0;color:rgba(255,255,255,.55);font-size:11px}.floor-actions{display:flex;gap:7px;flex-wrap:wrap}.floor-type,.floor-primary{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:8px;padding:9px 12px;font-size:9px;font-weight:900;cursor:pointer}.floor-type.active,.floor-primary{background:var(--primary);color:#111827;border-color:var(--primary)}.pos-floor-tabs{display:flex;gap:8px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}.pos-floor-tabs::-webkit-scrollbar{display:none}.pos-floor-tabs button{flex:0 0 auto;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-weight:900;cursor:pointer}.pos-floor-tabs button.active{background:var(--primary);border-color:var(--primary);color:#fff}.floor-legend{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}.floor-legend span{font-size:8px;font-weight:900;color:rgba(255,255,255,.52);display:flex;align-items:center;gap:5px}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.free{background:#4ade80}.dot.occupied{background:#f59e0b}.dot.preparing{background:#ef4444}.table-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.floor-table{min-height:120px;text-align:left;border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:12px;padding:14px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(0,0,0,.12)}.floor-table:hover{transform:translateY(-1px);border-color:var(--primary)}.floor-table .table-no{font-size:10px;font-weight:900;letter-spacing:.5px}.floor-table strong{font-size:15px}.floor-table small{font-size:8px;color:rgba(255,255,255,.5)}.floor-table.free strong{color:#4ade80}.floor-table.occupied strong{color:#fbbf24}.floor-table.preparing{border-color:rgba(239,68,68,.5)}.floor-empty{padding:35px;text-align:center;color:rgba(255,255,255,.45);font-size:11px;border:1px dashed rgba(var(--primary-rgb),.18);border-radius:10px;grid-column:1/-1}.running-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.running-card{border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:11px;padding:13px;text-align:left;cursor:pointer}.running-card:hover{border-color:var(--primary)}.running-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center}.running-card strong{font-size:12px}.running-card p{font-size:9px;color:rgba(255,255,255,.5);line-height:1.5;min-height:28px}.running-card>b{font-size:13px;color:var(--primary)}.running-status{font-size:7px;font-weight:900;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.09);color:var(--primary)}.running-status.preparing{color:#fbbf24}.running-status.done{color:#4ade80}.order-flow-crumb{display:flex;align-items:center;gap:9px;padding:7px 14px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.12);font-size:7px;font-weight:900;color:rgba(255,255,255,.4);overflow:auto;white-space:nowrap}.order-flow-crumb button{border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05);color:var(--primary);border-radius:5px;padding:5px 7px;font-size:7px;font-weight:900;cursor:pointer}.order-flow-crumb b{color:var(--text)}
         .anaira-pos{min-height:100vh;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}
         .pos-topbar{height:58px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.16);display:flex;align-items:center;gap:16px;padding:0 18px;position:sticky;top:0;z-index:20;box-shadow:0 4px 20px rgba(0,0,0,.18)}
         .back-btn{border:1px solid rgba(var(--primary-rgb),.25);background:rgba(var(--primary-rgb),.07);font-weight:800;color:var(--text);font-size:13px;cursor:pointer;border-radius:10px;padding:8px 12px}.back-btn:hover{background:rgba(var(--primary-rgb),.15)}

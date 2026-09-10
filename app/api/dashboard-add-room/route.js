@@ -40,6 +40,7 @@ export async function POST(request) {
     const user = await requireApiUser(request)
     const body = await request.json()
     const value = Number(body?.room_number)
+    const requestedFloor = String(body?.floor || "").trim()
 
     if (!Number.isInteger(value) || value < 1) {
       return NextResponse.json({ success: false, error: "Enter a valid room number." }, { status: 400 })
@@ -60,6 +61,22 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Restaurant not found." }, { status: 404 })
     }
 
+    let resolvedFloor = requestedFloor
+    const { data: floorRows } = await supabaseCloudAdmin
+      .from("floors")
+      .select("id,name")
+      .eq("restaurant_id", restaurantId)
+      .eq("active", true)
+      .order("display_order", { ascending: true })
+      .limit(1)
+    if (!resolvedFloor) resolvedFloor = floorRows?.[0]?.name || "Ground Floor"
+    if (floorRows?.length) {
+      const { data: validFloor } = await supabaseCloudAdmin
+        .from("floors").select("id,name").eq("restaurant_id", restaurantId).eq("active", true).ilike("name", resolvedFloor).limit(1).maybeSingle()
+      if (!validFloor) return NextResponse.json({ success: false, error: "Selected floor is not available." }, { status: 400 })
+      resolvedFloor = validFloor.name
+    }
+
     const { data: existing } = await supabaseCloudAdmin
       .from("rooms")
       .select("id")
@@ -74,7 +91,7 @@ export async function POST(request) {
 
     const { data, error } = await supabaseCloudAdmin
       .from("rooms")
-      .insert({ room_number: value, restaurant_id: restaurantId })
+      .insert({ room_number: value, restaurant_id: restaurantId, floor: resolvedFloor })
       .select("*")
       .single()
 

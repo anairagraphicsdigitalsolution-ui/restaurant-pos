@@ -38,7 +38,7 @@ export async function GET(req) {
     // Keep the dashboard payload small: cards need today's orders, the activity
     // list only needs a handful of recent orders, and the chart/top-items queries
     // run in parallel with the other reads.
-    const [restaurantRes, todayOrdersRes, recentOrdersRes, itemsRes, offersRes, customersRes, reservationsRes, tablesRes, topRpc] = await Promise.all([
+    const [restaurantRes, todayOrdersRes, itemsRes, offersRes, customersRes, reservationsRes, tablesRes, topRpc] = await Promise.all([
       supabaseCloudAdmin.from("restaurants").select("id,name,logo").eq("id", rid).single(),
       supabaseCloudAdmin.from("orders")
         .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
@@ -46,11 +46,6 @@ export async function GET(req) {
         .gte("created_at", dayStart)
         .lt("created_at", tomorrowStart)
         .order("created_at", { ascending: false }),
-      supabaseCloudAdmin.from("orders")
-        .select("id,source_type,source_label,status,total_amount,subtotal,payment_status,created_at,billed_at,customer_id")
-        .eq("restaurant_id", rid)
-        .order("created_at", { ascending: false })
-        .limit(7),
       supabaseCloudAdmin.from("menu_items").select("id,name,price,image,category").eq("restaurant_id", rid).order("name").limit(250),
       supabaseCloudAdmin.from("offers").select("id,title,discount,valid_till,created_at").eq("restaurant_id", rid).eq("active", true).order("created_at", { ascending: false }).limit(50),
       supabaseCloudAdmin.from("customers").select("id", { count: "exact", head: true }).eq("restaurant_id", rid),
@@ -58,7 +53,7 @@ export async function GET(req) {
       supabaseCloudAdmin.from("tables").select("id,table_number,seats").eq("restaurant_id", rid).order("table_number").limit(200),
       supabaseCloudAdmin.rpc("get_dashboard_top_items", {
         p_restaurant_id: rid,
-        p_start: indiaDayStartIso(6),
+        p_start: dayStart,
         p_end: tomorrowStart,
         p_limit: 6,
       })
@@ -66,7 +61,7 @@ export async function GET(req) {
 
     const errors = {
       restaurant: restaurantRes.error?.message || null,
-      orders: todayOrdersRes.error?.message || recentOrdersRes.error?.message || null,
+      orders: todayOrdersRes.error?.message || null,
       menu_items: itemsRes.error?.message || null,
       offers: offersRes.error?.message || null,
       customers: customersRes.error?.message || null,
@@ -75,7 +70,7 @@ export async function GET(req) {
     }
 
     const todayOrders = todayOrdersRes.data || []
-    const recentOrders = recentOrdersRes.data || []
+    const recentOrders = todayOrders.slice(0, 7)
     const cancelledStatuses = new Set(["cancelled", "canceled", "void", "voided", "refunded"])
     const validTodayOrders = todayOrders.filter(o => !cancelledStatuses.has(String(o.status || "").toLowerCase()))
     const todaySales = validTodayOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
@@ -84,29 +79,30 @@ export async function GET(req) {
     const readyOrders = validTodayOrders.filter(o => String(o.status || "").toLowerCase() === "ready").length
     const completedOrders = validTodayOrders.filter(o => ["done", "completed", "served", "paid"].includes(String(o.status || "").toLowerCase())).length
 
-    // The dashboard sales chart is intentionally TODAY-only.
-    // Build an hourly performance series from the complete India-time today order set.
-    // This keeps the main dashboard focused on the current business day instead of
-    // mixing the current shift with the previous six days.
-    const salesByHour = Array.from({ length: 24 }, () => ({ total_sales: 0, order_count: 0 }))
-    const indiaHourFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kolkata",
-      hour: "2-digit",
-      hour12: false,
+    // Dashboard sales performance is TODAY-only and intentionally aggregated into
+    // one business-day value. There is no hourly history loaded or rendered here.
+    // Historical/day-wise analytics remain available in Reports.
+    const salesToday = [{
+      day_key: todayKey,
+      label: "Today",
+      total_sales: todaySales,
+      order_count: validTodayOrders.length,
+    }]
+
+    // Compact, today-only business mix for the dashboard. The UI can use this
+    // instead of loading/rendering historical or hourly sales data.
+    const orderTypeMap = new Map()
+    validTodayOrders.forEach((order) => {
+      const rawType = String(order.source_type || order.source_label || "Other").trim()
+      const key = rawType || "Other"
+      const current = orderTypeMap.get(key) || { label: key, orders: 0, sales: 0 }
+      current.orders += 1
+      current.sales += Number(order.total_amount || 0)
+      orderTypeMap.set(key, current)
     })
-    for (const order of validTodayOrders) {
-      const date = new Date(order.created_at || order.billed_at)
-      if (Number.isNaN(date.getTime())) continue
-      const hour = Number(indiaHourFormatter.format(date)) % 24
-      salesByHour[hour].total_sales += Number(order.total_amount || 0)
-      salesByHour[hour].order_count += 1
-    }
-    const salesHours = salesByHour.map((row, hour) => ({
-      day_key: `${todayKey}-${String(hour).padStart(2, "0")}`,
-      hour,
-      total_sales: row.total_sales,
-      order_count: row.order_count,
-    }))
+    const orderTypeBreakdown = Array.from(orderTypeMap.values())
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 4)
 
     // Top-selling items are fetched in parallel with the dashboard reads above.
     let topSelling = []
@@ -129,7 +125,7 @@ export async function GET(req) {
       tables: tablesRes.data || [],
       orderItems: [],
       topSelling,
-      salesDays: salesHours,
+      salesDays: salesToday,
       summary: {
         todayKey,
         todayOrderCount: validTodayOrders.length,
@@ -141,6 +137,7 @@ export async function GET(req) {
         preparingOrders,
         readyOrders,
         completedOrders,
+        orderTypeBreakdown,
       },
       errors
     })

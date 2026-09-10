@@ -603,7 +603,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     ])
 
     if (error) {
-      console.error("THEME LOAD ERROR:", error)
+      // Theme configuration is optional and must never break the POS/Admin UI.
+      // If a tenant-scoped theme query is blocked by RLS or the table is unavailable,
+      // keep the safe Anaira default (or the last theme saved for this same restaurant).
+      console.warn("Theme configuration could not be loaded; using safe restaurant theme.", error)
+      const savedId = typeof window !== "undefined"
+        ? window.localStorage.getItem(storageKey)
+        : null
+      const savedTheme = BRAND_THEMES.find((item) => item.id === savedId) || DEFAULT_THEME
+      setAvailableThemes(BRAND_THEMES)
+      setThemeState(savedTheme)
       return
     }
 
