@@ -29,22 +29,13 @@ export default function TablesPage() {
 
       channel = supabaseCloud
         .channel(`tables-${authRestaurantId}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${authRestaurantId}` },
-          () => {
-              clearTimeout(refreshTimer)
-              refreshTimer = setTimeout(() => load(authRestaurantId), 350)
-            }
-        )
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "tables", filter: `restaurant_id=eq.${authRestaurantId}` },
-          () => {
-              clearTimeout(refreshTimer)
-              refreshTimer = setTimeout(() => load(authRestaurantId), 350)
-            }
-        )
+        .on("broadcast", { event: "restaurant_data_changed" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") !== String(authRestaurantId)) return
+          const table = String(payload?.payload?.table || "")
+          if (!["orders", "tables"].includes(table)) return
+          clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => load(authRestaurantId), 350)
+        })
         .subscribe()
 
       timer = setInterval(() => load(authRestaurantId), 30000)

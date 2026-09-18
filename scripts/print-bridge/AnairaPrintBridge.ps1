@@ -69,7 +69,7 @@ function Read-TcpRequest($stream) {
   [pscustomobject]@{Method=$method;Path=$path;Body=$body}
 }
 
-# TcpListener avoids Windows HttpListener URL-ACL/admin requirements while exposing the same Sofson-compatible HTTP endpoints.
+# TcpListener avoids Windows HttpListener URL-ACL/admin requirements while exposing the the same Anaira-compatible HTTP endpoints.
 $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$Port)
 try{$listener.Start()}catch{Write-BridgeLog "LISTENER START ERROR: $($_.Exception.Message)";Write-Host "Anaira Print Bridge FAILED to start: $($_.Exception.Message)" -ForegroundColor Red;throw}
 Write-BridgeLog "LISTENING on http://127.0.0.1:$Port/";Write-Host "Anaira Print Bridge listening on http://127.0.0.1:$Port/" -ForegroundColor Green

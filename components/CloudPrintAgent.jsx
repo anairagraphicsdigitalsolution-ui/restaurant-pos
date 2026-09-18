@@ -74,15 +74,32 @@ export default function CloudPrintAgent() {
     }
 
     let timer = null
+    let channel = null
     let cancelled = false
+    let wakeTimer = null
+    const wake = () => {
+      if (wakeTimer) window.clearTimeout(wakeTimer)
+      wakeTimer = window.setTimeout(() => void run(), 150)
+    }
     const init = async () => {
       if (webBluetooth) await restoreBluetoothThermalPrinter()
       if (cancelled) return
       void run()
-      timer = window.setInterval(() => void run(), 2500)
+      channel = supabaseCloud
+        .channel(`restaurant-events-${auth.restaurantId}`)
+        .on("broadcast", { event: "restaurant_print_job" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") === String(auth.restaurantId)) wake()
+        })
+        .subscribe()
+      timer = window.setInterval(() => void run(), 30000)
     }
     void init()
-    return () => { cancelled = true; mounted.current = false; if (timer) window.clearInterval(timer) }
+    return () => {
+      cancelled = true; mounted.current = false
+      if (timer) window.clearInterval(timer)
+      if (wakeTimer) window.clearTimeout(wakeTimer)
+      if (channel) void supabaseCloud.removeChannel(channel)
+    }
   }, [auth.restaurantId])
 
   return null

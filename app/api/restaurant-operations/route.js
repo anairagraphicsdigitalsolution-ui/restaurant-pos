@@ -100,6 +100,47 @@ export async function POST(req) {
       await audit(rid, user.id, "order.reopened", "order", body.order_id, { status: "open" }, body.reason)
       return NextResponse.json({ success: true })
     }
+    if (action === "merge") {
+      const ids = Array.isArray(body.order_ids) ? body.order_ids.filter(Boolean) : []
+      if (ids.length < 2) throw new Error("At least two orders are required")
+      const { data: rows, error } = await supabaseCloudAdmin.from("orders")
+        .select("id,total_amount")
+        .eq("restaurant_id", rid)
+        .in("id", ids)
+      if (error) throw error
+      if ((rows || []).length !== ids.length) throw new Error("One or more orders were not found")
+      const [target, ...rest] = rows
+      const total = rows.reduce((n, x) => n + Number(x.total_amount || 0), 0)
+      const { error: updateError } = await supabaseCloudAdmin.from("orders")
+        .update({ total_amount: total })
+        .eq("id", target.id).eq("restaurant_id", rid)
+      if (updateError) throw updateError
+      if (rest.length) {
+        const { error: cancelError } = await supabaseCloudAdmin.from("orders")
+          .update({ status: "cancelled", void_reason: `Merged into ${target.id}` })
+          .in("id", rest.map(x => x.id)).eq("restaurant_id", rid)
+        if (cancelError) throw cancelError
+      }
+      await audit(rid, user.id, "orders.merged", "order", target.id, { merged_order_ids: ids, total })
+      return NextResponse.json({ success: true, target_order_id: target.id, total })
+    }
+
+    if (action === "move_items") {
+      if (!body.order_item_id || !body.order_id || !body.to_table_id) throw new Error("order_item_id, order_id and to_table_id are required")
+      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders")
+        .select("source_id").eq("id", body.order_id).eq("restaurant_id", rid).maybeSingle()
+      if (orderError) throw orderError
+      if (!order) throw new Error("Order not found")
+      const { error } = await supabaseCloudAdmin.from("order_item_moves").insert({
+        restaurant_id: rid, order_item_id: body.order_item_id, order_id: body.order_id,
+        from_table_id: order.source_id || null, to_table_id: body.to_table_id,
+        quantity: Math.max(1, Number(body.quantity || 1)), moved_by: user.id
+      })
+      if (error) throw error
+      await audit(rid, user.id, "order_item.moved", "order_item", body.order_item_id, { to_table_id: body.to_table_id })
+      return NextResponse.json({ success: true })
+    }
+
     if (action === "table_transfer") {
       if (!body.order_id || !body.to_table_id) throw new Error("Order and destination table are required")
       const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders").select("table_id").eq("id", body.order_id).eq("restaurant_id", rid).single()

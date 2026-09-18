@@ -16,9 +16,17 @@ import { useAuth } from "@/components/AuthProvider"
 /* ✅ ADD PROPS TYPE */
 type SidebarProps = {
   role?: string
+  drawer?: boolean
+  onNavigate?: () => void
 }
 
-export default function Sidebar({ role: propRole }: SidebarProps) {
+// Sidebar is mounted across many dashboard routes. Keep a short-lived
+// tenant-scoped cache so route changes do not repeat identical Supabase reads.
+// Explicit plugin-update events invalidate this cache.
+const SIDEBAR_CACHE_TTL_MS = 15_000
+const sidebarDataCache = new Map<string, { value: any; cachedAt: number }>()
+
+export default function Sidebar({ role: propRole, drawer = false, onNavigate }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -29,172 +37,293 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
   const [userEmail, setUserEmail] = useState("")
   const [role, setRole] = useState<string>(propRole || "")
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [staffPermissions, setStaffPermissions] = useState<Record<string, boolean>>({})
-  const [permissionsConfigured, setPermissionsConfigured] = useState(false)
+  const [staffPermissions] = useState<Record<string, boolean>>({})
+  const [permissionsConfigured] = useState(false)
   const [planFeatures, setPlanFeatures] = useState<Record<string, boolean>>({})
   const [planName, setPlanName] = useState("")
   const [planEndsAt, setPlanEndsAt] = useState("")
   const [hubPlugins, setHubPlugins] = useState<Record<string, boolean>>({})
-  const [featurePlugins, setFeaturePlugins] = useState<Record<string, boolean>>({})
-  const [operationsSettings, setOperationsSettings] = useState<Record<string, any>>({})
+  const [, setFeaturePlugins] = useState<Record<string, boolean>>({})
+  const [, setOperationsSettings] = useState<Record<string, any>>({})
   const [openAdminMenus, setOpenAdminMenus] = useState<Record<string, boolean>>({})
   const [manualClosedMenus, setManualClosedMenus] = useState<Record<string, boolean>>({})
   const [restaurantId, setRestaurantId] = useState<string | null>(null)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const fetchInFlight = React.useRef(false)
+
+  // Sidebar is a navigation shell, so it must not wait for plugin/plan/
+  // notification queries before rendering. Persist the last known shell
+  // metadata locally and refresh it in the background. This preserves all
+  // feature gating while making navigation/logo appear immediately.
+  const sidebarCacheKey = authRestaurantId ? `anaira:sidebar:${authRestaurantId}` : "anaira:sidebar:unknown"
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const raw = window.localStorage.getItem(sidebarCacheKey)
+      if (!raw) return
+      const cached = JSON.parse(raw)
+      if (cached?.restaurantName) setRestaurantName(cached.restaurantName)
+      if (cached?.logo) setLogo(cached.logo)
+      if (cached?.role) setRole(cached.role)
+      if (cached?.planFeatures) {
+        setPlanFeatures(cached.planFeatures)
+        setFeaturePlugins(cached.planFeatures)
+      }
+      if (cached?.hubPlugins) setHubPlugins(cached.hubPlugins)
+      if (cached?.operationsSettings) setOperationsSettings(cached.operationsSettings)
+      if (cached?.planName) setPlanName(cached.planName)
+      if (cached?.planEndsAt) setPlanEndsAt(cached.planEndsAt)
+      if (typeof cached?.unreadNotifications === "number") setUnreadNotifications(cached.unreadNotifications)
+    } catch {}
+  }, [sidebarCacheKey])
 
   useEffect(() => {
     if (user || authRestaurantId || authRole === "super_admin") fetchData()
   }, [user, authRestaurantId, authRole])
 
   useEffect(() => {
-    if (propRole) setRole(propRole)
+    if (propRole) {
+      setRole(propRole)
+      if (propRole === "admin" || propRole === "staff") {
+        // Core navigation is safe to paint immediately. The background
+        // fetch below remains authoritative and can hide gated modules if
+        // the restaurant's actual plugin state differs.
+        setPlanFeatures(prev => ({
+          "restaurant-core": true,
+          "pos-core": true,
+          "payments": true,
+          "kds": true,
+          "takeaway": true,
+          "delivery": true,
+          "table-management": true,
+          ...prev,
+        }))
+      }
+    }
   }, [propRole])
 
   useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
 
-  async function fetchData() {
-    if (!user) return
-    setUserEmail(user.email || "")
-    const resolvedRole = authRole || propRole || ""
-    const resolvedRestaurantId = authRestaurantId || null
-    setRole(resolvedRole)
+  async function fetchData(forceRefresh = false) {
+    try {
+      if (!user || fetchInFlight.current) return
 
-    if (resolvedRole === "super_admin") {
-      setRestaurantName("Anaira Graphics")
-      return
-    }
+      const resolvedRole = authRole || propRole || ""
+      const resolvedRestaurantId = authRestaurantId || null
+      setUserEmail(user.email || "")
+      setRole(resolvedRole)
 
-    if (resolvedRestaurantId) {
+      if (resolvedRole === "super_admin") {
+        setRestaurantName("Anaira Graphics")
+        return
+      }
+
+      if (!resolvedRestaurantId) return
+
+      const cached = sidebarDataCache.get(resolvedRestaurantId)
+      if (!forceRefresh && cached && (Date.now() - cached.cachedAt) < SIDEBAR_CACHE_TTL_MS) {
+        const value = cached.value || {}
+        setRestaurantId(resolvedRestaurantId)
+        setRestaurantName(value.restaurantName || "")
+        setLogo(value.logo || "")
+        setPlanFeatures(value.planFeatures || {})
+        setFeaturePlugins(value.planFeatures || {})
+        setHubPlugins(value.hubPlugins || {})
+        setOperationsSettings(value.operationsSettings || {})
+        setPlanName(value.planName || "")
+        setPlanEndsAt(value.planEndsAt || "")
+        setUnreadNotifications(Number(value.unreadNotifications || 0))
+        return
+      }
+
+      fetchInFlight.current = true
       setRestaurantId(resolvedRestaurantId)
 
-      const [
-        { count: unreadCount },
-        { data: rest },
-        { data: planData },
-        { data: pluginRows },
-        { data: operationsSettingRows }
-      ] = await Promise.all([
-        supabaseCloud
-          .from("notifications")
-          .select("id", { count: "exact", head: true })
-          .eq("restaurant_id", resolvedRestaurantId)
-          .is("read_at", null),
-        supabaseCloud
-          .from("restaurants")
-          .select("id,name,logo,status")
-          .eq("id", resolvedRestaurantId)
-          .single(),
-        supabaseCloud.rpc("get_restaurant_plan", { p_restaurant_id: resolvedRestaurantId }),
-        supabaseCloud
-          .from("restaurant_plugins")
-          .select("plugin_code,enabled")
-          .eq("restaurant_id", resolvedRestaurantId),
-        supabaseCloud
-          .from("plugin_settings")
-          .select("plugin_code,config")
-          .eq("restaurant_id", resolvedRestaurantId)
-          .eq("plugin_code", "operations-hub")
-      ])
+      // Restaurant identity/logo is the most visible part of the sidebar.
+      // Resolve it independently so the brand appears as soon as that single
+      // request completes instead of waiting for plan/plugins/notifications.
+      const restaurantRequest = supabaseCloud
+        .from("restaurants")
+        .select("id,name,logo,status")
+        .eq("id", resolvedRestaurantId)
+        .single()
 
-      setUnreadNotifications(unreadCount || 0)
-
-      if (rest) {
-        setRestaurantName(rest.name)
-        setLogo(rest.logo || "")
-      }
-
-      const plan = planData?.plan || null
-      const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
-      const live = planData?.subscription?.status === "active" && (!endsAt || endsAt >= Date.now())
-      setPlanName(plan?.name || "")
-      setPlanEndsAt(planData?.subscription?.ends_at || "")
-
-      const opsConfig = operationsSettingRows?.[0]?.config || {}
-      setOperationsSettings(opsConfig)
-
-      const pluginState: Record<string, boolean> = {}
-      for (const row of pluginRows || []) {
-        pluginState[row.plugin_code] = row.enabled === true
-      }
-
-      const aliases: Record<string,string[]> = {
-        qr: ["qr-ordering-pro","qr-menu"],
-        "qr-print-center": ["qr-print-center"],
-        loyalty: ["loyalty"],
-        offers: ["offers"],
-        analytics: ["analytics"],
-        reservations: ["reservations-pro","reservations"],
-        whatsapp: ["whatsapp-invoice","whatsapp","whatsapp-marketing"],
-        marketing: ["facebook-integration","instagram-integration","whatsapp-marketing"],
-      }
-
-      const resolved: Record<string, boolean> = { ...pluginState }
-      const proMasterOn = pluginState["restaurant-pro"] === true
-
-      for (const [key, codes] of Object.entries(aliases)) {
-        resolved[key] = codes.some(code => pluginState[code] === true)
-      }
-
-      // Restaurant Core is controlled by its Super Admin master switch.
-      // Operations Hub is independent and must never be overwritten by Core.
-      const coreOn = pluginState["restaurant-core"] === true
-      for (const code of CORE_FEATURE_CODES) {
-        if (code === "operations-hub") continue
-        resolved[code] = coreOn
-      }
-
-      // Restaurant Pro is a true master switch. Its child features cannot
-      // become visible while the master is OFF.
-      for (const row of pluginRows || []) {
-        if (isRestaurantProFeature(row.plugin_code)) {
-          resolved[row.plugin_code] = proMasterOn && row.enabled === true
+        const backgroundRequests = Promise.all([
+          supabaseCloud
+            .from("notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", resolvedRestaurantId)
+            .is("read_at", null),
+          supabaseCloud.rpc("get_restaurant_plan", { p_restaurant_id: resolvedRestaurantId }),
+          supabaseCloud
+            .from("restaurant_plugins")
+            .select("plugin_code,enabled")
+            .eq("restaurant_id", resolvedRestaurantId),
+          supabaseCloud
+            .from("plugin_settings")
+            .select("plugin_code,config")
+            .eq("restaurant_id", resolvedRestaurantId)
+            .eq("plugin_code", "operations-hub")
+        ])
+  
+        const { data: rest } = await restaurantRequest
+        if (rest) {
+          setRestaurantName(rest.name || "")
+          setLogo(rest.logo || "")
+          try {
+            const raw = window.localStorage.getItem(sidebarCacheKey)
+            const cached = raw ? JSON.parse(raw) : {}
+            window.localStorage.setItem(sidebarCacheKey, JSON.stringify({ ...cached, restaurantName: rest.name || "", logo: rest.logo || "", role: resolvedRole, cachedAt: Date.now() }))
+          } catch {}
         }
-      }
+  
+        const [
+          { count: unreadCount },
+          { data: planData },
+          { data: pluginRows },
+          { data: operationsSettingRows }
+        ] = await backgroundRequests
+  
+        setUnreadNotifications(unreadCount || 0)
+  
+        const plan = planData?.plan || null
+        const endsAt = planData?.subscription?.ends_at ? new Date(planData.subscription.ends_at).getTime() : null
+        setPlanName(plan?.name || "")
+        setPlanEndsAt(planData?.subscription?.ends_at || "")
+  
+        const opsConfig = operationsSettingRows?.[0]?.config || {}
+        setOperationsSettings(opsConfig)
+  
+        const pluginState: Record<string, boolean> = {}
+        for (const row of pluginRows || []) {
+          pluginState[row.plugin_code] = row.enabled === true
+        }
+  
+        const aliases: Record<string,string[]> = {
+          qr: ["qr-ordering-pro","qr-menu"],
+          "qr-print-center": ["qr-print-center"],
+          loyalty: ["loyalty"],
+          offers: ["offers"],
+          analytics: ["analytics"],
+          reservations: ["reservations-pro","reservations"],
+          whatsapp: ["whatsapp-invoice","whatsapp","whatsapp-marketing"],
+          marketing: ["facebook-integration","instagram-integration","whatsapp-marketing"],
+        }
+  
+        const resolved: Record<string, boolean> = { ...pluginState }
+        const proMasterOn = pluginState["restaurant-pro"] === true
+  
+        for (const [key, codes] of Object.entries(aliases)) {
+          resolved[key] = codes.some(code => pluginState[code] === true)
+        }
+  
+        // Restaurant Core is controlled by its Super Admin master switch.
+        // Operations Hub is independent and must never be overwritten by Core.
+        const coreOn = pluginState["restaurant-core"] === true
+        for (const code of CORE_FEATURE_CODES) {
+          if (code === "operations-hub") continue
+          resolved[code] = coreOn
+        }
+  
+        // Restaurant Pro is a true master switch. Its child features cannot
+        // become visible while the master is OFF.
+        for (const row of pluginRows || []) {
+          if (isRestaurantProFeature(row.plugin_code)) {
+            resolved[row.plugin_code] = proMasterOn && row.enabled === true
+          }
+        }
+  
+        // Loyalty remains independent from Restaurant Pro.
+        resolved["loyalty"] = pluginState["loyalty"] === true
+  
+        // Appearance / branding is an independent Super Admin-controlled plugin.
+        resolved["marketing"] = ["facebook-integration","instagram-integration","whatsapp-marketing"].some(code => pluginState[code] === true)
+  
+        resolved["theme-branding"] = pluginState["theme-branding"] === true
+        resolved["restaurant-settings"] = pluginState["restaurant-settings"] === true
+  
+        // Operations Hub is its own master. Cash Closing is one of the only
+        // independently switchable children of that master.
+        resolved["cash-closing"] =
+          pluginState["operations-hub"] === true &&
+          opsConfig.cash_closing_enabled !== false
+  
+        resolved["expenses"] =
+          pluginState["operations-hub"] === true &&
+          opsConfig.expenses_enabled !== false
+  
+        setPlanFeatures(resolved)
+        setFeaturePlugins(resolved)
+  
+        const nextHubPlugins = {
+          "restaurant-suite": pluginState["restaurant-suite"] === true,
+          "operations-hub": pluginState["operations-hub"] === true,
+          "restaurant-core": coreOn,
+          "restaurant-pro": proMasterOn
+        }
+        setHubPlugins(nextHubPlugins)
 
-      // Loyalty remains independent from Restaurant Pro.
-      resolved["loyalty"] = pluginState["loyalty"] === true
-
-      // Appearance / branding is an independent Super Admin-controlled plugin.
-      resolved["marketing"] = ["facebook-integration","instagram-integration","whatsapp-marketing"].some(code => pluginState[code] === true)
-
-      resolved["theme-branding"] = pluginState["theme-branding"] === true
-      resolved["restaurant-settings"] = pluginState["restaurant-settings"] === true
-
-      // Operations Hub is its own master. Cash Closing is one of the only
-      // independently switchable children of that master.
-      resolved["cash-closing"] =
-        pluginState["operations-hub"] === true &&
-        opsConfig.cash_closing_enabled !== false
-
-      resolved["expenses"] =
-        pluginState["operations-hub"] === true &&
-        opsConfig.expenses_enabled !== false
-
-      setPlanFeatures(resolved)
-      setFeaturePlugins(resolved)
-
-      setHubPlugins({
-        "operations-hub": pluginState["operations-hub"] === true,
-        "restaurant-core": coreOn,
-        "restaurant-pro": proMasterOn
-      })
+        const shellValue = {
+          restaurantName: rest?.name || "",
+          logo: rest?.logo || "",
+          role: resolvedRole,
+          planFeatures: resolved,
+          hubPlugins: nextHubPlugins,
+          operationsSettings: opsConfig,
+          planName: plan?.name || "",
+          planEndsAt: planData?.subscription?.ends_at || "",
+          unreadNotifications: unreadCount || 0,
+        }
+        sidebarDataCache.set(resolvedRestaurantId, { value: shellValue, cachedAt: Date.now() })
+  
+        // Store only the lightweight navigation shell. Do not cache menu/order
+        // data here; the POS has its own data/cache strategy.
+        try {
+          window.localStorage.setItem(sidebarCacheKey, JSON.stringify({
+            restaurantName: rest?.name || "",
+            logo: rest?.logo || "",
+            role: resolvedRole,
+            planFeatures: resolved,
+            hubPlugins: nextHubPlugins,
+            operationsSettings: opsConfig,
+            planName: plan?.name || "",
+            planEndsAt: planData?.subscription?.ends_at || "",
+            unreadNotifications: unreadCount || 0,
+            cachedAt: Date.now(),
+          }))
+        } catch {}
+  
+      } finally {
+      fetchInFlight.current = false
     }
   }
-
   useEffect(() => {
     if (!restaurantId || role === "super_admin") return
-    let mounted = true
-    async function loadUnread() {
-      const { count } = await supabaseCloud.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
-      if (mounted) setUnreadNotifications(count || 0)
+    const handler = () => {
+      setUnreadNotifications(value => {
+        const next = value + 1
+        try {
+          const raw = window.localStorage.getItem(`anaira:sidebar:${restaurantId}`)
+          const cached = raw ? JSON.parse(raw) : {}
+          window.localStorage.setItem(`anaira:sidebar:${restaurantId}`, JSON.stringify({ ...cached, unreadNotifications: next }))
+        } catch {}
+        return next
+      })
     }
-    void loadUnread()
-    const handler = () => { if (mounted) setUnreadNotifications(value => value + 1) }
     window.addEventListener("anaira:notification", handler)
-    return () => { mounted = false; window.removeEventListener("anaira:notification", handler) }
+    return () => window.removeEventListener("anaira:notification", handler)
   }, [restaurantId, role])
+
+  useEffect(() => {
+    const refresh = () => {
+      fetchData(true)
+    }
+    window.addEventListener("anaira:plugins-updated", refresh)
+    return () => window.removeEventListener("anaira:plugins-updated", refresh)
+  }, [user, authRestaurantId, authRole, propRole])
 
   async function handleLogout() {
     await supabaseCloud.auth.signOut()
@@ -226,6 +355,31 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
       children: [
         { name: "Dashboard", path: "/admin" },
         { name: "Plugins", path: "/admin/plugins" },
+      ]
+    },
+    {
+      name: "Restaurant Suite",
+      icon: "🍽️",
+      path: "/dashboard/restaurant-suite",
+      hubPlugin: "restaurant-suite",
+      children: [
+        { name: "🌐 Channels", path: "/dashboard/restaurant-suite/complete?tab=channels" },
+        { name: "🖥️ Website", path: "/dashboard/restaurant-suite/complete?tab=website" },
+        { name: "🍱 Virtual Brands", path: "/dashboard/restaurant-suite/complete?tab=brands" },
+        { name: "🧾 POS Terminals", path: "/dashboard/restaurant-suite/complete?tab=terminals" },
+        { name: "👨‍💼 Staff / Approvals", path: "/dashboard/restaurant-suite/complete?tab=staff" },
+        { name: "📢 Menu Publishing", path: "/dashboard/restaurant-suite/complete?tab=menu" },
+        { name: "🔗 Integrations", path: "/dashboard/restaurant-suite/complete?tab=integrations" },
+      ]
+    },
+    {
+      name: "Payment QR / Merchant Payments",
+      icon: "💳",
+      path: "/dashboard/payment-qr",
+      feature: "payment-accounts",
+      children: [
+        { name: "Merchant Payment Account", path: "/dashboard/payment-qr" },
+        { name: "Payment QR", path: "/dashboard/payment-qr" },
       ]
     },
     {
@@ -401,6 +555,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
           t.style.background = active ? "" : "transparent"
           t.style.transform = "translateX(0px)"
         }}
+        onClick={onNavigate}
       >
         <span>{item.icon}</span>
         {item.name}
@@ -443,6 +598,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
               ...(activeMain || activeChild ? adminMainLinkActive : {})
             }}
             aria-current={activeMain ? "page" : undefined}
+            onClick={onNavigate}
           >
             <span style={{
               ...adminMainIcon,
@@ -534,6 +690,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
                       ...(active ? submenuActive : {})
                     }}
                     aria-current={active ? "page" : undefined}
+                    onClick={onNavigate}
                   >
                     <span style={{
                       ...submenuDot,
@@ -562,16 +719,16 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 
   return (
     <>
-      <button
+      {!drawer && <button
         type="button"
         className="mobile-menu-button"
         aria-label="Open navigation"
         onClick={() => setMobileOpen(true)}
       >
         ☰
-      </button>
+      </button>}
 
-      {mobileOpen && (
+      {!drawer && mobileOpen && (
         <button
           type="button"
           className="mobile-sidebar-backdrop"
@@ -599,11 +756,12 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
           .pos-sidebar{
             width:min(92vw,330px)!important;
             max-width:330px;
+            flex-basis:min(92vw,330px)!important;
           }
         }
       `}</style>
 
-      <aside className={`pos-sidebar${mobileOpen ? " mobile-open" : ""}`} style={sidebar}>
+      <aside className={`pos-sidebar${mobileOpen ? " mobile-open" : ""}${drawer ? " pos-sidebar-drawer" : ""}`} style={drawer ? { ...sidebar, position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 10060, width: "min(88vw, 360px)", maxWidth: 360, minHeight: "100dvh", maxHeight: "100dvh", boxShadow: "24px 0 70px rgba(0,0,0,.48)" } : sidebar}>
       
       <div style={brandBox}>
         <div style={logoWrap}>
@@ -611,12 +769,20 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
             <img
               src="/Logo.png"
               alt="Anaira Graphics"
+              width={86}
+              height={86}
+              decoding="async"
+              fetchPriority="high"
               style={superAdminLogoStyle}
             />
           ) : logo ? (
             <img
               src={logo}
               alt="Restaurant Logo"
+              width={60}
+              height={60}
+              decoding="async"
+              fetchPriority="high"
               style={logoStyle}
             />
           ) : (
@@ -645,7 +811,7 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         {role !== "super_admin" && planName && <span style={planBadge}>{planName}{planEndsAt ? ` · ${formatIndiaDate(planEndsAt)}` : ""}</span>}
       </div>
 
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, overflowY: "auto", overflowX: "hidden", paddingRight: 2 }}>
         {role === "super_admin" && (
           <Section title="SUPER ADMIN">
             {superAdminMenu.map(renderLink)}
@@ -667,23 +833,25 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
         )}
       </div>
 
-      <div className="sidebar-powered-by">
-        <img src="/anaira-branding.png" alt="Anaira Graphics" />
-        <span>Powered by Anaira Graphics</span>
-      </div>
+      <div style={sidebarFooter}>
+        <div className="sidebar-powered-by">
+          <img src="/anaira-branding.png" alt="Anaira Graphics" width="120" height="28" loading="lazy" decoding="async" />
+          <span>Powered by Anaira Graphics</span>
+        </div>
 
-      <button
-        onClick={handleLogout}
-        style={logoutBtn}
-        onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-          e.currentTarget.style.transform = "scale(1.05)"
-        }}
-        onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-          e.currentTarget.style.transform = "scale(1)"
-        }}
-      >
-        🚪 Logout
-      </button>
+        <button
+          onClick={handleLogout}
+          style={logoutBtn}
+          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+            e.currentTarget.style.transform = "translateY(-1px)"
+          }}
+          onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+            e.currentTarget.style.transform = "translateY(0)"
+          }}
+        >
+          🚪 Logout
+        </button>
+      </div>
 
     </aside>
     </>
@@ -695,15 +863,17 @@ export default function Sidebar({ role: propRole }: SidebarProps) {
 const planBadge: CSSProperties = { display:"inline-flex", marginTop:8, padding:"5px 9px", borderRadius:999, border:"1px solid rgba(var(--primary-rgb),.22)", background:"rgba(var(--primary-rgb),.08)", color:"var(--primary)", fontSize:10, fontWeight:800, alignSelf:"flex-start" }
 
 const sidebar: CSSProperties = {
-  width:264,
-  flex: "0 0 264px",
+  width:"min(264px, 100vw)",
+  flex: "0 0 min(264px, 100vw)",
   boxSizing: "border-box",
   position: "sticky",
   top: 0,
 
-  padding:"20px 16px 16px",
+  padding:"20px 12px 12px",
 
-  minHeight:"100vh",
+  minHeight:0,
+  maxHeight:"100dvh",
+  height:"100dvh",
 
   display:"flex",
 
@@ -978,9 +1148,25 @@ const activeLink: CSSProperties = {
     "0 10px 25px rgba(var(--primary-rgb),.12)"
 }
 
+const sidebarFooter: CSSProperties = {
+  flex: "0 0 auto",
+  minHeight: 0,
+  width: "100%",
+  boxSizing: "border-box",
+  paddingTop: 6,
+  paddingBottom: "max(0px, env(safe-area-inset-bottom))",
+}
+
 const logoutBtn: CSSProperties = {
-  marginTop: 10,
-  padding: 14,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "100%",
+  boxSizing: "border-box",
+  flex: "0 0 auto",
+  minHeight: 50,
+  marginTop: 4,
+  padding: "12px 14px",
   borderRadius: 14,
   background: "linear-gradient(135deg,var(--danger),var(--danger))",
   color: "var(--text)",

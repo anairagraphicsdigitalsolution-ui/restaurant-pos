@@ -5,11 +5,7 @@ import "@fontsource/inter/700.css"
 import "@fontsource/inter/800.css"
 import AuthProvider from "@/components/AuthProvider"
 import { ThemeProvider } from "@/components/ThemeProvider"
-import RealtimeNotificationProvider from "@/components/RealtimeNotificationProvider"
-import OrderNotificationListener from "@/components/OrderNotificationListener"
-import CallingRuntimeProvider from "@/components/CallingRuntimeProvider"
-import CloudOnlyCleanup from "@/components/CloudOnlyCleanup"
-import CloudPrintAgent from "@/components/CloudPrintAgent"
+import RestaurantRuntimeGate from "@/components/RestaurantRuntimeGate"
 import "./globals.css"
 
 export const viewport = {
@@ -36,11 +32,7 @@ export default function RootLayout({
 
         <AuthProvider>
           <ThemeProvider>
-            <RealtimeNotificationProvider />
-            <OrderNotificationListener />
-            <CallingRuntimeProvider />
-            <CloudOnlyCleanup />
-            <CloudPrintAgent />
+            <RestaurantRuntimeGate />
             {children}
           </ThemeProvider>
         </AuthProvider>

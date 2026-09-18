@@ -1,6 +1,7 @@
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { printOrderSlip } from "@/lib/orderSlipPrinter"
 import { getWhatsAppConfig, normalizeWhatsAppNumber, sendWhatsAppMessage } from "@/lib/whatsappServer"
+import crypto from "crypto"
 import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
@@ -54,6 +55,8 @@ export async function POST(req) {
     const customerName = cleanText(body?.customer_name, 80)
     const customerPhone = normalizeWhatsAppNumber(body?.customer_phone)
     const offerId = cleanText(body?.offer_id, 80)
+    const clientRequestId = cleanText(body?.client_request_id, 100)
+    const qrSessionToken = cleanText(body?.qr_session_token, 180)
     const items = normalizeItems(body?.items)
 
     if (!slug || !sourceId || !["table", "room", "website"].includes(type)) {
@@ -61,6 +64,19 @@ export async function POST(req) {
         { success: false, error: "Invalid QR order data" },
         { status: 400 }
       )
+    }
+
+    // Public QR retries are idempotent. The client request id is only a
+    // retry key; pricing and restaurant/source validation remain server-side.
+    if (clientRequestId && type !== "website") {
+      const { data: existingOrder } = await supabaseCloudAdmin
+        .from("orders")
+        .select("id,restaurant_id,total_amount,paid_amount,payment_status,status,invoice_no,source_label")
+        .eq("qr_client_request_id", clientRequestId)
+        .maybeSingle()
+      if (existingOrder) {
+        return Response.json({ success: true, order: { order_id: existingOrder.id, restaurant_id: existingOrder.restaurant_id, total_amount: existingOrder.total_amount, paid_amount: existingOrder.paid_amount, payment_status: existingOrder.payment_status, status: existingOrder.status, invoice_no: existingOrder.invoice_no, source_label: existingOrder.source_label }, idempotent: true })
+      }
     }
 
     // The database RPC performs the authoritative restaurant/source/menu
@@ -93,6 +109,49 @@ export async function POST(req) {
     }
 
     const orderId = orderResult?.order_id
+
+    // Read the authoritative order number after the database order insert.
+    // The BEFORE INSERT order-number trigger assigns a restaurant-scoped
+    // sequential number, while the RPC remains responsible for pricing and
+    // restaurant/menu validation.
+    let createdOrder = null
+    if (orderId) {
+      const { data: row } = await supabaseCloudAdmin
+        .from("orders")
+        .select("id,restaurant_id,order_number,total_amount,paid_amount,payment_status,status,invoice_no,source_label,customer_name,customer_phone")
+        .eq("id", orderId)
+        .maybeSingle()
+      createdOrder = row || null
+    }
+
+    // Bind the order to the guest QR session so the customer can securely
+    // track, reorder and pay without creating an account.
+    if (orderId && qrSessionToken && type !== "website") {
+      const tokenHash = crypto.createHash("sha256").update(qrSessionToken).digest("hex")
+      const { data: session, error: sessionError } = await supabaseCloudAdmin
+        .from("qr_guest_sessions")
+        .select("id,restaurant_id,source_type,source_id")
+        .eq("token_hash", tokenHash)
+        .gt("expires_at", new Date().toISOString())
+        .maybeSingle()
+      if (!sessionError && session && session.restaurant_id === orderResult?.restaurant_id && session.source_type === type && String(session.source_id) === String(sourceId)) {
+        await supabaseCloudAdmin.from("qr_guest_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", session.id)
+        await supabaseCloudAdmin.from("orders").update({ qr_session_id: session.id, ...(clientRequestId ? { qr_client_request_id: clientRequestId } : {}) }).eq("id", orderId).eq("restaurant_id", orderResult.restaurant_id)
+      }
+    } else if (orderId && clientRequestId && type !== "website") {
+      await supabaseCloudAdmin.from("orders").update({ qr_client_request_id: clientRequestId }).eq("id", orderId).eq("restaurant_id", orderResult.restaurant_id)
+    }
+
+    // Customer identity belongs to the QR order itself, not to the optional
+    // WhatsApp plugin. Persist it whenever the guest supplies it.
+    if (orderId && (customerName || customerPhone)) {
+      const { error: customerUpdateError } = await supabaseCloudAdmin
+        .from("orders")
+        .update({ ...(customerName ? { customer_name: customerName } : {}), ...(customerPhone ? { customer_phone: customerPhone } : {}) })
+        .eq("id", orderId).eq("restaurant_id", orderResult?.restaurant_id)
+      if (customerUpdateError) console.error("ORDER CUSTOMER UPDATE:", customerUpdateError)
+    }
+
     if (orderId && (body?.marketing_campaign_id || body?.marketing_source || body?.marketing_medium || body?.marketing_content)) {
       await supabaseCloudAdmin.from("orders").update({
         marketing_source: cleanText(body?.marketing_source, 80) || null,
@@ -140,18 +199,6 @@ export async function POST(req) {
 
       if (pluginRow?.enabled === true) {
         try {
-          // Persist customer details without changing the core order RPC.
-          if (customerName || customerPhone) {
-            const { error: customerUpdateError } = await supabaseCloudAdmin
-              .from("orders")
-              .update({
-                ...(customerName ? { customer_name: customerName } : {}),
-                ...(customerPhone ? { customer_phone: customerPhone } : {})
-              })
-              .eq("id", orderId)
-            if (customerUpdateError) console.error("ORDER CUSTOMER UPDATE:", customerUpdateError)
-          }
-
           const config = await getWhatsAppConfig(orderResult.restaurant_id)
 
           const { data: orderItems, error: orderItemsError } = await supabaseCloudAdmin
@@ -259,7 +306,7 @@ export async function POST(req) {
 
     return Response.json({
       success: true,
-      order: orderResult,
+      order: createdOrder || { ...orderResult, order_id: orderId },
       print,
       whatsapp,
       restaurant_whatsapp_url: restaurantWhatsappUrl,

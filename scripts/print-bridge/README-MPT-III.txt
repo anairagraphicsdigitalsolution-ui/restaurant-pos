@@ -39,4 +39,4 @@ Serial settings:
 V21 DIAGNOSTICS
 If the website says the bridge is not running, run START-ANAIRA-PRINT-BRIDGE.bat without WindowStyle Hidden to see the real PowerShell error. The bridge also logs to %APPDATA%\Anaira\print-bridge.log.
 
-V22: The bridge intentionally uses the same Windows HttpListener architecture as the proven Sofson MPT-III bridge. INSTALL-MPT-III.bat must be run once as Administrator to reserve 127.0.0.1:3211 and install Windows Startup. The Anaira domain browser then calls the local bridge directly.
+V22: The bridge intentionally uses the the same Windows HttpListener architecture used by the Anaira MPT-III bridge. INSTALL-MPT-III.bat must be run once as Administrator to reserve 127.0.0.1:3211 and install Windows Startup. The Anaira domain browser then calls the local bridge directly.

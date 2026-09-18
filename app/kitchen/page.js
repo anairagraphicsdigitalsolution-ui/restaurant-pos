@@ -60,17 +60,12 @@ const [kotSize, setKotSize] = useState("A5")
 
       channel = supabaseCloud
         .channel(`kitchen-${resolvedRestaurantId}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${resolvedRestaurantId}` },
-          () => {
-            clearTimeout(refreshTimer)
-            refreshTimer = setTimeout(
-              () => fetchOrders(resolvedRestaurantId),
-              350
-            )
-          }
-        )
+        .on("broadcast", { event: "restaurant_data_changed" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") !== String(resolvedRestaurantId)) return
+          if (String(payload?.payload?.table || "") !== "orders") return
+          clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => fetchOrders(resolvedRestaurantId), 350)
+        })
         .subscribe()
 
       fallbackTimer = setInterval(() => fetchOrders(resolvedRestaurantId), 30000)

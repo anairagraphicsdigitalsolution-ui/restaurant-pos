@@ -2,7 +2,7 @@
 
 import { speakCallingAnnouncement, unlockCallingAudio } from "@/lib/callingVoice"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import { CORE_FEATURE_CODES, OPERATIONS_FEATURE_CODES, isRestaurantProFeature } from "@/lib/featureCatalog"
 import { PLUGIN_CATALOG, PLUGIN_CODES } from "@/lib/pluginCatalog"
@@ -11,7 +11,8 @@ import { BRAND_THEMES, DEFAULT_THEME } from "@/components/ThemeProvider"
 const categoryMeta = {
   "Core Hubs":["🧭","Core Hubs"],
   POS:["🧾","Point of Sale"],
-  Billing:["💳","Billing & Payments"],
+  Billing:["💳","Billing"],
+  Payments:["💳","Payments & Merchant Accounts"],
   Operations:["🪑","Restaurant Operations"],
   Kitchen:["👨‍🍳","Kitchen"],
   Inventory:["📦","Inventory & Purchase"],
@@ -25,8 +26,8 @@ const categoryMeta = {
   Enterprise:["🏢","Enterprise"]
 }
 
-const hubCodes = new Set(["operations-hub","restaurant-core","restaurant-pro"])
-const MASTER_PLUGIN_CODES = new Set(["operations-hub","restaurant-core","restaurant-pro"])
+const hubCodes = new Set(["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"])
+const MASTER_PLUGIN_CODES = new Set(["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"])
 
 export default function PluginsPage(){
   const [restaurants,setRestaurants]=useState([])
@@ -118,6 +119,28 @@ export default function PluginsPage(){
     if(!selected)return
     setConfigOpen(plugin.code)
     const headers=await authHeaders()
+    if (plugin.code === "payment-accounts") {
+      const res=await fetch(`/api/super-admin/payment-account?restaurant_id=${encodeURIComponent(selected.id)}`,{headers,cache:"no-store"})
+      const data=await res.json()
+      if(!res.ok || !data.success) throw new Error(data.error || "Unable to load merchant payment settings")
+      const a=data.account||{}
+      setConfig({
+        merchant_name:a.merchant_name||"",
+        upi_id:a.upi_id||"",
+        merchant_reference:a.merchant_reference||"",
+        active:a.active===true,
+        auto_payment_detection:a.auto_payment_detection===true,
+        voice_enabled:a.voice_enabled!==false,
+        voice_language:a.voice_language||"hi-IN",
+        browser_notification:a.browser_notification!==false,
+        voice_audio_url:a.voice_audio_url||"",
+        voice_audio_path:a.voice_audio_path||"",
+        voice_audio_name:a.voice_audio_name||"",
+        manual_qr_image_url:a.manual_qr_image_url||"",
+        manual_qr_label:a.manual_qr_label||"Restaurant QR"
+      })
+      return
+    }
     const res=await fetch(`/api/super-admin/plugins?restaurant_id=${encodeURIComponent(selected.id)}&config_for=${encodeURIComponent(plugin.code)}`,{headers,cache:"no-store"})
     const data=await res.json()
     setConfig(data.config||{})
@@ -144,11 +167,20 @@ export default function PluginsPage(){
       }
       setConfig(configToSave)
     }
-    const res=await fetch("/api/super-admin/plugins",{
-      method:"PATCH",
-      headers,
-      body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code,config:configToSave})
-    })
+    let res
+    if (plugin.code === "payment-accounts") {
+      res=await fetch("/api/super-admin/payment-account",{
+        method:"PATCH",
+        headers,
+        body:JSON.stringify({restaurant_id:selected.id,...configToSave})
+      })
+    } else {
+      res=await fetch("/api/super-admin/plugins",{
+        method:"PATCH",
+        headers,
+        body:JSON.stringify({restaurant_id:selected.id,plugin_code:plugin.code,config:configToSave})
+      })
+    }
     const data=await res.json()
     if(!res.ok||!data.success) throw new Error(data.error||"Configuration save failed")
     if (plugin.code === "theme-branding" && config.theme_id) {
@@ -457,7 +489,21 @@ export default function PluginsPage(){
                           {on && <button className="plugin-btn" onClick={()=>loadConfig(p)} style={ghost}>⚙ Configure</button>}
                         </div>
                       </div>
-                      {configOpen===p.code && on && <PluginConfig plugin={p} config={config} setConfig={setConfig} themeOptions={themeOptions} onSave={()=>saveConfig(p)} onTest={testPluginConnection} onWhatsAppTest={testWhatsApp} onVoiceTest={()=>testCallingVoice(config,setMessage)} />}
+                      {configOpen===p.code && on && <div style={modalBackdrop} onMouseDown={()=>setConfigOpen("")}>
+                        <div style={modalPanel} onMouseDown={e=>e.stopPropagation()}>
+                          <div style={modalHeader}>
+                            <div style={{minWidth:0}}>
+                              <div style={miniLabel}>PLUGIN CONFIGURATION</div>
+                              <h2 style={{margin:"3px 0 0",fontSize:20,lineHeight:1.2}}>{p.name}</h2>
+                              <div style={{fontSize:10,color:"var(--muted)",marginTop:4}}>{selected?.name||"Restaurant"} · {p.code}</div>
+                            </div>
+                            <button type="button" className="plugin-btn" onClick={()=>setConfigOpen("")} style={ghost} aria-label="Close plugin configuration">✕ Close</button>
+                          </div>
+                          <div style={modalBody}>
+                            <PluginConfig plugin={p} config={config} setConfig={setConfig} themeOptions={themeOptions} selectedRestaurant={selected} authHeaders={authHeaders} setMessage={setMessage} onSave={()=>saveConfig(p)} onTest={testPluginConnection} onWhatsAppTest={testWhatsApp} onVoiceTest={()=>testCallingVoice(config,setMessage)} />
+                          </div>
+                        </div>
+                      </div>}
                     </article>
                   })}
                 </div>
@@ -623,15 +669,20 @@ const PLUGIN_SETTINGS = {
       {title:"Voice",fields:[
         ["enabled","Voice announcement","toggle",true],
         ["language","Voice language","select",["en-IN","hi-IN","en-US"]],
-        ["repeat","Repeat announcement","number",3],
+        ["repeat","Repeat announcement (1-5)","number",1],
         ["volume","Volume (0-1)","number",1],
         ["rate","Speech rate","number",0.9],
-        ["phrase","Announcement phrase","text","New order received. Order {order_number} has arrived."],
+        ["phrase","Fallback TTS phrase","text","New order received. Order {order_number} has arrived."],
+        ["browserNotifications","Browser notification + calling voice","toggle",true]
       ]},
       {title:"Events",fields:[
         ["new_order","Announce new order","toggle",true],
-        ["order_ready","Announce order ready","toggle",false],
-        ["waiter_call","Announce waiter call","toggle",true],
+        ["order_ready","Announce order ready","toggle",true],
+        ["waiter_call","Announce waiter / service call","toggle",true],
+        ["payment_received","Announce payment received","toggle",true],
+        ["token_ready","Announce token ready","toggle",true],
+        ["table_service","Announce table service call","toggle",true],
+        ["delivery_ready","Announce delivery ready","toggle",true]
       ]}
     ]
   },
@@ -695,6 +746,27 @@ const PLUGIN_SETTINGS = {
       ["retry_count","Retry count","number",3],
       ["retry_delay_ms","Retry delay (ms)","number",1000],
     ]}]
+  },
+  "payment-accounts": {
+    title:"Merchant Payments & Voice",
+    sections:[
+      {title:"Merchant Account",fields:[
+        ["merchant_name","Merchant / Restaurant Name","text",""],
+        ["upi_id","Merchant UPI ID","text",""],
+        ["merchant_reference","Merchant Reference","text",""],
+        ["active","Merchant account active","toggle",false],
+      ]},
+      {title:"Manual QR Payment",fields:[
+        ["manual_qr_label","Manual Payment QR Label","text","Restaurant QR"],
+        ["manual_qr_image_url","Manual Payment QR Image URL","text",""],
+      ]},
+      {title:"Payment & Voice",fields:[
+        ["auto_payment_detection","Automatic payment detection","toggle",false],
+        ["voice_enabled","Voice payment announcement","toggle",true],
+        ["voice_language","Voice language","select",["hi-IN","en-IN"]],
+        ["browser_notification","Browser notification + calling voice","toggle",true],
+      ]}
+    ]
   },
   "cashfree-payment-gateway": {
     title:"Cashfree Payment Gateway",
@@ -865,7 +937,53 @@ function testCallingVoice(config = {}, setMessage = () => {}) {
   else setMessage("🔊 Calling voice test started.")
 }
 
-function PluginConfig({plugin,config,setConfig,themeOptions=[],onSave,onTest,onWhatsAppTest,onVoiceTest}){
+const CALLING_VOICE_EVENTS = [
+  {key:"new_order", label:"New Order", description:"Plays when a new order is received."},
+  {key:"order_ready", label:"Order Ready", description:"Plays when kitchen marks an order ready."},
+  {key:"waiter_call", label:"Waiter / Service Call", description:"Plays when a customer calls the waiter."},
+  {key:"payment_received", label:"Payment Received", description:"Plays after a payment notification is received."},
+  {key:"token_ready", label:"Token Ready", description:"Plays when a token/order is ready for pickup."},
+  {key:"table_service", label:"Table Service", description:"Plays for a table service request."},
+  {key:"delivery_ready", label:"Delivery Ready", description:"Plays when a delivery order is ready."},
+]
+
+function SuperAdminCallingVoices({config,setConfig,selectedRestaurant,authHeaders,setMessage}){
+  const assets=(config?.audioAssets&&typeof config.audioAssets==="object")?config.audioAssets:{}
+  const [uploading,setUploading]=useState("")
+  const [playing,setPlaying]=useState("")
+  const audioRefs=useRef({})
+  const updateAsset=(key,asset)=>setConfig(c=>({...c,audioAssets:{...(c.audioAssets||{}),[key]:asset}}))
+  async function uploadVoice(key,file){
+    if(!file||!selectedRestaurant?.id)return
+    if(file.size>15*1024*1024){setMessage("❌ Voice audio must be 15 MB or smaller.");return}
+    if(!String(file.type||"").startsWith("audio/")){setMessage("❌ Please select an audio file.");return}
+    setUploading(key)
+    try{
+      const headers=await authHeaders(); const form=new FormData()
+      form.append("file",file); form.append("restaurant_id",selectedRestaurant.id); form.append("event_key",key)
+      const res=await fetch("/api/calling/audio",{method:"POST",headers:{Authorization:headers.Authorization},body:form}); const data=await res.json()
+      if(!res.ok||!data.success)throw new Error(data.error||"Unable to upload calling voice")
+      updateAsset(key,{url:data.url,path:data.path,name:data.name||file.name,source:"super_admin"})
+      setMessage(`✅ ${CALLING_VOICE_EVENTS.find(x=>x.key===key)?.label||key} voice uploaded. Click Save Calling Device to apply it.`)
+    }catch(e){setMessage(`❌ ${e.message||"Unable to upload calling voice"}`)}finally{setUploading("")}
+  }
+  async function removeVoice(key){
+    const asset=assets[key]; if(!asset?.path){updateAsset(key,null);return}
+    try{
+      const headers=await authHeaders(); const res=await fetch("/api/calling/audio",{method:"DELETE",headers:{Authorization:headers.Authorization,"Content-Type":"application/json"},body:JSON.stringify({restaurant_id:selectedRestaurant.id,path:asset.path})}); const data=await res.json()
+      if(!res.ok||!data.success)throw new Error(data.error||"Unable to remove calling voice")
+      updateAsset(key,null); setMessage(`✅ ${CALLING_VOICE_EVENTS.find(x=>x.key===key)?.label||key} custom voice removed.`)
+    }catch(e){setMessage(`❌ ${e.message||"Unable to remove calling voice"}`)}
+  }
+  function preview(key){const url=assets[key]?.url;if(!url)return;Object.values(audioRefs.current).forEach(a=>{if(a&&!a.paused)a.pause()});const audio=audioRefs.current[key]||new Audio(url);audioRefs.current[key]=audio;audio.currentTime=0;setPlaying(key);audio.onended=()=>setPlaying("");audio.play().catch(()=>setPlaying(""))}
+  return <div style={{marginTop:12,padding:15,borderRadius:14,border:"1px solid var(--border)",background:"var(--surface)"}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}><div><div style={{fontSize:12,fontWeight:950}}>🎙️ Custom Voice / Audio Library</div><div style={{fontSize:11,color:"var(--muted)",lineHeight:1.5,marginTop:3}}>Har event ke liye alag MP3/WAV/OGG voice upload karein. Custom audio first play hoga; file na ho to TTS fallback chalega.</div></div><span style={{fontSize:10,fontWeight:900,padding:"6px 9px",borderRadius:999,border:"1px solid var(--border)"}}>{selectedRestaurant?.name||"Restaurant"}</span></div>
+    <div style={{display:"grid",gap:9,marginTop:12}}>{CALLING_VOICE_EVENTS.map(ev=>{const asset=assets[ev.key];return <div key={ev.key} style={{display:"grid",gridTemplateColumns:"minmax(170px,1fr) minmax(220px,1.5fr) auto",gap:10,alignItems:"center",padding:11,borderRadius:12,border:"1px solid var(--border)",background:"var(--background)"}}><div><strong style={{fontSize:11}}>{ev.label}</strong><div style={{fontSize:9,color:"var(--muted)",marginTop:3}}>{ev.description}</div></div><div>{asset?.url?<><span style={{fontSize:10,fontWeight:800}}>🎵 {asset.name||"Custom audio"}</span> <span style={{fontSize:9,color:"var(--primary)",fontWeight:900}}>CUSTOM</span></>:<span style={{fontSize:10,color:"var(--muted)"}}>No custom file — TTS fallback</span>}</div><div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}><label className="plugin-btn" style={{cursor:"pointer",opacity:uploading===ev.key ? .65 : 1}}>{uploading===ev.key?"Uploading…":"🎙️ Upload"}<input type="file" accept="audio/*,.mp3,.wav,.ogg,.webm,.aac" hidden disabled={Boolean(uploading)} onChange={e=>{const f=e.target.files?.[0];uploadVoice(ev.key,f);e.target.value=""}}/></label>{asset?.url&&<button type="button" className="plugin-btn" onClick={()=>preview(ev.key)}>{playing===ev.key?"⏹ Playing":"▶ Preview"}</button>}{asset?.url&&<button type="button" className="plugin-btn" onClick={()=>removeVoice(ev.key)} style={ghost}>Remove</button>}</div></div>})}</div>
+    <div style={{fontSize:9,color:"var(--muted)",marginTop:9}}>Maximum 15 MB per file. Uploads are stored for the selected restaurant and are used by its Calling Device.</div>
+  </div>
+}
+
+function PluginConfig({plugin,config,setConfig,themeOptions=[],selectedRestaurant,authHeaders,setMessage,onSave,onTest,onWhatsAppTest,onVoiceTest}){
   const schema=PLUGIN_SETTINGS[plugin.code]
   const set=(key,value)=>setConfig(c=>{
     const next={...c,[key]:value}
@@ -889,6 +1007,26 @@ function PluginConfig({plugin,config,setConfig,themeOptions=[],onSave,onTest,onW
   }
   return <div style={configBox}>
     <div style={miniLabel}>RESTAURANT-SPECIFIC SETTINGS · {schema.title.toUpperCase()}</div>
+    {plugin.code === "calling-device" && <SuperAdminCallingVoices config={config} setConfig={setConfig} selectedRestaurant={selectedRestaurant} authHeaders={authHeaders} setMessage={setMessage}/>}
+    {plugin.code === "payment-accounts" && <div style={{marginTop:10,padding:12,borderRadius:12,border:"1px solid var(--border)",background:"var(--surface)",display:"grid",gap:8}}>
+      <strong style={{fontSize:12}}>Manual Payment QR</strong>
+      <span style={{fontSize:11,color:"var(--muted)"}}>Upload the restaurant's UPI QR here. This is the same QR customers will see on Pay Bill.</span>
+      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{
+        const file=e.target.files?.[0]
+        if(!file || !selected) return
+        try {
+          const headers=await authHeaders()
+          const form=new FormData(); form.append("file",file); form.append("restaurant_id",selected.id)
+          const r=await fetch("/api/payment-qr/upload",{method:"POST",headers:{Authorization:headers.Authorization},body:form})
+          const d=await r.json()
+          if(!r.ok || !d.success) throw new Error(d.error||"Unable to upload payment QR")
+          setConfig(c=>({...c,manual_qr_image_url:d.url}))
+          setMessage("✅ Restaurant payment QR uploaded. Save the plugin settings to apply it.")
+        } catch(err) { setMessage(`❌ ${err.message||"Unable to upload payment QR"}`) }
+        finally { e.target.value="" }
+      }} />
+      {config.manual_qr_image_url && <img src={config.manual_qr_image_url} alt="Restaurant payment QR preview" style={{width:180,height:180,objectFit:"contain",background:"#fff",padding:8,borderRadius:12,border:"1px solid var(--border)"}}/>}
+    </div>}
     {schema.sections.map(section=><div key={section.title} style={{marginTop:12}}>
       <h4 style={{margin:"0 0 7px",fontSize:12}}>{section.title}</h4>
       <div className="plugin-settings-grid" style={settingsGrid}>
@@ -935,6 +1073,10 @@ function PluginConfig({plugin,config,setConfig,themeOptions=[],onSave,onTest,onW
 
 function Stat({icon,label,value}){return <div style={stat}><span style={{fontSize:23}}>{icon}</span><small>{label}</small><strong title={String(value)}>{value}</strong></div>}
 
+const modalBackdrop={position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:18,background:"rgba(0,0,0,.62)",backdropFilter:"blur(7px)"}
+const modalPanel={width:"min(980px, 96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:20,background:"var(--surface)",border:"1px solid var(--border)",boxShadow:"0 30px 100px rgba(0,0,0,.35)"}
+const modalHeader={display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"16px 18px",borderBottom:"1px solid var(--border)",background:"var(--surface)",position:"sticky",top:0,zIndex:2}
+const modalBody={overflowY:"auto",padding:"0 2px 4px"}
 const configBox={marginTop:12,padding:15,borderRadius:14,background:"var(--background)",border:"1px solid var(--border)"}
 const settingsGrid={display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:9}
 const field={display:"grid",gap:5,fontSize:10,fontWeight:900,color:"var(--muted)"}

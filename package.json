@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "start": "node .next/standalone/server.js",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "electron": "electron electron/main.cjs",
     "electron:build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-electron-windows.ps1 -CreateInstaller",
@@ -35,7 +35,8 @@
     "react-qr-code": "^2.0.15",
     "recharts": "^3.1.2",
     "xlsx": "^0.18.5",
-    "nodemailer": "^7.0.6"
+    "nodemailer": "^7.0.6",
+    "lucide-react": "^0.468.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -49,7 +50,10 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.2",
     "electron": "^38.2.0",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "@next/eslint-plugin-next": "^15.5.23",
+    "@typescript-eslint/parser": "^8.42.0",
+    "@typescript-eslint/eslint-plugin": "^8.42.0"
   },
   "main": "electron/main.cjs",
   "description": "Cloud-based Anaira Restaurant POS",

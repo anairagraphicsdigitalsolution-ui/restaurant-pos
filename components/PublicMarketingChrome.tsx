@@ -1,5 +1,7 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
@@ -7,7 +9,7 @@ export default function PublicMarketingChrome({ children }: { children: React.Re
   const [open, setOpen] = useState(false)
   useEffect(() => {
     try {
-      if (!sessionStorage.getItem("anaira_marketing_session")) sessionStorage.setItem("anaira_marketing_session", crypto.randomUUID())
+      if (!sessionStorage.getItem("anaira_marketing_session")) sessionStorage.setItem("anaira_marketing_session", createClientUuid("marketing-session"))
     } catch {}
   }, [])
   return (

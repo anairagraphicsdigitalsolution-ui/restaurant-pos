@@ -2,10 +2,12 @@
 import { formatIndiaTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import OrderPage from "../order/page"
 
 export default function StaffPage() {
+  const router = useRouter()
   const [restaurantId, setRestaurantId] = useState(null)
   const [orders, setOrders] = useState([])
   const [activeTab, setActiveTab] = useState("orders")
@@ -69,18 +71,9 @@ export default function StaffPage() {
        */
       return supabaseCloud
         .channel(`staff-orders-${rid}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "orders",
-            filter: `restaurant_id=eq.${rid}`
-          },
-          () => {
-            loadOrders(rid)
-          }
-        )
+        .on("broadcast", { event: "restaurant_data_changed" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") === String(rid) && String(payload?.payload?.table || "") === "orders") loadOrders(rid)
+        })
         .subscribe()
     } catch (error) {
       console.error("STAFF INIT ERROR:", error)
@@ -106,7 +99,11 @@ export default function StaffPage() {
         return
       }
 
-      setPosEnabled(Array.isArray(plugin) && plugin.length > 0)
+      const enabled = Array.isArray(plugin) && plugin.length > 0
+      setPosEnabled(enabled)
+      // Fast POS is the operator's primary workflow. Existing Orders and
+      // Take Order tabs remain available and are not removed.
+      if (enabled) setActiveTab("pos")
     } catch (error) {
       console.error("POS CHECK ERROR:", error)
       setPosEnabled(false)
@@ -207,35 +204,30 @@ export default function StaffPage() {
   }
 
   async function updateStatus(order, newStatus) {
-    if (!order?.id) return
+    if (!order?.id || !restaurantId) return
 
-    const { error } = await supabaseCloud
-      .from("orders")
-      .update({
-        status: newStatus
+    try {
+      const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (sessionError || !token) throw new Error("Login session expired")
+
+      const response = await fetch("/api/kitchen/order-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ order_id: order.id, status: newStatus })
       })
-      .eq("id", order.id)
-      .eq("restaurant_id", restaurantId)
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to update order")
 
-    if (error) {
+      setOrders(previous => previous.map(item => item.id === order.id ? { ...item, ...(result.order || {}), status: newStatus } : item))
+      if (newStatus === "done") router.push("/billing")
+    } catch (error) {
       console.error("STATUS UPDATE ERROR:", error)
-      alert("❌ Unable to update order")
-      return
+      alert(`❌ ${error?.message || "Unable to update order"}`)
     }
-
-    /*
-     * Immediate local update
-     */
-    setOrders((previous) =>
-      previous.map((item) =>
-        item.id === order.id
-          ? {
-              ...item,
-              status: newStatus
-            }
-          : item
-      )
-    )
   }
 
   function handleTabChange(tab) {
@@ -435,15 +427,10 @@ export default function StaffPage() {
                       </button>
 
                       <button
-                        onClick={() =>
-                          updateStatus(
-                            order,
-                            "ready"
-                          )
-                        }
+                        onClick={() => updateStatus(order, "done")}
                         style={btn("var(--success)")}
                       >
-                        Ready
+                        Done / Bill
                       </button>
 
                       <button
@@ -516,13 +503,20 @@ function POS({
 
   const [type, setType] = useState("table")
   const [selected, setSelected] = useState(null)
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [deliveryAddress, setDeliveryAddress] = useState("")
+  const [search, setSearch] = useState("")
+  const [category, setCategory] = useState("All")
 
   const [loading, setLoading] = useState(true)
   const [placing, setPlacing] = useState(false)
+  const [requestId, setRequestId] = useState(null)
 
   useEffect(() => {
     if (restaurantId) {
       load()
+      setRequestId(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
     }
   }, [restaurantId])
 
@@ -633,14 +627,21 @@ function POS({
   function changeType(nextType) {
     setType(nextType)
     setSelected(null)
+    setSearch("")
+    setCategory("All")
   }
 
   async function place() {
 
     if (placing) return
 
-    if (!selected) {
-      alert("Select table/room")
+    if (["table", "room"].includes(type) && !selected) {
+      alert(type === "table" ? "Select table" : "Select room")
+      return
+    }
+
+    if (type === "delivery" && !customerName.trim()) {
+      alert("Enter customer name for delivery")
       return
     }
 
@@ -678,10 +679,15 @@ function POS({
 
           body: JSON.stringify({
             restaurant_id: restaurantId,
+            idempotency_key: requestId || undefined,
 
             source_type: type,
 
-            source_id: selected.id,
+            source_id: selected?.id || null,
+            customer_name: customerName || null,
+            customer_phone: customerPhone || null,
+            delivery_address: deliveryAddress || null,
+            customer_notes: null,
 
             items: cart.map((item) => ({
               item_id: item.id,
@@ -710,10 +716,14 @@ function POS({
         return
       }
 
-      alert("✅ Bill Generated")
+      alert("✅ Order sent to kitchen")
 
       setCart([])
       setSelected(null)
+      setCustomerName("")
+      setCustomerPhone("")
+      setDeliveryAddress("")
+      setRequestId(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
 
       if (onOrderCreated) {
         await onOrderCreated()
@@ -746,10 +756,15 @@ function POS({
     0
   )
 
-  const availableSources =
-    type === "table"
-      ? tables
-      : rooms
+  const availableSources = type === "table" ? tables : rooms
+  const categories = ["All", ...new Set(menu.map(item => item.category).filter(Boolean))]
+  const visibleMenu = menu.filter(item => {
+    const matchesCategory = category === "All" || item.category === category
+    const q = search.trim().toLowerCase()
+    const matchesSearch = !q || String(item.name || "").toLowerCase().includes(q)
+    return matchesCategory && matchesSearch
+  })
+  const isLocationSource = type === "table" || type === "room"
 
   if (loading) {
     return (
@@ -802,29 +817,11 @@ function POS({
 
       <div style={tabs}>
 
-        <button
-          style={sourceBtn(
-            type === "table",
-            "var(--info)"
-          )}
-          onClick={() =>
-            changeType("table")
-          }
-        >
-          🍽️ Table
-        </button>
-
-        <button
-          style={sourceBtn(
-            type === "room",
-            "#a855f7"
-          )}
-          onClick={() =>
-            changeType("room")
-          }
-        >
-          🛏️ Room
-        </button>
+        {[["table", "🍽️ Table", "var(--info)"], ["room", "🛏️ Room", "#a855f7"], ["takeaway", "🥡 Takeaway", "var(--success)"], ["delivery", "🛵 Delivery", "var(--warning)"]].map(([value, label, color]) => (
+          <button key={value} style={sourceBtn(type === value, color)} onClick={() => changeType(value)}>
+            {label}
+          </button>
+        ))}
 
       </div>
 
@@ -833,82 +830,37 @@ function POS({
       ====================================================== */}
 
       <div style={subSection}>
-
-        <div style={subSectionHeader}>
-          <div>
-            <h3 style={subTitle}>
-              {type === "table"
-                ? "🍽️ Select Table"
-                : "🛏️ Select Room"}
-            </h3>
-
-            <p style={subText}>
-              Choose where this order belongs
-            </p>
-          </div>
-
-          {selected && (
-            <div style={selectedBadge}>
-              Selected:{" "}
-              {type === "table"
-                ? `Table ${selected.table_number}`
-                : `Room ${selected.room_number}`}
+        {isLocationSource ? (
+          <>
+            <div style={subSectionHeader}>
+              <div>
+                <h3 style={subTitle}>{type === "table" ? "🍽️ Select Table" : "🛏️ Select Room"}</h3>
+                <p style={subText}>Tap once — QR orders for tables and rooms use the same order engine.</p>
+              </div>
+              {selected && <div style={selectedBadge}>Selected: {type === "table" ? `Table ${selected.table_number}` : `Room ${selected.room_number}`}</div>}
             </div>
-          )}
-        </div>
-
-        {!availableSources.length ? (
-          <div style={smallEmpty}>
-            No{" "}
-            {type === "table"
-              ? "tables"
-              : "rooms"}{" "}
-            found.
-          </div>
-        ) : (
-          <div style={selectWrap}>
-
-            {availableSources.map(
-              (item) => {
-
-                const isSelected =
-                  selected?.id === item.id
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() =>
-                      setSelected(item)
-                    }
-                    style={{
-                      ...sourceSelectBtn,
-                      background:
-                        isSelected
-                          ? "var(--success)"
-                          : "rgba(255,255,255,.04)",
-
-                      borderColor:
-                        isSelected
-                          ? "var(--success)"
-                          : "rgba(255,255,255,.12)",
-
-                      boxShadow:
-                        isSelected
-                          ? "0 8px 20px rgba(var(--success-rgb),.25)"
-                          : "none"
-                    }}
-                  >
-                    {type === "table"
-                      ? `T${item.table_number}`
-                      : `R${item.room_number}`}
-                  </button>
-                )
-              }
+            {!availableSources.length ? <div style={smallEmpty}>No {type === "table" ? "tables" : "rooms"} found.</div> : (
+              <div style={selectWrap}>{availableSources.map(item => {
+                const isSelected = selected?.id === item.id
+                return <button key={item.id} onClick={() => setSelected(item)} style={{...sourceSelectBtn, background:isSelected?"var(--success)":"rgba(255,255,255,.04)", borderColor:isSelected?"var(--success)":"rgba(255,255,255,.12)"}}>{type === "table" ? `T${item.table_number}` : `R${item.room_number}`}</button>
+              })}</div>
             )}
-
-          </div>
+          </>
+        ) : (
+          <>
+            <div style={subSectionHeader}>
+              <div><h3 style={subTitle}>{type === "delivery" ? "🛵 Delivery details" : "🥡 Takeaway"}</h3><p style={subText}>No table or room selection required.</p></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+              {type === "delivery" && <>
+                <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name" style={fastInput}/>
+                <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone" style={fastInput}/>
+                <input value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} placeholder="Delivery address" style={{...fastInput,gridColumn:"1 / -1"}}/>
+              </>}
+              {type === "takeaway" && <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)" style={fastInput}/>} 
+            </div>
+          </>
         )}
-
       </div>
 
       {/* ======================================================
@@ -933,14 +885,15 @@ function POS({
           </div>
         </div>
 
-        {!menu.length ? (
-          <div style={smallEmpty}>
-            No menu items found.
-          </div>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) auto",gap:10,marginBottom:12}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔎 Search menu" style={fastInput}/>
+          <select value={category} onChange={e=>setCategory(e.target.value)} style={fastInput}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
+        </div>
+        {!visibleMenu.length ? (
+          <div style={smallEmpty}>No matching menu items.</div>
         ) : (
           <div style={menuGrid}>
-
-            {menu.map((item) => (
+            {visibleMenu.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -1130,7 +1083,7 @@ function POS({
             >
               {placing
                 ? "Processing..."
-                : "Generate Bill"}
+                : "SEND TO KITCHEN"}
             </button>
 
           </div>
@@ -1756,6 +1709,17 @@ const payBtn = {
   width: "100%",
   fontWeight: 800,
   fontSize: 15
+}
+
+const fastInput = {
+  width: "100%",
+  minHeight: 42,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,.12)",
+  background: "rgba(255,255,255,.04)",
+  color: "var(--text)",
+  outline: "none"
 }
 
 const posLoading = {

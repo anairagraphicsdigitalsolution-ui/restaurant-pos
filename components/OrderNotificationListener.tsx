@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { showBrowserNotification } from "@/lib/browserNotifications"
 import { useAuth } from "@/components/AuthProvider"
 
 type Notice = {
@@ -57,6 +58,8 @@ export default function OrderNotificationListener({ user: propUser, restaurantId
   )
   const seenIds = useRef(new Set<string>())
   const audioUnlocked = useRef(false)
+  const smartEnabledRef = useRef(true)
+  const smartSettingsRef = useRef({ in_app:true, sound:true, browser:false })
 
   const unlockAudio = useCallback(() => {
     if (audioUnlocked.current) return
@@ -73,24 +76,15 @@ export default function OrderNotificationListener({ user: propUser, restaurantId
 
 
   const showNotice = useCallback((row: Notice) => {
-    if (!row?.id || seenIds.current.has(row.id)) return
+    const enabled = smartEnabledRef.current
+    const settings = smartSettingsRef.current
+    if (!enabled || !row?.id || seenIds.current.has(row.id)) return
     seenIds.current.add(row.id)
-    setNotice(row)
-    playOrderTone()
+    if (settings.in_app !== false) setNotice(row)
+    if (settings.sound !== false) playOrderTone()
 
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-      try {
-        const n = new Notification(row.title || "New order", {
-          body: row.message || "A new order has arrived in the kitchen.",
-          tag: `anaira-order-${row.id}`,
-          requireInteraction: true,
-        })
-        n.onclick = () => {
-          window.focus()
-          if (row.action_url) window.location.href = row.action_url
-          n.close()
-        }
-      } catch {}
+    if (settings.browser === true) {
+      showBrowserNotification(row, { enabled: true, prefix: "Anaira" })
     }
 
     window.setTimeout(() => {
@@ -113,13 +107,35 @@ export default function OrderNotificationListener({ user: propUser, restaurantId
   }, [unlockAudio])
 
   useEffect(() => {
+    let cancelled = false
     if (!user || !restaurantId || role === "super_admin") return
+
+    void (async () => {
+      const [{ data: plugin }, { data: cfg }] = await Promise.all([
+        supabaseCloud.from("restaurant_plugins")
+          .select("enabled")
+          .eq("restaurant_id", restaurantId)
+          .eq("plugin_code", "smart-notifications")
+          .maybeSingle(),
+        supabaseCloud.from("plugin_settings")
+          .select("config")
+          .eq("restaurant_id", restaurantId)
+          .eq("plugin_code", "smart-notifications")
+          .maybeSingle()
+      ])
+      if (cancelled) return
+
+      const enabled = plugin?.enabled !== false
+      const settings = { ...smartSettingsRef.current, ...(cfg?.config || {}) }
+      smartEnabledRef.current = enabled
+      smartSettingsRef.current = settings
+    })()
     const handler = (event: Event) => {
       const row = (event as CustomEvent<Notice>).detail
       showNotice(row)
     }
     window.addEventListener("anaira:notification", handler)
-    return () => window.removeEventListener("anaira:notification", handler)
+    return () => { cancelled = true; window.removeEventListener("anaira:notification", handler) }
   }, [user, restaurantId, role, showNotice])
 
   if (!user || !restaurantId || role === "super_admin") return null

@@ -553,8 +553,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         .eq("setting_key", "theme")
         .maybeSingle()
 
+      // Platform theme is optional configuration. A transient/RLS/network
+      // failure must never trigger the Next.js dev error overlay or break the
+      // application. Keep the canonical default when the setting cannot be
+      // read; the server remains the source of truth on the next successful
+      // load.
       if (error) {
-        console.error("PLATFORM THEME LOAD ERROR:", error)
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Platform theme unavailable; using default theme.", {
+            code: error?.code,
+            message: error?.message,
+          })
+        }
       }
 
       const savedId = data?.config?.selected
@@ -646,7 +656,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   useEffect(() => {
-    loadTheme()
+    // Theme loading is non-critical UI configuration. Convert any transport
+    // exception into a safe default instead of creating an unhandled promise
+    // rejection during navigation/auth bootstrap.
+    void loadTheme().catch((error) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Theme configuration load failed; using safe default.", {
+          code: error?.code,
+          message: error?.message,
+        })
+      }
+      setAvailableThemes(BRAND_THEMES)
+      setThemeState(DEFAULT_THEME)
+    })
   }, [loadTheme])
 
   const persist = useCallback(async (

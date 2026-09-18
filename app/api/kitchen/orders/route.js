@@ -1,5 +1,6 @@
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
+import { TERMINAL_STATUSES } from "@/lib/orderEngine"
 
 export const runtime = "nodejs"
 
@@ -26,18 +27,35 @@ export async function GET(req) {
       )
     }
 
-    const { data: orders, error: ordersError } = await supabaseCloudAdmin
-      .from("orders")
-      .select("*")
-      .eq("restaurant_id", rid)
-      .order("created_at", { ascending: false })
+    // KDS only needs live orders plus a small recent history. Loading every
+    // historical order on every realtime refresh makes the kitchen slower as
+    // the restaurant grows. Keep the old endpoint/response contract intact.
+    const terminalList = Array.from(TERMINAL_STATUSES)
+    const [{ data: liveOrders, error: liveError }, { data: historyOrders, error: historyError }] = await Promise.all([
+      supabaseCloudAdmin
+        .from("orders")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .not("status", "in", `(${terminalList.join(",")})`)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabaseCloudAdmin
+        .from("orders")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .in("status", terminalList)
+        .order("created_at", { ascending: false })
+        .limit(50)
+    ])
 
-    if (ordersError) {
+    if (liveError || historyError) {
       return Response.json(
-        { success: false, error: ordersError.message },
+        { success: false, error: (liveError || historyError).message },
         { status: 400 }
       )
     }
+
+    const orders = [...(liveOrders || []), ...(historyOrders || [])]
 
     const orderIds = (orders || []).map(order => order.id).filter(Boolean)
 

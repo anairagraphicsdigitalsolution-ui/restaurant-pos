@@ -20,6 +20,13 @@ async function eleven(path, key, options={}){const res=await fetch(`${ELEVEN}${p
 export async function POST(req){
   try{
     const body=await req.json(); const action=String(body?.action||""); const {rid,config}=await ctx(req,body?.restaurant_id)
+    if(action==="saveConfig") {
+      if(!body.config || typeof body.config !== "object") throw new Error("Calling configuration is required")
+      const merged={...config,...body.config}
+      const {error}=await supabaseCloudAdmin.from("plugin_settings").upsert({restaurant_id:rid,plugin_code:"calling-device",config:merged,updated_at:new Date().toISOString()},{onConflict:"restaurant_id,plugin_code"})
+      if(error) throw error
+      return NextResponse.json({success:true})
+    }
     const key=String(config.elevenlabs_api_key||"").trim(); if(!key) throw new Error("ElevenLabs API key is not configured")
     if(action==="speak"){
       const voiceId=String(body.voice_id||config.elevenlabs_voice_id||"").trim(); if(!voiceId) throw new Error("ElevenLabs voice is not configured")

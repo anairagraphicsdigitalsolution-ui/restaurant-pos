@@ -24,7 +24,7 @@ The MPT-III family commonly uses classic Bluetooth SPP and ESC/POS. It cannot be
 
 ## Production-domain Windows MPT-III flow
 
-Anaira uses the same proven architecture as Sofson for classic Bluetooth MPT-III on Windows:
+Anaira uses its Windows bridge architecture for classic Bluetooth MPT-III printing:
 
 `https://ANAIRA-DOMAIN` → browser JavaScript → `http://127.0.0.1:3211` → `AnairaPrintBridge.ps1` → Windows COM port → MPT-III.
 

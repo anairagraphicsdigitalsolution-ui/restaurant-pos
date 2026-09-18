@@ -317,6 +317,25 @@ export async function POST(request) {
 
     await ensureRestaurant(admin, restaurantId)
 
+    if (pluginCode === "restaurant-suite") {
+      const { data: suiteRow, error: suiteError } = await admin
+        .from("restaurant_plugins")
+        .upsert({
+          restaurant_id: restaurantId,
+          plugin_code: "restaurant-suite",
+          plugin_slug: "restaurant-suite",
+          enabled: true,
+          display_name: "Restaurant Suite",
+          category: "Core",
+          description: "Independent restaurant management workspace.",
+          feature_kind: "hub"
+        }, { onConflict: "restaurant_id,plugin_code" })
+        .select("*")
+        .single()
+      if (suiteError) throw new Error(suiteError.message)
+      return NextResponse.json({ success:true, plugin:suiteRow, plugins:[suiteRow], message:"Restaurant Suite activated." })
+    }
+
     if (pluginCode === "restaurant-core") {
       const { data: coreRow, error: coreError } = await admin
         .from("restaurant_plugins")
@@ -584,7 +603,7 @@ export async function PATCH(request) {
     // Restaurant Core and Operations Hub are real Super Admin-controlled master switches.
     // Their state is authoritative by restaurant_id + plugin_code, never by a stale row id.
     const requestedMasterCode = String(body?.plugin_code || "").trim()
-    if (["restaurant-core", "operations-hub"].includes(requestedMasterCode)) {
+    if (["restaurant-core", "operations-hub", "restaurant-suite"].includes(requestedMasterCode)) {
       const enabled = body.enabled === true
       const { data: existingMaster, error: masterLookupError } = await admin
         .from("restaurant_plugins")
@@ -627,11 +646,13 @@ export async function PATCH(request) {
           activated_by: enabled ? auth.userId || null : null,
           activated_at: enabled ? new Date().toISOString() : null,
           disabled_at: enabled ? null : new Date().toISOString(),
-          display_name: requestedMasterCode === "restaurant-core" ? "Restaurant Core" : "Operations Hub",
+          display_name: requestedMasterCode === "restaurant-core" ? "Restaurant Core" : requestedMasterCode === "restaurant-suite" ? "Restaurant Suite" : "Operations Hub",
           category: "Core",
           description: requestedMasterCode === "restaurant-core"
             ? "Core POS, orders, tables, KDS, billing and delivery master switch."
-            : "Master restaurant operations workspace.",
+            : requestedMasterCode === "restaurant-suite"
+              ? "Independent restaurant management workspace."
+              : "Master restaurant operations workspace.",
           feature_kind: "hub"
         })
         .select("*")
@@ -814,7 +835,7 @@ export async function DELETE(request) {
       .maybeSingle()
     if (rowError) throw new Error(rowError.message)
     if (!row) throw new Error("Plugin not found")
-    if (["operations-hub","restaurant-core","restaurant-pro"].includes(row.plugin_code)) {
+    if (["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"].includes(row.plugin_code)) {
       return NextResponse.json({success:false,error:"Core system plugins cannot be deleted."},{status:400})
     }
 

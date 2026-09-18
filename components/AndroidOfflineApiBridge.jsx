@@ -1,5 +1,7 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import { useEffect } from "react"
 import { mobileDbList, mobileDbPut, mobileDbQueuePut } from "@/lib/mobileLocalDb"
 import { getMobileDeviceId } from "@/lib/mobileDevice"
@@ -37,7 +39,7 @@ async function localOrder(orderId) {
 async function offlineCreateOrder(body) {
   const restaurantId = body.restaurant_id || rid()
   if (!restaurantId) return jsonResponse({ success: false, error: "Restaurant is not configured for offline use." }, 409)
-  const id = body.id || crypto.randomUUID()
+  const id = body.id || createClientUuid("offline")
   const now = new Date().toISOString()
   const order = {
     ...body,
@@ -52,7 +54,7 @@ async function offlineCreateOrder(body) {
     updated_at: now,
   }
   for (const item of body.items || []) {
-    const itemId = item.id || crypto.randomUUID()
+    const itemId = item.id || createClientUuid("offline")
     await mobileDbPut(restaurantId, "order_items", itemId, { ...item, id: itemId, order_id: id, restaurant_id: restaurantId, updated_at: now })
   }
   await mobileDbPut(restaurantId, "orders", id, order)
@@ -125,7 +127,7 @@ async function offlineBillingFinalize(body) {
   await mobileDbPut(restaurantId, "order_snapshot", order.id, updated)
   await mobileDbPut(restaurantId, "offline_order", order.id, updated)
   if (paidAmount > 0) {
-    const paymentId = crypto.randomUUID()
+    const paymentId = createClientUuid("offline")
     await mobileDbPut(restaurantId, "payments", paymentId, { id: paymentId, restaurant_id: restaurantId, order_id: order.id, amount: paidAmount, payment_method: body.payment_method || "cash", status: "paid", paid_at: now, created_at: now, device_id: getMobileDeviceId() })
   }
   await mobileDbPut(restaurantId, "invoices", order.id, { id: order.id, restaurant_id: restaurantId, order_id: order.id, invoice_no: invoiceNo, total_amount: total, paid_amount: updated.paid_amount, payment_status: paymentStatus, created_at: now, updated_at: now })
@@ -144,7 +146,7 @@ async function offlineDelivery(method, url, body) {
   if (!restaurantId || !order) return jsonResponse({ success: false, error: "Offline order not found." }, 404)
   const now = new Date().toISOString()
   if (action === "create") {
-    const deliveryId = crypto.randomUUID()
+    const deliveryId = createClientUuid("offline")
     const slipRows = await listEntity(restaurantId, "restaurant_deliveries")
     const maxSlip = slipRows.reduce((m, x) => Math.max(m, Number(String(x.slip_no || "").replace(/\D/g, "") || 0)), 0)
     const delivery = { id: deliveryId, order_id: order.id, restaurant_id: restaurantId, slip_no: `D-${String(maxSlip + 1).padStart(5, "0")}`, status: "pending", customer_name: body.customer_name || order.customer_name || "", phone: body.phone || order.customer_phone || "", address: body.address || order.delivery_address || "", zone: body.zone || null, delivery_charge: Number(body.delivery_charge || order.delivery_charge || 0), payment_method: body.payment_method || "cash", created_at: now, updated_at: now }

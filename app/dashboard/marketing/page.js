@@ -1,5 +1,7 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import {useEffect,useMemo,useState} from "react"
 import {supabaseCloud} from "@/lib/supabaseCloud"
 import {useSearchParams} from "next/navigation"
@@ -34,7 +36,7 @@ export default function MarketingHub(){
    const [ps,ca,le,an]=await Promise.all([api("/api/marketing/posts"),api("/api/marketing/campaigns"),api("/api/marketing/leads"),api("/api/marketing/analytics")]);setPosts(ps.posts||[]);setCampaigns(ca.campaigns||[]);setLeads(le.leads||[]);setStats(an.stats||{})
  }catch(e){setMsg(`❌ ${e.message}`)}finally{setLoading(false)}}
 
- async function savePost(){try{if(draft.platform==="whatsapp"&&!draft.template_name?.trim())throw new Error("Approved WhatsApp template name is required");const payload={...draft,status:draft.scheduled_at?"scheduled":"draft",scheduled_at:draft.scheduled_at?new Date(draft.scheduled_at).toISOString():null,idempotency_key:crypto?.randomUUID?crypto.randomUUID():`marketing-${Date.now()}`};const d=await api("/api/marketing/posts",{method:"POST",body:JSON.stringify(payload)});setPosts(x=>[d.post,...x]);setMsg("✅ Draft saved");setTab("Calendar")}catch(e){setMsg(`❌ ${e.message}`)}}
+ async function savePost(){try{if(draft.platform==="whatsapp"&&!draft.template_name?.trim())throw new Error("Approved WhatsApp template name is required");const payload={...draft,status:draft.scheduled_at?"scheduled":"draft",scheduled_at:draft.scheduled_at?new Date(draft.scheduled_at).toISOString():null,idempotency_key:createClientUuid("marketing")};const d=await api("/api/marketing/posts",{method:"POST",body:JSON.stringify(payload)});setPosts(x=>[d.post,...x]);setMsg("✅ Draft saved");setTab("Calendar")}catch(e){setMsg(`❌ ${e.message}`)}}
  async function createCampaign(){try{const d=await api("/api/marketing/campaigns",{method:"POST",body:JSON.stringify(campaign)});setCampaigns(x=>[d.campaign,...x]);setCampaign({name:"",objective:"awareness",budget:""});setMsg("✅ Campaign created")}catch(e){setMsg(`❌ ${e.message}`)}}
  async function createLead(){try{const d=await api("/api/marketing/leads",{method:"POST",body:JSON.stringify(lead)});setLeads(x=>[d.lead,...x]);setLead({name:"",phone:"",email:"",source:"manual",status:"new"});setMsg("✅ Lead added")}catch(e){setMsg(`❌ ${e.message}`)}}
  async function selectOAuthMeta(accountId){try{await api("/api/marketing/meta/oauth/tenant-select",{method:"POST",body:JSON.stringify({session_id:metaSelection.id,account_id:accountId})});history.replaceState({},"",`/dashboard/marketing?tab=${metaSelection.platform[0].toUpperCase()+metaSelection.platform.slice(1)}`);setMetaSelection(null);setMsg("✅ Meta account connected successfully");await load()}catch(e){setMsg(`❌ ${e.message}`)}}

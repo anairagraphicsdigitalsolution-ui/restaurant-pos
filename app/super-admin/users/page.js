@@ -25,7 +25,12 @@ export default function SuperAdminUsersPage() {
     active: false,
     auto_payment_detection: false,
     voice_enabled: true,
-    voice_language: "hi-IN"
+    voice_language: "hi-IN",
+    voice_audio_url: "",
+    voice_audio_path: "",
+    voice_audio_name: "",
+    manual_qr_image_url: "",
+    manual_qr_label: "Restaurant QR"
   })
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [paymentSaving, setPaymentSaving] = useState(false)
@@ -101,13 +106,31 @@ export default function SuperAdminUsersPage() {
         active: a.active === true,
         auto_payment_detection: a.auto_payment_detection === true,
         voice_enabled: a.voice_enabled !== false,
-        voice_language: a.voice_language || "hi-IN"
+        voice_language: a.voice_language || "hi-IN",
+        voice_audio_url: a.voice_audio_url || "",
+        voice_audio_path: a.voice_audio_path || "",
+        voice_audio_name: a.voice_audio_name || "",
+        manual_qr_image_url: a.manual_qr_image_url || "",
+        manual_qr_label: a.manual_qr_label || "Restaurant QR"
       })
     } catch (error) {
       console.error("LOAD PAYMENT ACCOUNT ERROR:", error)
     } finally {
       setPaymentLoading(false)
     }
+  }
+
+  async function uploadPaymentQr(file) {
+    if (!file || !form.restaurant_id) return
+    try {
+      const { data: { session } } = await supabaseCloud.auth.getSession()
+      if (!session?.access_token) throw new Error("Login session expired")
+      const body = new FormData(); body.append("file", file); body.append("restaurant_id", form.restaurant_id)
+      const response = await fetch("/api/payment-qr/upload", { method:"POST", headers:{ Authorization:`Bearer ${session.access_token}` }, body })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to upload QR")
+      setPayment(prev => ({ ...prev, manual_qr_image_url: result.url }))
+    } catch (error) { alert(error.message || "Unable to upload QR") }
   }
 
   async function savePaymentAccount() {
@@ -145,7 +168,12 @@ export default function SuperAdminUsersPage() {
           active: payment.active,
           auto_payment_detection: payment.auto_payment_detection,
           voice_enabled: payment.voice_enabled,
-          voice_language: payment.voice_language
+          voice_language: payment.voice_language,
+          voice_audio_url: payment.voice_audio_url,
+          voice_audio_path: payment.voice_audio_path,
+          voice_audio_name: payment.voice_audio_name,
+          manual_qr_image_url: payment.manual_qr_image_url,
+          manual_qr_label: payment.manual_qr_label
         })
       })
 
@@ -578,6 +606,18 @@ export default function SuperAdminUsersPage() {
                   style={styles.input}
                   disabled={paymentLoading}
                 />
+              </div>
+
+              <div>
+                <label style={styles.label}>Manual Payment QR Label</label>
+                <input value={payment.manual_qr_label} onChange={e=>setPayment({...payment,manual_qr_label:e.target.value})} placeholder="Restaurant QR" style={styles.input} disabled={paymentLoading}/>
+              </div>
+
+              <div>
+                <label style={styles.label}>Manual Payment QR Image</label>
+                <input value={payment.manual_qr_image_url} onChange={e=>setPayment({...payment,manual_qr_image_url:e.target.value})} placeholder="QR image URL (any provider)" style={styles.input} disabled={paymentLoading}/>
+                <input type="file" accept="image/*" onChange={e=>uploadPaymentQr(e.target.files?.[0])} disabled={!payment.plugin_enabled || paymentLoading} style={{...styles.input,marginTop:8}}/>
+                {payment.manual_qr_image_url && <img src={payment.manual_qr_image_url} alt="Manual payment QR" style={{marginTop:8,width:130,height:130,objectFit:"contain",background:"#fff",padding:6,borderRadius:10}}/>}
               </div>
 
               <div style={{display:"flex",alignItems:"center",gap:12,paddingTop:25}}>

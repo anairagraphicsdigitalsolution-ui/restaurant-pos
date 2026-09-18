@@ -142,6 +142,14 @@ export async function GET(req) {
       errors
     })
   } catch (error) {
-    return Response.json({ success: false, error: error?.message || "Dashboard data unavailable" }, { status: 401 })
+    const message = error?.message || "Dashboard data unavailable"
+    const lower = String(message).toLowerCase()
+    const status = lower.includes("authentication required") || lower.includes("invalid or expired session")
+      ? 401
+      : lower.includes("timed out") || lower.includes("timeout") || lower.includes("fetch failed")
+        ? 503
+        : 500
+    console.error("DASHBOARD OVERVIEW ERROR:", message)
+    return Response.json({ success: false, error: message }, { status })
   }
 }

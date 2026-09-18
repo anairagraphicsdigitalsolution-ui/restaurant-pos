@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { useAuth } from "@/components/AuthProvider"
 import type { CSSProperties } from "react"
 
 type MenuItem = {
@@ -14,6 +15,7 @@ type MenuItem = {
 
 export default function AdminPage(){
 
+  const { user: authUser, restaurantId: authRestaurantId, loading: authLoading } = useAuth()
   const [restaurantId,setRestaurantId] = useState<string | null>(null)
 
   const [itemName,setItemName] = useState("")
@@ -58,13 +60,20 @@ useState<string | null>(null)
    useState<string[]>([])
    const [banners, setBanners] = useState<any[]>([])
 
-  useEffect(()=>{ init() },[])
+  useEffect(()=>{
+    if (authLoading) return
+    init()
+  },[authLoading, authUser?.id, authRestaurantId])
 
   async function init(){
 
-    const { data: userData } = await supabaseCloud.auth.getUser()
+    // AuthProvider owns the single browser auth bootstrap. Do not call
+    // auth.getUser() again here: concurrent getUser() calls can contend for
+    // Supabase's persisted-session navigator lock and cause:
+    // "Lock ... was released because another request stole it".
+    const user = authUser
 
-    if(!userData?.user){
+    if(!user){
       alert("Login required")
       return
     }
@@ -75,7 +84,7 @@ useState<string | null>(null)
     const { data: profile, error: profileError } = await supabaseCloud
       .from("profiles")
       .select("restaurant_id, role")
-      .eq("id", userData.user.id)
+      .eq("id", user.id)
       .maybeSingle()
 
     if (profileError) {
@@ -83,8 +92,8 @@ useState<string | null>(null)
     }
 
     const metadataRestaurantId =
-      userData.user.user_metadata?.restaurant_id ||
-      userData.user.app_metadata?.restaurant_id ||
+      user.user_metadata?.restaurant_id ||
+      user.app_metadata?.restaurant_id ||
       null
 
     const resolvedRestaurantId =
@@ -110,7 +119,7 @@ useState<string | null>(null)
       const { data, error } = await supabaseCloud
         .from("restaurants")
         .select("*")
-        .eq("owner_id", userData.user.id)
+        .eq("owner_id", user.id)
         .limit(1)
 
       if (error) {

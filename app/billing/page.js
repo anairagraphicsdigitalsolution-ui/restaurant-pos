@@ -1,8 +1,10 @@
 "use client"
+
+import { createClientUuid } from "@/lib/clientUuid"
 import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useRef, useState } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import SalesChart from "@/components/SalesChart"
 import ItemChart from "@/components/ItemChart"
@@ -27,6 +29,7 @@ export default function BillingPage() {
 
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const isDedicatedBillPage = pathname === "/billing/bill"
   const [billView, setBillView] = useState(false)
   const isBillScreen = isDedicatedBillPage || billView
@@ -79,6 +82,8 @@ export default function BillingPage() {
   // Cashfree is an optional plugin. When disabled for this restaurant, the
   // core billing/POS flow must remain completely unaffected.
   const [cashfreeEnabled, setCashfreeEnabled] = useState(false)
+  const [qrPaymentClaims, setQrPaymentClaims] = useState([])
+  const [qrClaimBusy, setQrClaimBusy] = useState("")
 
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
@@ -94,6 +99,23 @@ export default function BillingPage() {
   const [manualDiscountMode, setManualDiscountMode] = useState("amount")
 
   const invoiceRef = useRef(null)
+
+  useEffect(() => {
+    const orderId = String(searchParams?.get("order_id") || "").trim()
+    if (!orderId || !orders.some(o => o.id === orderId)) return
+    setSelectedOrder(orderId)
+    setBillView(true)
+    loadBill(orderId)
+  }, [searchParams, orders.length])
+
+  useEffect(() => {
+    if (!qrPaymentClaims.length) return
+    const timer = setInterval(() => {
+      const rid = qrPaymentClaims[0]?.restaurant_id
+      if (rid) loadQrPaymentClaims(rid)
+    }, 15000)
+    return () => clearInterval(timer)
+  }, [qrPaymentClaims.length])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -153,6 +175,7 @@ export default function BillingPage() {
     fetchRestaurant(restId)
     fetchOrders(restId)
     fetchOffers(restId)
+    loadQrPaymentClaims(restId)
 
     // Optional plugin gate: Cashfree must never be required for the normal
     // restaurant billing workflow. Only expose it when both the plugin row
@@ -206,6 +229,31 @@ export default function BillingPage() {
       window.alert(error.message || "Unable to save GST setting")
     }
     setGstSaving(false)
+  }
+
+  async function loadQrPaymentClaims(restId) {
+    if (!restId) return
+    const { data, error } = await supabaseCloud
+      .from("qr_payment_requests")
+      .select("id,restaurant_id,order_id,amount,status,reference,created_at,customer_claimed_at")
+      .eq("restaurant_id", restId)
+      .in("status", ["customer_claimed", "pending"])
+      .order("created_at", { ascending:false })
+      .limit(30)
+    if (!error) setQrPaymentClaims(data || [])
+  }
+
+  async function settleQrClaim(requestId) {
+    if (!requestId) return
+    setQrClaimBusy(requestId)
+    try {
+      const r = await fetch("/api/qr/payment-settle", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ request_id:requestId }) })
+      const d = await r.json()
+      if (!r.ok || !d.success) throw new Error(d.error || "Unable to settle payment")
+      setQrPaymentClaims(prev => prev.filter(x => x.id !== requestId))
+      if (d.finalized?.invoice_no) { setFinalizedBill(d.finalized); setBillView(true); setSelectedOrder(d.finalized.order_id || selectedOrder); }
+      await fetchOrders(restaurant?.id)
+    } catch (e) { window.alert(e.message || "Unable to settle payment") } finally { setQrClaimBusy("") }
   }
 
   async function fetchRestaurant(restId) {
@@ -1502,10 +1550,7 @@ export default function BillingPage() {
               idempotency_key: (() => {
                 const existing = finalizeIdempotencyRef.current.get(selectedOrder)
                 if (existing) return existing
-                const key =
-                  (typeof crypto !== "undefined" && crypto.randomUUID)
-                    ? crypto.randomUUID()
-                    : `billing-finalize:${selectedOrder}:${Date.now()}`
+                const key = createClientUuid("billing-finalize")
                 finalizeIdempotencyRef.current.set(selectedOrder, key)
                 return key
               })(),
@@ -2577,6 +2622,21 @@ export default function BillingPage() {
           </div>
         ))}
       </div>
+
+      {qrPaymentClaims.length > 0 && (
+        <section className="billing-pending-panel" style={{marginBottom:18,padding:16,borderRadius:18,border:"1px solid rgba(34,197,94,.35)",background:"linear-gradient(135deg,rgba(34,197,94,.09),var(--surface))"}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <div><strong style={{fontSize:17,color:"var(--success)"}}>📲 QR Payment Confirmations</strong><div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>Customers who used a restaurant QR and tapped “I Have Paid”. Verify the transaction, then settle it here.</div></div>
+            <strong style={{color:"var(--success)"}}>{qrPaymentClaims.filter(x=>x.status==="customer_claimed").length} awaiting verification</strong>
+          </div>
+          <div style={{display:"grid",gap:8,marginTop:12}}>
+            {qrPaymentClaims.map(x=><div key={x.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"12px 14px",borderRadius:12,border:"1px solid rgba(34,197,94,.25)",background:"var(--surface-2)"}}>
+              <div><strong>Order #{String(x.order_id).slice(0,8)}</strong><span style={{display:"block",fontSize:12,color:"var(--muted)",marginTop:3}}>₹{Number(x.amount||0).toFixed(2)} • {x.status.replaceAll("_"," ")}{x.reference?` • UTR ${x.reference}`:""}</span></div>
+              <div style={{display:"flex",gap:8}}><button type="button" onClick={()=>{setSelectedOrder(x.order_id);loadBill(x.order_id);setBillView(true)}} style={{...btnBlue,padding:"9px 12px"}}>Open Bill</button><button type="button" onClick={()=>settleQrClaim(x.id)} disabled={qrClaimBusy===x.id} style={{...btnGreen,padding:"9px 12px",opacity:qrClaimBusy===x.id?.6:1}}>{qrClaimBusy===x.id?"Settling…":"✓ Verify & Settle"}</button></div>
+            </div>)}
+          </div>
+        </section>
+      )}
 
       {pendingOrders.length > 0 && (
         <section className="billing-pending-panel" style={{

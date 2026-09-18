@@ -1,0 +1,6 @@
+import crypto from "crypto"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
+import { rateLimit, rateLimitResponse } from "@/lib/publicRateLimit"
+export const runtime="nodejs"
+const hash=v=>crypto.createHash("sha256").update(String(v)).digest("hex")
+export async function GET(req){const limit=rateLimit(req,"public-qr-payment-status",120);if(!limit.ok)return rateLimitResponse(limit);try{const q=new URL(req.url).searchParams;const id=String(q.get("request_id")||"").trim();const token=String(q.get("session_token")||"").trim();if(!id||!token)throw new Error("Payment details are required");const {data:s}=await supabaseCloudAdmin.from("qr_guest_sessions").select("id,restaurant_id").eq("token_hash",hash(token)).gt("expires_at",new Date().toISOString()).maybeSingle();if(!s)throw new Error("QR session expired");const {data:p}=await supabaseCloudAdmin.from("qr_payment_requests").select("id,order_id,amount,method,status,reference,paid_at,provider,created_at").eq("id",id).eq("restaurant_id",s.restaurant_id).eq("session_id",s.id).maybeSingle();if(!p)throw new Error("Payment request not found");return Response.json({success:true,payment:p})}catch(e){return Response.json({success:false,error:e.message||"Unable to check payment"},{status:400})}}

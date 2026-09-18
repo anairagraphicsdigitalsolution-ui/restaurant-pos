@@ -1,5 +1,7 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import html2canvas from "html2canvas"
 
@@ -28,10 +30,7 @@ import html2canvas from "html2canvas"
 
 const CARD = { width: 1050, height: 600, printWidthIn: 3.5, printHeightIn: 2, dpi: 300 }
 
-const uid = () =>
-  typeof crypto !== "undefined" && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+const uid = () => createClientUuid("business-card")
 
 const createElement = (type, extra = {}) => ({
   id: uid(),

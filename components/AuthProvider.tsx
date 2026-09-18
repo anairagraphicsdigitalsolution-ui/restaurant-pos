@@ -52,6 +52,19 @@ async function getCachedOfflineUser() {
   return cached || null
 }
 
+function getFastAuthBootstrap() {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem("anaira:auth-bootstrap")
+    if (!raw) return null
+    const cached = JSON.parse(raw)
+    if (!cached?.user?.id || !cached?.profile?.role) return null
+    return cached
+  } catch {
+    return null
+  }
+}
+
 function requiredFeatureForPath(pathname: string) {
   // Offers is a legacy/core restaurant feature and must remain accessible.
   // Combo Meals is embedded inside Offers, so it must not be redirected by
@@ -221,28 +234,47 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     try {
       let currentUser = knownUser
+      let usedFastBootstrap = false
       if (knownUser === undefined) {
         // After the first successful sync, pathname changes should reuse the
         // current auth user instead of asking Supabase Auth again.
         currentUser = bootstrapped.current ? currentUserRef.current : undefined
         if (currentUser === undefined) {
-          if (isOfflineRuntime()) {
-            // Offline startup must never depend on a network auth call.
-            // Restore the last successful authenticated identity from local metadata.
-            const cachedUser = await getCachedOfflineUser()
-            if (cachedUser) {
-              currentUser = cachedUser
+          if (!isOfflineRuntime() && !bootstrapped.current) {
+            const bootstrap = getFastAuthBootstrap()
+            if (bootstrap?.user?.id && bootstrap?.profile?.role) {
+              currentUser = bootstrap.user
+              usedFastBootstrap = true
+              currentUserRef.current = currentUser
+              profileCacheRef.current = null
+              setUser(currentUser)
+              setRole(bootstrap.profile.role)
+              setRestaurantId(bootstrap.profile.restaurantId || null)
+              // Release the visual auth gate immediately. The real Supabase
+              // session/profile/plan validation continues below and can still
+              // redirect if the cached identity is no longer valid.
+              setLoading(false)
+            }
+          }
+          if (currentUser === undefined) {
+            if (isOfflineRuntime()) {
+              // Offline startup must never depend on a network auth call.
+              // Restore the last successful authenticated identity from local metadata.
+              const cachedUser = await getCachedOfflineUser()
+              if (cachedUser) {
+                currentUser = cachedUser
+              } else {
+                const { data: sessionData } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }))
+                currentUser = sessionData?.session?.user || null
+              }
             } else {
-              const { data: sessionData } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }))
+              // getUser() performs a network auth request and can contend with
+              // other mounted screens for Supabase's persisted-session lock.
+              // The session is already maintained by the shared browser client,
+              // so use its user here and let protected API calls validate tokens.
+              const { data: sessionData } = await supabase.auth.getSession()
               currentUser = sessionData?.session?.user || null
             }
-          } else {
-            // getUser() performs a network auth request and can contend with
-            // other mounted screens for Supabase's persisted-session lock.
-            // The session is already maintained by the shared browser client,
-            // so use its user here and let protected API calls validate tokens.
-            const { data: sessionData } = await supabase.auth.getSession()
-            currentUser = sessionData?.session?.user || null
           }
         }
       }
@@ -262,10 +294,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       let profile: any = null
 
-      if (profileCacheRef.current && profileCacheRef.current.userId === currentUser.id) {
+      if (!usedFastBootstrap && profileCacheRef.current && profileCacheRef.current.userId === currentUser.id) {
         profile = profileCacheRef.current.profile
       }
 
+      // The cached bootstrap is only a render-time optimization. Always
+      // validate it against Supabase before treating it as authoritative.
       if (!profile) {
         profile = await getProfile(currentUser.id, currentUser)
         if (profile) {
@@ -308,6 +342,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       setRole(profile.role)
       setRestaurantId(profile.restaurantId)
+      try {
+        window.localStorage.setItem("anaira:auth-bootstrap", JSON.stringify({
+          user: { id: currentUser.id, email: currentUser.email || "" },
+          profile: { role: profile.role, restaurantId: profile.restaurantId, planFeatures: profile.planFeatures || {} },
+          cachedAt: Date.now(),
+        }))
+      } catch {}
       await cacheOfflineAuthState(currentUser, profile).catch(() => {})
 
       if (pathname === "/login") {
@@ -444,8 +485,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return () => listener.subscription.unsubscribe()
   }, [syncAuth])
 
+  // The Order page is a dedicated POS terminal. It owns its navigation
+  // drawer so the normal application sidebar must never consume POS width.
   const showSidebar = useMemo(
-    () => Boolean(user && role && isInternalPath(pathname)),
+    () => Boolean(user && role && isInternalPath(pathname) && pathname !== "/order"),
     [pathname, role, user]
   )
 

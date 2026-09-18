@@ -3,6 +3,7 @@ import { formatIndiaDateTime } from "@/lib/indiaTime"
 
 import { useEffect, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
+import { showBrowserNotification } from "@/lib/browserNotifications"
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([])
@@ -106,15 +107,6 @@ export default function Notifications() {
     }catch{}
   }
 
-  function showNativeNotification(row){
-    try {
-      if(typeof window !== "undefined" && window.Android && typeof window.Android.notify === "function") {
-        window.Android.notify(String(row?.title || "Restaurant notification"), String(row?.message || "You have a new restaurant alert."), String(row?.action_url || ""))
-        return true
-      }
-    } catch {}
-    return false
-  }
 
   async function enableAlerts() {
     try {
@@ -135,13 +127,7 @@ export default function Notifications() {
       if(settings.in_app!==false) setNotifications(prev => [row, ...prev.filter(x => x.id !== row.id)].slice(0, 100))
       playNotificationSound()
       if(settings.browser===true){
-        const nativeShown = showNativeNotification(row)
-        if(!nativeShown && typeof Notification!=="undefined" && Notification.permission==="granted"){
-          try{
-            const n=new Notification(row.title||"Restaurant notification",{body:row.message||"",tag:`anaira-${row.id}`,requireInteraction:true})
-            n.onclick=()=>{window.focus();if(row.action_url)window.location.href=row.action_url;n.close()}
-          }catch{}
-        }
+        showBrowserNotification(row,{enabled:true,prefix:"Anaira"})
       }
       if (row.type === "order") {
         setTimeout(async () => {

@@ -88,9 +88,11 @@ export default function Dashboard() {
 
       channel = supabaseCloud
         .channel(`dashboard-${rid}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
-        .on("postgres_changes", { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
-        .on("postgres_changes", { event: "*", schema: "public", table: "offers", filter: `restaurant_id=eq.${rid}` }, () => scheduleRefresh(rid))
+        .on("broadcast", { event: "restaurant_data_changed" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") !== String(rid)) return
+          const table = String(payload?.payload?.table || "")
+          if (["orders", "menu_items", "offers"].includes(table)) scheduleRefresh(rid)
+        })
         .subscribe((status) => setLive(status === "SUBSCRIBED"))
     }
 
@@ -135,6 +137,10 @@ export default function Dashboard() {
           payload = await response.json().catch(() => ({}))
           if (response.ok && payload?.success) break
           lastError = new Error(payload?.error || `Dashboard Cloud request failed (${response.status})`)
+          // Authentication failures are deterministic; retrying them only
+          // creates extra Supabase auth/database traffic and can make an
+          // already-expired session look like a database outage.
+          if (response.status === 401 || response.status === 403) break
         } catch (error) {
           lastError = error
         }

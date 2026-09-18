@@ -37,9 +37,18 @@ export default function RealtimeNotificationProvider() {
       void cleanupChannel().then(() => {
         if (cancelled) return
         const channel = supabaseCloud
-          .channel(`anaira-central-notifications-${restaurantId}`)
+          .channel(`restaurant-events-${restaurantId}`)
+          // Notifications are written to public.notifications by server/API
+          // flows. Subscribe to the actual Postgres INSERT event instead of
+          // relying only on a broadcast that those flows do not emit.
           .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` }, payload => {
-            if (!cancelled) window.dispatchEvent(new CustomEvent("anaira:notification", { detail: payload.new as Notice }))
+            const row = payload?.new as Notice | undefined
+            if (!cancelled && row) window.dispatchEvent(new CustomEvent("anaira:notification", { detail: row }))
+          })
+          // Keep broadcast compatibility for older runtimes that still emit it.
+          .on("broadcast", { event: "restaurant_notification" }, payload => {
+            const row = payload?.payload?.notification as Notice | undefined
+            if (!cancelled && row) window.dispatchEvent(new CustomEvent("anaira:notification", { detail: row }))
           })
           .subscribe(status => {
             if (status === "SUBSCRIBED") return

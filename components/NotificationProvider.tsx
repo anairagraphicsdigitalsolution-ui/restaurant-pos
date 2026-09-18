@@ -28,6 +28,9 @@ type NotificationContextValue = {
 
 const NotificationContext = createContext<NotificationContextValue | null>(null)
 
+const NOTIFICATION_CACHE_TTL_MS = 10_000
+const notificationBootstrapCache = new Map<string, { rows: NotificationRow[]; unread: number; cachedAt: number }>()
+
 export function NotificationProvider({ restaurantId, role, children }: { restaurantId: string | null, role: string, children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [unread, setUnread] = useState(0)
@@ -48,24 +51,15 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
   useEffect(() => {
     mounted.current = true
     if (!restaurantId || role === "super_admin") return () => { mounted.current = false }
+    const rid = restaurantId
 
     let channel: any
     let cancelled = false
 
-    async function bootstrap() {
-      const [{ data: latest }, { count }] = await Promise.all([
-        supabaseCloud.from("notifications").select("*").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(30),
-        supabaseCloud.from("notifications").select("id", { count: "exact", head: true }).eq("restaurant_id", restaurantId).is("read_at", null)
-      ])
-      if (cancelled || !mounted.current) return
-      const rows = latest || []
-      rows.forEach((row: any) => seen.current.add(row.id))
-      setNotifications(rows)
-      setUnread(count || 0)
-
+    const subscribeLive = () => {
       channel = supabaseCloud
-        .channel(`restaurant-live-${restaurantId}`)
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${restaurantId}` }, payload => {
+        .channel(`restaurant-live-${rid}`)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `restaurant_id=eq.${rid}` }, payload => {
           const row = payload.new as NotificationRow
           if (cancelled || !row?.id || seen.current.has(row.id)) return
           seen.current.add(row.id)
@@ -77,6 +71,41 @@ export function NotificationProvider({ restaurantId, role, children }: { restaur
         })
         .subscribe()
     }
+
+    async function bootstrap() {
+      const cached = notificationBootstrapCache.get(rid)
+      if (cached && (Date.now() - cached.cachedAt) < NOTIFICATION_CACHE_TTL_MS) {
+        cached.rows.forEach((row) => seen.current.add(row.id))
+        setNotifications(cached.rows)
+        setUnread(cached.unread)
+        subscribeLive()
+        return
+      }
+
+      const [{ data: latest }, { count }] = await Promise.all([
+        supabaseCloud.from("notifications")
+          .select("id,type,title,message,action_url,created_at,read_at")
+          .eq("restaurant_id", rid)
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabaseCloud.from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("restaurant_id", rid)
+          .is("read_at", null)
+      ])
+      if (cancelled || !mounted.current) return
+      const rows = latest || []
+      rows.forEach((row: any) => seen.current.add(row.id))
+      setNotifications(rows)
+      setUnread(count || 0)
+      notificationBootstrapCache.set(rid, {
+        rows,
+        unread: count || 0,
+        cachedAt: Date.now(),
+      })
+      subscribeLive()
+    }
+
     void bootstrap()
     return () => {
       cancelled = true

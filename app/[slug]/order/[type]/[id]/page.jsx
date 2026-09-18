@@ -1,12 +1,17 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import { useEffect, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
+import QRCode from "react-qr-code"
 import { applyTheme, DEFAULT_THEME, BRAND_THEMES, useTheme } from "@/components/ThemeProvider"
+import { supabasePublic } from "@/lib/supabasePublic"
 
 export default function OrderPage() {
 
   const params = useParams()
+  const searchParams = useSearchParams()
   const { refreshTheme } = useTheme()
 
   const comboModalBox = {
@@ -94,6 +99,20 @@ const [ratingFeedback, setRatingFeedback] = useState("")
 const [ratingSending, setRatingSending] = useState(false)
 const [ratingSent, setRatingSent] = useState(false)
 const [ratingError, setRatingError] = useState("")
+const [qrSessionToken, setQrSessionToken] = useState("")
+const [trackedOrderId, setTrackedOrderId] = useState("")
+const [trackedOrder, setTrackedOrder] = useState(null)
+const [orderHistory, setOrderHistory] = useState([])
+const [paymentConfig, setPaymentConfig] = useState({auto_enabled:false,manual_enabled:false,upi_id:"",manual_qr_image_url:"",merchant_name:""})
+const [advancedQrEnabled, setAdvancedQrEnabled] = useState(false)
+const [paymentRequest, setPaymentRequest] = useState(null)
+const [showPayment, setShowPayment] = useState(false)
+const [paymentReference, setPaymentReference] = useState("")
+const [paymentBusy, setPaymentBusy] = useState(false)
+const [serviceBusy, setServiceBusy] = useState("")
+const [serviceMessage, setServiceMessage] = useState("")
+const [statusMessage, setStatusMessage] = useState("")
+const [trackingCopied, setTrackingCopied] = useState(false)
 function nextBanner(){
 
 if(!banners.length) return
@@ -173,8 +192,105 @@ const [variantSelection, setVariantSelection] = useState(null)
 const [variantQuantities, setVariantQuantities] = useState({})
 
 useEffect(() => {
-  if (slug && type && id) init()
+  if (slug && type && id) {
+    try {
+      const key = `anaira:qr-session:${slug}:${type}:${id}`
+      const saved = window.localStorage.getItem(key) || ""
+      const lastOrderKey = `anaira:qr-last-order:${slug}:${type}:${id}`
+      const savedOrderId = window.localStorage.getItem(lastOrderKey) || ""
+      if (saved) setQrSessionToken(saved)
+      if (savedOrderId) setTrackedOrderId(savedOrderId)
+
+      // A shareable tracking link keeps the session token in the URL fragment,
+      // so it is available to the browser without being sent in normal HTTP
+      // referrer/request headers. The same link can be reopened after Back,
+      // refresh, or closing the tab.
+      const hash = String(window.location.hash || "")
+      const match = hash.match(/(?:^|#|&)track=([^&]+)/)
+      if (match?.[1]) {
+        const tokenFromLink = decodeURIComponent(match[1])
+        if (tokenFromLink) setQrSessionToken(tokenFromLink)
+      }
+    } catch {}
+    init()
+  }
 }, [slug, type, id])
+
+useEffect(() => {
+  const orderId = String(searchParams?.get("order_id") || "").trim()
+  if (orderId) {
+    setTrackedOrderId(orderId)
+    try {
+      if (slug && type && id) window.localStorage.setItem(`anaira:qr-last-order:${slug}:${type}:${id}`, orderId)
+    } catch {}
+    if (searchParams?.get("payment") === "return") setShowPayment(true)
+  }
+}, [searchParams, slug, type, id])
+
+useEffect(() => {
+  if (!trackedOrderId || !qrSessionToken) return
+  let stopped = false
+  let recovering = false
+  let channel = null
+  const terminal = value => ["paid","settled","cancelled","canceled","void","voided","refunded"].includes(String(value || "").toLowerCase())
+  const clearTrackedOrder = () => {
+    try {
+      if (slug && type && id) {
+        window.localStorage.removeItem(`anaira:qr-last-order:${slug}:${type}:${id}`)
+        window.localStorage.removeItem(`anaira:qr-session:${slug}:${type}:${id}`)
+      }
+    } catch {}
+    setTrackedOrder(null); setTrackedOrderId(""); setQrSessionToken(""); setPaymentRequest(null); setShowPayment(false)
+    try { window.history.replaceState(window.history.state, "", window.location.pathname) } catch {}
+  }
+  const recoverSession = async () => {
+    if (recovering || stopped) return false
+    recovering = true
+    try {
+      const r = await fetch("/api/public/qr-session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ slug, type, source_id:selected?.id || id, order_id:trackedOrderId }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !d.success || !d.session_token) return false
+      setQrSessionToken(d.session_token)
+      try { window.localStorage.setItem(`anaira:qr-session:${slug}:${type}:${id}`, d.session_token) } catch {}
+      return true
+    } catch { return false } finally { recovering = false }
+  }
+  const poll = async (allowRecovery = true) => {
+    try {
+      const r = await fetch(`/api/public/qr-status?order_id=${encodeURIComponent(trackedOrderId)}&token=${encodeURIComponent(qrSessionToken)}`, { cache:"no-store" })
+      const d = await r.json().catch(() => ({}))
+      if (stopped) return
+      if (r.ok && d.success) {
+        const order=d.order||null
+        if (terminal(order?.payment_status) || terminal(order?.status)) { clearTrackedOrder(); return }
+        setTrackedOrder(order)
+        if (order?.customer_phone && !customerPhone) setCustomerPhone(String(order.customer_phone))
+        if (order?.customer_name && !customerName) setCustomerName(String(order.customer_name))
+        setOrderHistory(d.history||[])
+        const latest=(d.payments||[])[0]; if(latest) setPaymentRequest(latest)
+        return
+      }
+      if (allowRecovery && [400,404].includes(r.status) && await recoverSession()) return poll(false)
+      if ([400,404,410].includes(r.status)) clearTrackedOrder()
+    } catch {}
+  }
+  const subscribe = async () => {
+    try {
+      const bytes = new TextEncoder().encode(qrSessionToken)
+      const digest = await crypto.subtle.digest("SHA-256", bytes)
+      const hash = Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,"0")).join("")
+      if (stopped) return
+      channel = supabasePublic.channel(`qr-track:${hash}`)
+        .on("broadcast", { event:"order_update" }, payload => {
+          if (String(payload?.payload?.order_id||"") === String(trackedOrderId)) poll(false)
+        })
+        .subscribe()
+    } catch {}
+  }
+  poll(true); subscribe()
+  const timer = setInterval(() => { if(document.visibilityState === "visible") poll(true) }, 30000)
+  return () => { stopped=true; clearInterval(timer); if(channel) void supabasePublic.removeChannel(channel) }
+}, [trackedOrderId, qrSessionToken, slug, type, id, selected?.id])
 
 useEffect(() => {
 
@@ -246,6 +362,8 @@ async function init() {
       setMenu(payload.menu || [])
       setSelected(payload.source || null)
       setRatingSummary(payload.rating || { average: 0, count: 0 })
+      setPaymentConfig(payload.payment_config || {auto_enabled:false,manual_enabled:false,upi_id:"",manual_qr_image_url:"",merchant_name:""})
+      setAdvancedQrEnabled(payload?.qr_runtime?.advanced_ordering_enabled === true)
     } catch (error) {
       console.error("QR INIT ERROR:", error)
       setFeedbackEnabled(false)
@@ -298,6 +416,25 @@ async function init() {
   setCart(cart.filter(item => item.cartKey !== cartKey))
 }
 
+  async function ensureQrSessionForOrder(orderId) {
+    const response = await fetch("/api/public/qr-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, type, source_id: selected?.id || id, order_id: orderId })
+    })
+    const payload = await response.json()
+    if (!response.ok || !payload?.success) throw new Error(payload?.error || "Unable to start table session")
+    const token = payload.session_token
+    setQrSessionToken(token)
+    try { window.localStorage.setItem(`anaira:qr-session:${slug}:${type}:${id}`, token) } catch {}
+    return token
+  }
+
+  async function ensureQrSession() {
+    if (qrSessionToken) return qrSessionToken
+    return ensureQrSessionForOrder("")
+  }
+
   // 🚀 PLACE ORDER
   async function placeOrder() {
 
@@ -306,6 +443,12 @@ async function init() {
     if (!cart.length) return alert("Cart empty")
 
     try {
+      // Core order creation must never be blocked by the optional guest
+      // tracking session. Older/partially migrated Supabase projects may not
+      // have qr_guest_sessions yet. Create the order first; bind tracking
+      // afterwards on a best-effort basis.
+      let sessionToken = qrSessionToken || ""
+      const clientRequestId = createClientUuid("qr-order")
       const response = await fetch("/api/orders/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -313,6 +456,8 @@ async function init() {
           slug,
           source_type: type,
           source_id: selected.id,
+          qr_session_token: sessionToken || null,
+          client_request_id: clientRequestId,
           overall_note: orderNote,
           customer_name: customerName.trim() || null,
           customer_phone: customerPhone.replace(/\D/g, "").slice(0, 15) || null,
@@ -337,6 +482,33 @@ async function init() {
         window.open(payload.customer_whatsapp_url, "_blank", "noopener,noreferrer")
       }
 
+      const newOrderId = payload?.order?.order_id || payload?.order?.id || ""
+      if (newOrderId) {
+        // Tracking is an enhancement, not a prerequisite for a successful
+        // order. If a session already exists use it; otherwise create/bind one
+        // after the order has been committed.
+        if (!sessionToken) {
+          try {
+            sessionToken = await ensureQrSessionForOrder(newOrderId)
+          } catch (sessionError) {
+            console.warn("QR SESSION AFTER ORDER:", sessionError)
+            sessionToken = ""
+          }
+        }
+
+        setTrackedOrderId(newOrderId)
+        setTrackedOrder(payload.order)
+        setShowCart(false)
+        try {
+          const lastOrderKey = `anaira:qr-last-order:${slug}:${type}:${id}`
+          window.localStorage.setItem(lastOrderKey, String(newOrderId))
+          const trackHash = sessionToken ? `#track=${encodeURIComponent(sessionToken)}` : ""
+          window.history.replaceState(window.history.state, "", `${window.location.origin}${window.location.pathname}?order_id=${encodeURIComponent(newOrderId)}${trackHash}`)
+        } catch {}
+        setStatusMessage(sessionToken
+          ? `Order #${String(payload?.order?.order_number || "").padStart(4,"0")} is now being tracked live.`
+          : `Order #${String(payload?.order?.order_number || "").padStart(4,"0")} placed successfully.`)
+      }
       alert("✅ Order placed successfully")
       setCart([])
       setOrderNote("")
@@ -434,6 +606,90 @@ const qrGst = restaurant?.gst_enabled
 const grandTotal = Number(
   (discountedSubtotal + qrGst).toFixed(2)
 )
+
+async function requestService(requestType) {
+  if (!qrSessionToken) { try { await ensureQrSession() } catch (e) { setServiceMessage(e.message); return } }
+  setServiceBusy(requestType); setServiceMessage("")
+  try {
+    const r = await fetch("/api/public/qr-service-request", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ session_token:qrSessionToken, request_type:requestType, order_id:trackedOrderId||null }) })
+    const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || "Unable to send request")
+    setServiceMessage(requestType === "bill" ? "Bill request sent to the restaurant." : "Waiter has been notified.")
+  } catch (e) { setServiceMessage(e.message || "Unable to send request") } finally { setServiceBusy("") }
+}
+
+function getTrackingLink() {
+  if (!trackedOrderId || !qrSessionToken || typeof window === "undefined") return ""
+  return `${window.location.origin}${window.location.pathname}?order_id=${encodeURIComponent(trackedOrderId)}#track=${encodeURIComponent(qrSessionToken)}`
+}
+
+async function copyTrackingLink() {
+  const link = getTrackingLink()
+  if (!link) return
+  try {
+    await navigator.clipboard.writeText(link)
+    setTrackingCopied(true)
+    window.setTimeout(() => setTrackingCopied(false), 1800)
+  } catch {
+    setStatusMessage("Tracking link could not be copied. You can use Share instead.")
+  }
+}
+
+async function shareTrackingLink() {
+  const link = getTrackingLink()
+  if (!link) return
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: `Order #${String(trackedOrder?.order_number ?? trackedOrderId).padStart(4,"0")} · Anaira`, text: "Track your restaurant order live", url: link })
+      return
+    }
+    await copyTrackingLink()
+  } catch {}
+}
+
+async function loadPaymentConfig() {
+  if (!restaurant?.id) return false
+  try {
+    const r = await fetch(`/api/public/qr-payment/config?restaurant_id=${encodeURIComponent(restaurant.id)}`, { cache:"no-store" })
+    const d = await r.json().catch(() => ({}))
+    if (r.ok && d?.success) { setPaymentConfig(d.payment_config || {}); return true }
+  } catch {}
+  return false
+}
+
+async function openPayment() {
+  setShowPayment(true)
+  if (!paymentConfig.auto_enabled && !paymentConfig.manual_enabled) await loadPaymentConfig()
+}
+
+async function startPayment(method) {
+  if (!trackedOrderId) { setStatusMessage("Place an order first."); return }
+  if (method === "auto" && !customerPhone.trim()) { setShowPayment(false); setShowCart(true); setStatusMessage("Please enter your mobile number in checkout before automatic payment."); return }
+  if (!qrSessionToken) { try { await ensureQrSession() } catch (e) { setStatusMessage(e.message); return } }
+  setPaymentBusy(true); setStatusMessage("")
+  try {
+    const r = await fetch("/api/public/qr-payment/create", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ order_id:trackedOrderId, session_token:qrSessionToken, method, return_url:typeof window!=="undefined"?window.location.href.split("?")[0]:"" }) })
+    const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || "Unable to start payment")
+    if (d.already_paid) { setStatusMessage("Payment is already received."); setShowPayment(false); return }
+    setPaymentRequest({ id:d.request_id, amount:d.amount, method:d.mode === "auto" ? "cashfree" : "manual_qr", status:d.mode === "auto" ? "processing" : "pending" })
+    setShowPayment(true)
+    if (d.mode === "manual") { setPaymentRequest(p=>({...p,...d})); return }
+    if (!window.Cashfree) {
+      await new Promise((resolve,reject)=>{ const existing=document.querySelector('script[data-cashfree-sdk="v3"]'); if(existing){existing.addEventListener("load",resolve,{once:true});existing.addEventListener("error",()=>reject(new Error("Unable to load payment gateway")),{once:true});return} const script=document.createElement("script");script.src="https://sdk.cashfree.com/js/v3/cashfree.js";script.dataset.cashfreeSdk="v3";script.onload=resolve;script.onerror=()=>reject(new Error("Unable to load payment gateway"));document.head.appendChild(script) })
+    }
+    const cashfree=window.Cashfree({mode:d.environment === "production" ? "production" : "sandbox"})
+    await cashfree.checkout({paymentSessionId:d.payment_session_id,redirectTarget:"_self"})
+  } catch(e) { setStatusMessage(e.message || "Unable to start payment") } finally { setPaymentBusy(false) }
+}
+
+async function claimManualPayment() {
+  if (!paymentRequest?.id) return
+  setPaymentBusy(true); setStatusMessage("")
+  try {
+    const r=await fetch("/api/public/qr-payment/claim",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({request_id:paymentRequest.id,session_token:qrSessionToken,reference:paymentReference.trim()||null})})
+    const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||"Unable to confirm payment")
+    setPaymentRequest(p=>({...p,status:d.status}));setStatusMessage("Payment confirmation sent. Restaurant/waiter has been notified; they will verify and settle it.")
+  } catch(e){setStatusMessage(e.message||"Unable to confirm payment")} finally{setPaymentBusy(false)}
+}
 
 async function submitRating() {
   if (!rating) { setRatingError("Please select a star rating first."); return }
@@ -630,15 +886,11 @@ style={rightArrow}
 
   <div style={heroInfo}>
 
-    ⭐ 5.0
-
+    ⭐ {Number(ratingSummary.average||0) > 0 ? Number(ratingSummary.average).toFixed(1) : "New"}
     <span>•</span>
-
-    Premium Dining
-
+    {restaurant?.cuisine || "Dining"}
     <span>•</span>
-
-    20 Min
+    {restaurant?.preparation_time_minutes ? `${restaurant.preparation_time_minutes} Min` : "Freshly Prepared"}
 
   </div>
 
@@ -838,12 +1090,14 @@ currentBanner===index
     const cartItem = cartItems[0]
     const cartItemQty = cartItems.reduce((sum, i) => sum + Number(i.qty || 0), 0)
 
+    const itemAvailable = item?.available !== false
+
     return (
 
       <div
         key={item.id}
-        style={card}
-  onClick={() => openFood(item)}
+        style={{...card,opacity:itemAvailable?1:.58}}
+  onClick={() => itemAvailable && openFood(item)}
   onMouseEnter={(e)=>{
 
 e.currentTarget.style.transform="translateY(-8px)"
@@ -952,6 +1206,7 @@ image.style.transform="scale(1)"
 
 <button
   type="button"
+  disabled={!itemAvailable}
   onClick={(e)=>{
 
 e.stopPropagation()
@@ -1023,6 +1278,71 @@ border:
 )}
 
       
+      {(trackedOrderId || trackedOrder) && trackedOrder && !["paid","settled"].includes(String(trackedOrder?.payment_status||"").toLowerCase()) && !["cancelled","canceled","void","voided","refunded"].includes(String(trackedOrder?.status||"").toLowerCase()) && (
+        <section style={qrTrackerCard}>
+          <div style={ratingEyebrow}>LIVE ORDER</div>
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <div><h2 style={{margin:0,fontSize:22}}>Order #{String(trackedOrder?.order_number ?? trackedOrderId).padStart(4,"0")}</h2><p style={{margin:"5px 0 0",color:"var(--muted)"}}>Your order status updates automatically — no need to scan the QR again.</p></div>
+            <span style={qrStatusPill}>{String(trackedOrder?.payment_status||"unpaid").toUpperCase()}</span>
+          </div>
+          <div style={qrTimeline}>
+            {["preparing","ready"].map(step=>{
+              const raw=String(trackedOrder?.status||"pending").toLowerCase();
+              const aliases={pending:"preparing",new:"preparing",received:"preparing",confirmed:"preparing",accepted:"preparing",in_progress:"preparing",processing:"preparing",preparing:"preparing",done:"ready",completed:"ready",served:"ready",ready:"ready"};
+              const current=aliases[raw] || "preparing";
+              const active=current===step || orderHistory.some(h => (aliases[String(h.status||"").toLowerCase()] || "")===step);
+              return <div key={step} style={qrTimelineStep}><span style={{...qrTimelineDot,opacity:active?1:.35}}>{active?"✓":"○"}</span><span>{step === "preparing" ? "Preparing" : "Ready"}</span></div>
+            })}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${advancedQrEnabled?4:2},minmax(0,1fr))`,gap:8,marginTop:14}}>
+            {advancedQrEnabled && <button type="button" style={qrActionButton} onClick={()=>requestService("waiter")} disabled={!!serviceBusy}>🔔 {serviceBusy==="waiter"?"Calling…":"Call Waiter"}</button>}
+            {advancedQrEnabled && <button type="button" style={qrActionButton} onClick={()=>requestService("bill")} disabled={!!serviceBusy}>🧾 {serviceBusy==="bill"?"Requesting…":"Request Bill"}</button>}
+            <button type="button" style={qrActionButton} onClick={()=>document.querySelector(".qr-menu-grid")?.scrollIntoView({behavior:"smooth",block:"start"})}>➕ Add More</button>
+            <button type="button" style={qrPayButton} onClick={()=>{ const token=encodeURIComponent(qrSessionToken||""); window.location.href=`/${slug}/pay/${type}/${id}?order_id=${encodeURIComponent(trackedOrderId)}#token=${token}` }}>💳 Pay Bill</button>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+            <button type="button" style={qrActionButton} onClick={copyTrackingLink}>🔗 {trackingCopied?"Tracking Link Copied":"Copy Tracking Link"}</button>
+            <button type="button" style={qrActionButton} onClick={shareTrackingLink}>📤 Share Tracking</button>
+          </div>
+          {serviceMessage&&<div style={qrNotice}>{serviceMessage}</div>}
+          {statusMessage&&<div style={qrNotice}>{statusMessage}</div>}
+        </section>
+      )}
+      {trackedOrder && ["paid","settled"].includes(String(trackedOrder.payment_status||"").toLowerCase()) && (
+        <section style={{...qrTrackerCard,borderColor:"rgba(var(--primary-rgb),.35)"}}>
+          <div style={ratingEyebrow}>ORDER COMPLETE</div>
+          <h2 style={{margin:"0 0 6px",fontSize:22}}>Order #{String(trackedOrder.order_number ?? trackedOrderId).padStart(4,"0")} · Paid</h2>
+          <p style={{margin:0,color:"var(--muted)"}}>Payment received and bill finalized. This order is closed; the QR menu is ready for a new order.</p>
+          {trackedOrder.invoice_no && <div style={{marginTop:10,fontWeight:800}}>Invoice: {trackedOrder.invoice_no}</div>}
+          <button type="button" style={{...qrActionButton,marginTop:12}} onClick={()=>{setTrackedOrder(null);setTrackedOrderId("");setPaymentRequest(null);try{window.localStorage.removeItem(`anaira:qr-last-order:${slug}:${type}:${id}`)}catch{};window.history.replaceState(window.history.state,"",window.location.pathname)}}>Start New Order</button>
+        </section>
+      )}
+
+      {showPayment && trackedOrderId && (
+        <div style={overlay} onClick={()=>setShowPayment(false)}><div style={{...modal,maxWidth:520}} onClick={e=>e.stopPropagation()}>
+          <h2 style={{marginTop:0}}>Pay Bill</h2>
+          <div style={{fontSize:30,fontWeight:900,margin:"10px 0 18px"}}>₹{Number(paymentRequest?.amount ?? trackedOrder?.total_amount ?? 0).toFixed(2)}</div>
+          <div style={{display:"grid",gap:10}}>
+            {paymentConfig.auto_enabled && <button type="button" style={qrPayButton} disabled={paymentBusy} onClick={()=>startPayment("auto")}>⚡ Pay Online Automatically</button>}
+            {paymentConfig.manual_enabled && <button type="button" style={qrActionButton} disabled={paymentBusy} onClick={()=>startPayment("manual_qr")}>📲 Pay with Restaurant QR</button>}
+            {!paymentConfig.auto_enabled && !paymentConfig.manual_enabled && <div style={qrNotice}>Online payment is not configured for this restaurant. You can request the bill and pay directly at the counter.</div>}
+          </div>
+          {paymentRequest?.method==="manual_qr" && paymentRequest.status!=="paid" && (
+            <div style={{marginTop:18,padding:16,borderRadius:16,border:"1px solid var(--border)",background:"var(--surface-2)"}}>
+              <div style={{textAlign:"center",fontWeight:800,marginBottom:10}}>{paymentRequest.merchant_name||paymentConfig.merchant_name||"Restaurant"}</div>
+              {paymentRequest.qr_image_url||paymentConfig.manual_qr_image_url ? <img src={paymentRequest.qr_image_url||paymentConfig.manual_qr_image_url} alt="Restaurant payment QR" style={{display:"block",width:220,height:220,objectFit:"contain",margin:"0 auto",background:"white",padding:10,borderRadius:12}}/> : paymentRequest.upi_uri ? <div style={{width:220,height:220,margin:"0 auto",background:"white",padding:10,borderRadius:12}}><QRCode value={paymentRequest.upi_uri} size={200}/></div> : null}
+              {paymentRequest.upi_uri && <button type="button" style={{...qrActionButton,marginTop:10,width:"100%"}} onClick={()=>window.location.href=paymentRequest.upi_uri}>Open UPI App</button>}
+              <input value={paymentReference} onChange={e=>setPaymentReference(e.target.value.slice(0,120))} placeholder="UTR / transaction reference (optional)" style={{width:"100%",boxSizing:"border-box",marginTop:10,padding:11,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)"}}/>
+              <button type="button" style={{...qrPayButton,width:"100%",marginTop:10,position:"sticky",bottom:0,zIndex:4}} disabled={paymentBusy||paymentRequest.status==="customer_claimed"} onClick={claimManualPayment}>{paymentRequest.status==="customer_claimed"?"✓ Payment Sent for Verification":paymentBusy?"Sending…":"✓ I Have Paid"}</button>
+              <small style={{display:"block",marginTop:8,color:"var(--muted)",lineHeight:1.5}}>This works with any restaurant QR image (PhonePe, Google Pay, Paytm, BharatPe, bank UPI, etc.). After paying, tap “I Have Paid”; the restaurant/waiter gets an alert and can manually verify and settle the bill.</small>
+            </div>
+          )}
+          {paymentRequest?.status==="paid" && <div style={qrSuccess}>✓ Payment received</div>}
+          {paymentRequest?.status!=="paid" && paymentConfig.auto_enabled && <small style={{display:"block",marginTop:12,color:"var(--muted)"}}>Automatic payment uses the enabled payment-gateway plugin and is confirmed by the provider webhook. Manual QR payments are never auto-marked paid just because the customer tapped “I Have Paid”.</small>}
+          <button type="button" style={{...secondary,width:"100%",marginTop:14}} onClick={()=>setShowPayment(false)}>Close</button>
+        </div></div>
+      )}
+
       {feedbackEnabled && <section id="qr-rating" style={ratingCard}>
         <div style={ratingEyebrow}>YOUR EXPERIENCE MATTERS</div>
         <div style={ratingTop}>
@@ -1496,6 +1816,7 @@ margin:"14px 0"
 
   <div
     style={foodModal}
+    className="qr-food-modal"
     onClick={(e)=>e.stopPropagation()}
   >
     <div
@@ -1536,15 +1857,11 @@ margin:"14px 0"
 
       <div style={foodMeta}>
 
-        ⭐ 4.9
-
+        ⭐ {Number(ratingSummary.average||0) > 0 ? Number(ratingSummary.average).toFixed(1) : "New"}
         <span>•</span>
-
-        20 mins
-
+        {selectedFood?.preparation_time_minutes ? `${selectedFood.preparation_time_minutes} mins` : "Freshly Prepared"}
         <span>•</span>
-
-        Chef Special
+        {selectedFood?.popular ? "Popular" : "Chef Special"}
 
       </div>
 
@@ -1631,7 +1948,7 @@ margin:"14px 0"
   style={modalTextarea}
 />
 
-      <button
+      <div className="qr-food-modal-actions"><button
   style={modalButton}
   onClick={()=>{
 
@@ -1692,7 +2009,7 @@ margin:"14px 0"
     ? (selectedFood.variants || []).reduce((sum,v)=>sum + (Number(selectedFood.price||0)+Number(v.price_delta||0))*Number(variantQuantities[v.id]||0),0)
     : getUnitPrice(selectedFood, comboSelection, variantSelection) * modalQty).toFixed(2)}
 
-</button>
+</button></div>
 
     </div>
 
@@ -1708,6 +2025,12 @@ margin:"14px 0"
       </div>
 
 <style jsx global>{`
+.qr-page .qr-food-modal{max-height:calc(100dvh - 24px);overflow:auto;display:flex;flex-direction:column}
+.qr-page .qr-food-modal-actions{position:sticky;bottom:0;background:linear-gradient(to top,var(--surface) 78%,transparent);padding:14px 0 2px;margin-top:12px;z-index:8}.qr-page .qr-food-modal-actions button{width:100%;min-height:52px}.qr-page .qr-food-modal{max-height:calc(100dvh - 20px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.qr-page .qr-food-modal-actions button{width:100%;min-height:50px}
+.qr-page .qr-payment-page-link{min-height:46px}
+.qr-page{overflow-x:hidden}.qr-page button{touch-action:manipulation}.qr-menu-grid{align-items:stretch}.qr-page .qr-menu-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}.qr-page .qr-menu-grid>div{min-width:0!important}.qr-page .qr-menu-grid img{width:100%!important;height:120px!important;min-height:120px!important;object-fit:cover!important}.qr-page .qr-menu-grid>div>div{padding:10px!important;gap:6px!important}.qr-page .qr-menu-grid h3{font-size:13px!important;line-height:1.2!important;min-height:31px!important;height:31px!important;margin:0 0 3px!important}.qr-page .qr-menu-grid span[style*="font-size:18px"]{font-size:15px!important}@media(max-width:900px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;padding:10px 8px!important}.qr-page .qr-menu-grid img{height:105px!important;min-height:105px!important}.qr-page .qr-menu-grid>div>div{padding:8px!important}.qr-page .qr-menu-grid h3{font-size:11px!important;line-height:1.15!important;min-height:26px!important;height:26px!important}.qr-page .qr-menu-grid span[style*="font-size:18px"]{font-size:13px!important}.qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){padding:6px 8px!important;font-size:10px!important;min-height:30px!important}}@media(max-width:760px){.qrTimeline{grid-template-columns:repeat(2,1fr)!important}.qrTrackerCard{width:calc(100% - 20px)!important}.qr-page .qr-header-actions{flex-wrap:wrap}}@media(max-width:520px){.qr-page .qr-header{padding:12px!important}.qr-page .qr-hero{height:230px!important}.qr-page .qr-action-row{grid-template-columns:1fr!important}}
+
 
 @keyframes bannerFade{
 
@@ -1883,6 +2206,8 @@ transform:translateX(-50%);
   }
 }
 
+.qr-page .qr-menu-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:120px!important;min-height:120px!important}@media(max-width:900px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:105px!important;min-height:105px!important}}@media(max-width:520px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;padding:8px 6px!important}.qr-page .qr-menu-grid img{height:92px!important;min-height:92px!important}.qr-page .qr-menu-grid>div>div{padding:7px 6px!important}.qr-page .qr-menu-grid h3{font-size:10px!important;min-height:24px!important;height:24px!important}.qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){padding:5px 6px!important;font-size:9px!important;min-height:28px!important}}
+
 /* Round, touch-friendly quantity controls. */
 .qr-qty-btn{
   width:42px !important;
@@ -2005,7 +2330,133 @@ transform:translateX(-50%);
     width:100% !important;
   }
 }
-`}</style>
+        /* Anaira QR premium compact system: dense 3-column menu, glass surfaces, clear hierarchy. */
+        .qr-page{
+          background:
+            radial-gradient(circle at 8% 0%,rgba(var(--primary-rgb),.10),transparent 28%),
+            radial-gradient(circle at 92% 8%,rgba(var(--accent-rgb),.08),transparent 26%),
+            var(--background)!important;
+        }
+        .qr-page .qr-hero{
+          height:300px!important;
+          border-bottom-left-radius:28px;
+          border-bottom-right-radius:28px;
+          box-shadow:0 20px 55px rgba(0,0,0,.30);
+        }
+        .qr-page .qr-hero:after{
+          content:"";position:absolute;inset:0;pointer-events:none;
+          background:linear-gradient(180deg,rgba(0,0,0,.05) 25%,rgba(0,0,0,.18) 52%,rgba(0,0,0,.78) 100%);
+        }
+        .qr-page .qr-header{
+          margin:-1px auto 0!important;
+          padding:14px 18px!important;
+          background:rgba(var(--surface-rgb),.78)!important;
+          border-bottom:1px solid rgba(var(--primary-rgb),.14)!important;
+          box-shadow:0 10px 35px rgba(0,0,0,.16)!important;
+        }
+        .qr-page .qr-header>div{max-width:1280px;margin:0 auto;}
+        .qr-page .qr-header img{
+          width:56px!important;height:56px!important;border-width:2px!important;
+          box-shadow:0 8px 24px rgba(var(--primary-rgb),.24)!important;
+        }
+        .qr-page .qr-header h1{font-size:20px!important;letter-spacing:-.25px;}
+        .qr-page .qr-header-action{
+          border-color:rgba(var(--primary-rgb),.18)!important;
+          background:rgba(var(--surface-2-rgb),.72)!important;
+          box-shadow:0 8px 22px rgba(0,0,0,.14)!important;
+          backdrop-filter:blur(14px);
+        }
+        .qr-page .qr-search-box{
+          height:54px!important;border-radius:16px!important;
+          border-color:rgba(var(--primary-rgb),.16)!important;
+          background:rgba(var(--surface-rgb),.74)!important;
+          box-shadow:0 12px 30px rgba(0,0,0,.14)!important;
+        }
+        .qr-page .qr-category-bar{
+          max-width:1280px;margin:0 auto;
+          border:1px solid rgba(var(--primary-rgb),.10);
+          border-radius:16px;
+          background:rgba(var(--surface-rgb),.68)!important;
+          backdrop-filter:blur(18px);
+          box-shadow:0 10px 25px rgba(0,0,0,.10);
+          top:84px!important;
+        }
+        .qr-page .qr-category-bar button{
+          min-height:38px;border-radius:11px!important;font-size:11px!important;
+          padding:8px 13px!important;font-weight:800!important;
+        }
+        .qr-page .qr-menu-grid{
+          grid-template-columns:repeat(3,minmax(0,1fr))!important;
+          gap:14px!important;padding:18px 16px 120px!important;
+          max-width:1280px!important;
+        }
+        .qr-page .qr-menu-grid>div{
+          border-radius:18px!important;
+          border-color:rgba(var(--primary-rgb),.12)!important;
+          background:linear-gradient(180deg,rgba(var(--surface-rgb),.92),rgba(var(--surface-2-rgb),.78))!important;
+          box-shadow:0 12px 30px rgba(0,0,0,.16)!important;
+          backdrop-filter:blur(12px);
+          overflow:hidden;
+        }
+        .qr-page .qr-menu-grid>div:hover{
+          border-color:rgba(var(--primary-rgb),.32)!important;
+          box-shadow:0 18px 38px rgba(0,0,0,.22)!important;
+        }
+        .qr-page .qr-menu-grid img{
+          height:145px!important;min-height:145px!important;
+          object-fit:cover!important;display:block;
+        }
+        .qr-page .qr-menu-grid>div>div{
+          padding:10px!important;gap:7px!important;
+        }
+        .qr-page .qr-menu-grid h3{
+          font-size:12px!important;line-height:1.22!important;
+          min-height:30px!important;height:30px!important;
+          letter-spacing:-.1px;
+        }
+        .qr-page .qr-menu-grid span[style*="font-size:18px"]{
+          font-size:14px!important;font-weight:900!important;
+        }
+        .qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){
+          min-height:34px!important;padding:7px 10px!important;
+          border-radius:10px!important;font-size:10px!important;font-weight:900!important;
+          box-shadow:none!important;
+        }
+        .qr-page .qr-menu-grid .qr-qty-btn{
+          width:34px!important;height:34px!important;min-width:34px!important;min-height:34px!important;
+          flex-basis:34px!important;font-size:17px!important;
+        }
+        .qr-page .qrTrackerCard{
+          margin-top:18px!important;border-radius:20px!important;
+          background:linear-gradient(145deg,rgba(var(--surface-rgb),.94),rgba(var(--surface-2-rgb),.84))!important;
+          border-color:rgba(var(--primary-rgb),.16)!important;
+          box-shadow:0 18px 45px rgba(0,0,0,.18)!important;
+        }
+        .qr-page .qr-header-actions{gap:7px!important;}
+        @media(max-width:700px){
+          .qr-page .qr-hero{height:250px!important;border-radius:0 0 22px 22px;}
+          .qr-page .qr-header{padding:11px 10px!important;}
+          .qr-page .qr-header h1{font-size:16px!important;}
+          .qr-page .qr-header img{width:48px!important;height:48px!important;}
+          .qr-page .qr-header-action{min-height:38px!important;padding:0 9px!important;font-size:10px!important;}
+          .qr-page .qr-search-box{height:50px!important;}
+          .qr-page .qr-category-bar{margin:0 8px!important;top:74px!important;padding:7px!important;gap:6px!important;}
+          .qr-page .qr-menu-grid{gap:9px!important;padding:12px 8px 118px!important;}
+          .qr-page .qr-menu-grid img{height:96px!important;min-height:96px!important;}
+          .qr-page .qr-menu-grid>div>div{padding:7px!important;gap:5px!important;}
+          .qr-page .qr-menu-grid h3{font-size:10px!important;min-height:24px!important;height:24px!important;}
+          .qr-page .qr-menu-grid span[style*="font-size:18px"]{font-size:12px!important;}
+          .qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){min-height:30px!important;padding:5px 6px!important;font-size:9px!important;border-radius:8px!important;}
+          .qr-page .qr-menu-grid .qr-qty-btn{width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;flex-basis:30px!important;font-size:16px!important;}
+        }
+        @media(max-width:380px){
+          .qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;padding-left:6px!important;padding-right:6px!important;}
+          .qr-page .qr-menu-grid img{height:82px!important;min-height:82px!important;}
+          .qr-page .qr-menu-grid h3{font-size:9px!important;min-height:22px!important;height:22px!important;}
+          .qr-page .qr-menu-grid>div>div{padding:6px 5px!important;}
+          .qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){font-size:8px!important;padding:4px!important;min-height:28px!important;}
+        }
+        }`}</style>
 
 </div>
 )
@@ -2013,6 +2464,15 @@ transform:translateX(-50%);
 
 /* STYLES */
 
+const qrTrackerCard={margin:"22px auto 0",width:"min(760px,calc(100% - 32px))",boxSizing:"border-box",padding:"20px",borderRadius:20,background:"var(--surface)",border:"1px solid rgba(var(--primary-rgb),.25)",boxShadow:"0 14px 36px rgba(0,0,0,.18)"}
+const qrTimeline={display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginTop:18}
+const qrTimelineStep={display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontSize:11,fontWeight:800,color:"var(--muted)",textAlign:"center"}
+const qrTimelineDot={width:26,height:26,borderRadius:"50%",display:"grid",placeItems:"center",background:"var(--surface-2)",border:"1px solid var(--border)",color:"var(--primary)",fontWeight:900}
+const qrStatusPill={padding:"6px 9px",borderRadius:999,background:"rgba(var(--primary-rgb),.12)",color:"var(--primary)",fontSize:10,fontWeight:900,letterSpacing:1}
+const qrActionButton={border:"1px solid var(--border)",borderRadius:12,padding:"12px 10px",background:"var(--surface-2)",color:"var(--text)",fontWeight:900,cursor:"pointer"}
+const qrPayButton={border:0,borderRadius:12,padding:"12px 10px",background:"var(--primary)",color:"#111",fontWeight:900,cursor:"pointer"}
+const qrNotice={marginTop:10,padding:10,borderRadius:10,background:"rgba(var(--primary-rgb),.08)",border:"1px solid rgba(var(--primary-rgb),.18)",fontSize:12,color:"var(--text)"}
+const qrSuccess={marginTop:16,padding:14,borderRadius:12,textAlign:"center",background:"rgba(34,197,94,.12)",color:"var(--success)",fontWeight:900}
 const ratingCard={margin:"28px auto 120px",width:"min(760px,calc(100% - 32px))",boxSizing:"border-box",padding:"24px",borderRadius:24,background:"linear-gradient(135deg,rgba(var(--surface-2-rgb),.97),rgba(var(--surface-rgb),.92))",border:"1px solid rgba(var(--primary-rgb),.22)",boxShadow:"0 18px 50px rgba(0,0,0,.28)",backdropFilter:"blur(18px)"}
 const ratingTop={display:"flex",alignItems:"center",justifyContent:"space-between",gap:18}
 const ratingEyebrow={fontSize:11,fontWeight:900,letterSpacing:1.4,color:"var(--primary)",marginBottom:6}

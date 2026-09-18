@@ -87,7 +87,13 @@ export async function GET(request) {
         upi_id: settings.upi_id || "",
         auto_payment_detection: settings.auto_payment_detection === true,
         voice_enabled: settings.voice_enabled !== false,
-        voice_language: settings.voice_language || "hi-IN"
+        voice_language: settings.voice_language || "hi-IN",
+        browser_notification: settings.browser_notification !== false,
+        voice_audio_url: settings.voice_audio_url || "",
+        voice_audio_path: settings.voice_audio_path || "",
+        voice_audio_name: settings.voice_audio_name || "",
+        manual_qr_image_url: settings.manual_qr_image_url || "",
+        manual_qr_label: settings.manual_qr_label || "Restaurant QR"
       } : null
     })
   } catch (error) {
@@ -138,7 +144,13 @@ export async function PATCH(request) {
         upi_id: upiId,
         auto_payment_detection: body?.auto_payment_detection === true,
         voice_enabled: body?.voice_enabled !== false,
-        voice_language: body?.voice_language === "en-IN" ? "en-IN" : "hi-IN"
+        voice_language: body?.voice_language === "en-IN" ? "en-IN" : "hi-IN",
+        voice_audio_url: String(body?.voice_audio_url || "").trim(),
+        voice_audio_path: String(body?.voice_audio_path || "").trim(),
+        voice_audio_name: String(body?.voice_audio_name || "").trim().slice(0,200),
+        browser_notification: body?.browser_notification !== false,
+        manual_qr_image_url: String(body?.manual_qr_image_url || "").trim(),
+        manual_qr_label: String(body?.manual_qr_label || "Restaurant QR").trim().slice(0,80)
       },
       updated_at: new Date().toISOString()
     }

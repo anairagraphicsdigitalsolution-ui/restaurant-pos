@@ -1,5 +1,7 @@
 "use client"
 
+import { createClientUuid } from "@/lib/clientUuid"
+
 import { useEffect, useMemo, useState } from "react"
 import { supabaseCloud } from "@/lib/supabaseCloud"
 import { useTheme } from "@/components/ThemeProvider"
@@ -596,7 +598,7 @@ export default function AdvancedRestaurantSuite() {
           </Panel>
 
           <Panel title="Feedback / Reviews">
-            <form className="form" onSubmit={(e) => { e.preventDefault(); save("feedback_requests", { order_id: feedback.order_id || null, customer_id: feedback.customer_id || null, channel: feedback.channel, token: crypto.randomUUID() }, () => setFeedback({ order_id: "", customer_id: "", channel: "qr" })) }}>
+            <form className="form" onSubmit={(e) => { e.preventDefault(); save("feedback_requests", { order_id: feedback.order_id || null, customer_id: feedback.customer_id || null, channel: feedback.channel, token: createClientUuid("feedback") }, () => setFeedback({ order_id: "", customer_id: "", channel: "qr" })) }}>
               <select value={feedback.order_id} onChange={(e) => setFeedback({ ...feedback, order_id: e.target.value })}><option value="">Order optional</option>{(data.orders || []).map((x) => <option key={x.id} value={x.id}>{x.source_label || x.id.slice(0, 8)}</option>)}</select>
               <select value={feedback.customer_id} onChange={(e) => setFeedback({ ...feedback, customer_id: e.target.value })}><option value="">Customer optional</option>{(data.customers || []).map((x) => <option key={x.id} value={x.id}>{x.name || x.phone}</option>)}</select>
               <select value={feedback.channel} onChange={(e) => setFeedback({ ...feedback, channel: e.target.value })}><option value="qr">QR</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option></select>
