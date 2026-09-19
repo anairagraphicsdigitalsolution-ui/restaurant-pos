@@ -2206,7 +2206,25 @@ transform:translateX(-50%);
   }
 }
 
-.qr-page .qr-menu-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:120px!important;min-height:120px!important}@media(max-width:900px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:105px!important;min-height:105px!important}}@media(max-width:520px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;padding:8px 6px!important}.qr-page .qr-menu-grid img{height:92px!important;min-height:92px!important}.qr-page .qr-menu-grid>div>div{padding:7px 6px!important}.qr-page .qr-menu-grid h3{font-size:10px!important;min-height:24px!important;height:24px!important}.qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){padding:5px 6px!important;font-size:9px!important;min-height:28px!important}}
+.qr-page .qr-menu-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:120px!important;min-height:120px!important}@media(max-width:900px){.qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.qr-page .qr-menu-grid img{height:105px!important;min-height:105px!important}}@media(max-width:420px){
+  .qr-page .qr-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;padding:10px 8px!important}
+  .qr-page .qr-menu-grid img{height:118px!important;min-height:118px!important}
+  .qr-page .qr-menu-grid>div>div{padding:8px 7px!important}
+  .qr-page .qr-menu-grid h3{font-size:11px!important;min-height:27px!important;height:27px!important}
+  .qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){padding:6px 8px!important;font-size:10px!important;min-height:30px!important}
+}
+@media(min-width:421px) and (max-width:520px){
+  .qr-page .qr-menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:9px!important;padding:9px 7px!important}
+  .qr-page .qr-menu-grid img{height:100px!important;min-height:100px!important}
+  .qr-page .qr-menu-grid>div>div{padding:7px 6px!important}
+  .qr-page .qr-menu-grid h3{font-size:10px!important;min-height:25px!important;height:25px!important}
+  .qr-page .qr-menu-grid>div>div button:not(.qr-qty-btn){padding:5px 6px!important;font-size:9px!important;min-height:29px!important}
+}
+@media(max-width:767px){
+  .qr-page input,.qr-page select,.qr-page textarea{font-size:16px!important}
+  .qr-page button,.qr-page a{touch-action:manipulation}
+  .qr-page .qr-floating-cart{bottom:calc(14px + env(safe-area-inset-bottom))!important}
+}
 
 /* Round, touch-friendly quantity controls. */
 .qr-qty-btn{

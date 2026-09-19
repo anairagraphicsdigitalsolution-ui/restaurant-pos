@@ -2571,3 +2571,19 @@ html[data-theme] tr {
 .admin-brand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.admin-banner-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.admin-banner-grid img{width:100%;height:80px;object-fit:cover;border-radius:9px}.admin-pro-page .admin-pro-shell .admin-page{} 
 @media(max-width:1100px){.admin-stat-grid{grid-template-columns:repeat(3,1fr)}.admin-space-create-grid,.admin-brand-grid{grid-template-columns:1fr 1fr}.admin-menu-layout{grid-template-columns:1fr}.admin-space-summary{grid-template-columns:repeat(4,1fr)}.admin-space-summary input{grid-column:1/-1}.admin-floor-body{grid-template-columns:1fr}.admin-subsection{border-right:0;border-bottom:1px solid var(--border)}}
 @media(max-width:700px){.admin-pro-page{padding:14px 10px 30px!important}.admin-pro-hero{padding:20px 16px;border-radius:18px}.admin-pro-hero-row{align-items:flex-start}.admin-pro-hero h1{font-size:25px}.admin-pro-hero-badge{display:none}.admin-pro-tabs{margin:0 -2px}.admin-stat-grid{grid-template-columns:repeat(2,1fr)}.admin-quick-grid,.admin-space-create-grid,.admin-brand-grid{grid-template-columns:1fr}.admin-section-head{flex-direction:column}.admin-section-head h2{font-size:21px}.admin-section-head .admin-primary{width:100%}.admin-space-summary{grid-template-columns:repeat(2,1fr)}.admin-space-summary input{grid-column:1/-1}.admin-floor-header{grid-template-columns:38px 1fr auto}.admin-floor-metrics{display:none}.admin-floor-actions button{font-size:0;padding:8px}.admin-floor-actions button:first-child:after{content:"✎";font-size:11px}.admin-floor-actions .danger:after{content:"🗑";font-size:10px}.admin-chevron{display:none}.admin-chip-grid{grid-template-columns:repeat(2,1fr)}.admin-menu-item{grid-template-columns:48px 1fr}.admin-menu-item>div:last-child{grid-column:2;display:flex;justify-content:flex-start}.admin-menu-item img,.admin-menu-placeholder{width:48px;height:48px}.admin-variant-row{grid-template-columns:1fr 80px 30px}.admin-inline-fields{grid-template-columns:1fr}.admin-pro-page input,.admin-pro-page select,.admin-pro-page textarea,.admin-pro-page button{max-width:100%}}
+
+
+/* QR payment mobile hardening */
+@media (max-width:560px){
+  .qr-pay-shell{padding:12px 10px calc(14px + env(safe-area-inset-bottom)) !important}
+  .qr-pay-card{padding:15px !important;border-radius:18px !important}
+  .qr-pay-head{align-items:flex-start !important}
+  .qr-pay-amount{font-size:24px !important;text-align:left !important}
+  .qr-pay-actions{flex-direction:column !important}
+  .qr-pay-actions button{width:100% !important}
+  .qr-pay-qr{width:min(240px,72vw) !important;height:auto !important}
+}
+@media (max-width:380px){
+  .qr-pay-title{font-size:20px !important}
+  .qr-pay-row{font-size:13px !important}
+}

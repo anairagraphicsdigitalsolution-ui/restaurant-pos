@@ -3,6 +3,7 @@ import { printOrderSlip } from "@/lib/orderSlipPrinter"
 import { getWhatsAppConfig, normalizeWhatsAppNumber, sendWhatsAppMessage } from "@/lib/whatsappServer"
 import crypto from "crypto"
 import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
+import { after } from "next/server"
 
 export const runtime = "nodejs"
 
@@ -162,10 +163,19 @@ export async function POST(req) {
     }
     let print = { attempted: false, printed: false, reason: "no_order" }
     if (orderId && orderResult?.restaurant_id) {
-      // Printing is best-effort: an unavailable printer must never cancel a
-      // successful QR/website order. The same server-side slip is used for
-      // table, room and website orders so every source gets a KOT.
-      print = await printOrderSlip(orderId, orderResult.restaurant_id)
+      // Printing is best-effort and must not delay the customer's order
+      // response. The previous flow waited for several Supabase reads plus
+      // the print-job insert before returning success. Queue it after the
+      // response so QR ordering feels immediate while the durable print job
+      // is still created server-side.
+      print = { attempted: true, printed: false, reason: "deferred", deferred: true }
+      after(async () => {
+        try {
+          await printOrderSlip(orderId, orderResult.restaurant_id)
+        } catch (error) {
+          console.error("DEFERRED QR PRINT:", error)
+        }
+      })
     }
     let customerWhatsappUrl = null
     let restaurantWhatsappUrl = null

@@ -1,4 +1,8 @@
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
+
+// Public QR context is restaurant menu/config data, not user-specific data.
+// Allow the framework/CDN to reuse it briefly instead of hitting Supabase on every scan.
+export const revalidate = 30
 import { rateLimit, rateLimitResponse } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
@@ -60,34 +64,41 @@ export async function GET(req) {
     // QR plugin is still authoritative, but we deliberately avoid the plan
     // feature RPC here. A stale/broken RPC must not prevent the menu from
     // opening when the QR plugin itself is enabled.
-    const { data: qrPlugins, error: pluginError } = await supabaseCloudAdmin
-      .from("restaurant_plugins")
-      .select("plugin_code,enabled")
-      .eq("restaurant_id", restaurant.id)
-      .in("plugin_code", ["qr-menu", "qr-ordering-pro"])
-      .eq("enabled", true)
+    // Fetch plugin/settings state in batches. The previous implementation made
+    // separate round trips for every plugin and setting even though all of them
+    // belong to the same restaurant. Fewer HTTP/PostgREST requests matters more
+    // than the tiny SQL execution time for a public QR scan.
+    const [{ data: pluginRows, error: pluginError }, { data: settingRows, error: settingsError }] = await Promise.all([
+      supabaseCloudAdmin.from("restaurant_plugins")
+        .select("plugin_code,enabled")
+        .eq("restaurant_id", restaurant.id)
+        .in("plugin_code", ["qr-menu", "qr-ordering-pro", "theme-branding", "operations-hub", "offers"]),
+      supabaseCloudAdmin.from("plugin_settings")
+        .select("plugin_code,config")
+        .eq("restaurant_id", restaurant.id)
+        .in("plugin_code", ["theme-branding", "offers"]),
+    ])
 
     if (pluginError) throw pluginError
-    if (!qrPlugins?.length) {
+    if (settingsError) console.warn("QR SETTINGS:", settingsError)
+
+    const qrPlugins = (pluginRows || []).filter(row => ["qr-menu", "qr-ordering-pro"].includes(row.plugin_code) && row.enabled === true)
+    if (!qrPlugins.length) {
       return Response.json({ success: false, error: "QR Menu plugin is disabled. Ask Super Admin to activate it." }, { status: 403, headers: { "Cache-Control": "no-store" } })
     }
 
     const advancedQrOrderingEnabled = qrPlugins.some(row => row.plugin_code === "qr-ordering-pro")
+    const pluginEnabled = code => (pluginRows || []).find(row => row.plugin_code === code)?.enabled === true
+    const settingConfig = code => (settingRows || []).find(row => row.plugin_code === code)?.config || null
 
     // Only use columns that are already part of the existing menu schema.
     // In particular, do NOT filter on menu_items.active: this installation
     // does not have that column.
-    const [menuResult, variantResult, offersResult, bannersResult, themeResult, themePluginResult, themeSettingsResult, operationsPluginResult, offersPluginResult, offersSettingsResult] = await Promise.all([
+    const [menuResult, variantResult, offersResult, bannersResult] = await Promise.all([
       supabaseCloudAdmin.from("menu_items").select("*").eq("restaurant_id", restaurant.id).order("name"),
       supabaseCloudAdmin.from("menu_variants").select("id,menu_item_id,name,price_delta,active,created_at").eq("restaurant_id", restaurant.id).eq("active", true).order("created_at"),
       supabaseCloudAdmin.from("offers").select("*").eq("restaurant_id", restaurant.id).order("created_at", { ascending: false }),
       supabaseCloudAdmin.from("restaurant_banners").select("*").eq("restaurant_id", restaurant.id).order("sort_order").order("created_at"),
-      supabaseCloudAdmin.from("restaurants").select("theme_config").eq("id", restaurant.id).maybeSingle(),
-      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurant.id).eq("plugin_code", "theme-branding").maybeSingle(),
-      supabaseCloudAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurant.id).eq("plugin_code", "theme-branding").maybeSingle(),
-      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurant.id).eq("plugin_code", "operations-hub").maybeSingle(),
-      supabaseCloudAdmin.from("restaurant_plugins").select("enabled").eq("restaurant_id", restaurant.id).eq("plugin_code", "offers").maybeSingle(),
-      supabaseCloudAdmin.from("plugin_settings").select("config").eq("restaurant_id", restaurant.id).eq("plugin_code", "offers").maybeSingle(),
     ])
 
     if (menuResult.error) throw menuResult.error
@@ -119,9 +130,9 @@ export async function GET(req) {
       return true
     })
 
-    const masterEnabled = offersPluginResult?.data?.enabled === true
-    const offersEnabled = masterEnabled && offersSettingsResult?.data?.config?.offers_enabled !== false
-    const combosEnabled = masterEnabled && offersSettingsResult?.data?.config?.combos_enabled !== false
+    const masterEnabled = pluginEnabled("offers")
+    const offersEnabled = masterEnabled && settingConfig("offers")?.offers_enabled !== false
+    const combosEnabled = masterEnabled && settingConfig("offers")?.combos_enabled !== false
     if (!offersEnabled) offers = []
 
     if (!combosEnabled) {
@@ -145,8 +156,8 @@ export async function GET(req) {
       offers = offers.map(o => ({ ...o, offer_products: byOffer[o.id] || [] }))
     }
 
-    const themeBrandingEnabled = themePluginResult?.data?.enabled === true
-    const themeScope = String(themeSettingsResult?.data?.config?.theme_scope || "both").toLowerCase()
+    const themeBrandingEnabled = pluginEnabled("theme-branding")
+    const themeScope = String(settingConfig("theme-branding")?.theme_scope || "both").toLowerCase()
     const qrThemeEnabled = themeBrandingEnabled && ["qr", "both"].includes(themeScope)
     const brandingEnabled = themeBrandingEnabled
     const feedbackEnabled = operationsPluginResult?.data?.enabled === true
@@ -175,7 +186,7 @@ export async function GET(req) {
       menu,
       offers,
       banners: bannersResult.data || [],
-      theme_config: qrThemeEnabled ? (themeResult?.data?.theme_config || null) : null,
+      theme_config: qrThemeEnabled ? (restaurant?.theme_config || null) : null,
       theme_runtime: { plugin_enabled: themeBrandingEnabled, scope: themeScope, qr_enabled: qrThemeEnabled },
       branding_runtime: { plugin_enabled: brandingEnabled },
       feedback_enabled: feedbackEnabled,
