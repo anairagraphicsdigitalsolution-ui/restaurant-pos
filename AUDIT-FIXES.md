@@ -15,3 +15,12 @@
 - `next.config.js` was checked and contains a single standalone configuration.
 - Existing NotificationProvider `restaurantId` narrowing fix is present.
 - Build could not be executed in this environment because the ZIP has no `node_modules` and dependency installation timed out twice; therefore this package is source-audited but not presented as a completed production build.
+
+## 2026-09-19 ORDER PAGE MOBILE NAVIGATION FIX
+- Fixed the `/order` hamburger navigation button for Android WebView and mobile browsers.
+- Added explicit pointer/touch handling (`onPointerDown`, `onTouchStart`, `onClick`) with a 48px mobile hit target.
+- Raised the POS topbar and navigation drawer stacking levels to avoid mobile overlay/stacking interception.
+- Made the drawer layer full viewport (`100vw`/`100dvh`) and explicitly interactive.
+- Made the drawer sidebar explicitly `pointerEvents: auto` and touch-scrollable.
+- Preserved existing Sidebar routes, role gating, plugin gating, and navigation callbacks.
+- No Supabase tables/data/orders/menu/payment records were modified.
