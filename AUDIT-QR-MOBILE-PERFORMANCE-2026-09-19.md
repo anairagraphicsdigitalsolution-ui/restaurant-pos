@@ -62,3 +62,13 @@ Unused-index findings were not bulk-deleted. Multiple-policy and SECURITY DEFINE
 - Node syntax check passed for changed JS route files.
 - No business tables/data were deleted or modified by this audit.
 - Existing application features were preserved.
+
+
+## 2026-09-19 MOBILE SYSTEM-BAR / NAVIGATION FIX
+- Android target SDK is 36, so recent Android versions use enforced edge-to-edge behavior.
+- `android/.../MainActivity.java` now applies system-bar WindowInsets to the Capacitor WebView, preventing the Android status bar from covering the app header and the navigation bar from covering bottom content/actions.
+- Global mobile safe-area variables were added for top/right/bottom/left insets.
+- Global dashboard header now reserves the left area occupied by the floating mobile menu button; search and notification controls no longer sit underneath the hamburger.
+- Order POS navigation drawer received a higher stacking context and explicit touch handling. The POS menu button remains above the topbar and opens the dedicated drawer.
+- Mobile order topbar reserves the top safe area.
+- No Supabase schema/data/business records were changed by this UI/native-shell fix.

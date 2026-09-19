@@ -152,6 +152,33 @@ body{
 
 
 /* =========================================================
+   SYSTEM BAR / MOBILE WEBVIEW SAFETY
+   Keeps fixed headers, drawers and bottom actions out of
+   Android status/navigation bars and iOS browser safe areas.
+========================================================= */
+:root {
+  --anaira-safe-top: env(safe-area-inset-top, 0px);
+  --anaira-safe-right: env(safe-area-inset-right, 0px);
+  --anaira-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --anaira-safe-left: env(safe-area-inset-left, 0px);
+}
+@supports (height: 100dvh) {
+  .app-shell { min-height: 100dvh; }
+}
+@media (max-width: 767px) {
+  .app-main {
+    padding-bottom: max(0px, var(--anaira-safe-bottom));
+  }
+  .mobile-menu-button {
+    top: max(8px, var(--anaira-safe-top));
+    margin-left: var(--anaira-safe-left);
+  }
+  .mobile-sidebar-backdrop {
+    padding: 0;
+  }
+}
+
+/* =========================================================
    APPLICATION SHELL + MOBILE RESPONSIVE SYSTEM
 ========================================================= */
 
@@ -161,8 +188,19 @@ html, body {
   overflow-x: hidden;
 }
 
+html {
+  min-height: 100%;
+  background: var(--background);
+  overscroll-behavior-x: none;
+}
+
 body {
   min-width: 0;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior-x: none;
+  -webkit-text-size-adjust: 100%;
 }
 
 .app-shell {
@@ -256,8 +294,8 @@ body {
   .mobile-menu-button {
     display: flex;
     position: fixed;
-    z-index: 9000;
-    top: max(12px, env(safe-area-inset-top));
+    z-index: 9500;
+    top: max(8px, env(safe-area-inset-top));
     left: 12px;
     width: 46px;
     height: 46px;
