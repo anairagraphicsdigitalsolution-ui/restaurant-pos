@@ -1378,6 +1378,59 @@ export default function OrderPage() {
           .pos-buttons{position:sticky!important;bottom:0!important;z-index:30!important;min-height:62px!important;}
           .pos-buttons button{min-height:44px!important;}
         }
+        /* Final order customer/details row fix: never clip delivery/customer fields when the grid wraps. */
+        .pos-info-row{
+          max-height:none!important;
+          min-height:70px;
+          height:auto;
+          box-sizing:border-box;
+          align-items:stretch;
+          overflow:visible;
+        }
+        .pos-info-row .info-cell{
+          box-sizing:border-box;
+          min-height:48px;
+          overflow:hidden;
+        }
+        .pos-info-row .info-cell input,
+        .pos-info-row .info-cell select{
+          min-height:32px;
+          box-sizing:border-box;
+        }
+        @media(max-width:1100px) and (min-width:801px){
+          .pos-info-row{
+            grid-template-columns:150px minmax(0,1fr) 150px;
+            grid-auto-rows:minmax(48px,auto);
+            min-height:110px;
+            height:auto;
+            max-height:none!important;
+          }
+          .pos-info-row .info-cell.wide{
+            grid-column:1/-1;
+          }
+        }
+        @media(max-width:800px){
+          .pos-info-row{
+            grid-template-columns:1fr 1fr;
+            grid-auto-rows:minmax(48px,auto);
+            min-height:0;
+            height:auto;
+            max-height:none!important;
+            padding:7px 8px;
+          }
+          .pos-info-row .info-cell.wide{
+            grid-column:1/-1;
+          }
+        }
+        @media(max-width:520px){
+          .pos-info-row{
+            grid-template-columns:1fr;
+            grid-auto-rows:auto;
+          }
+          .pos-info-row .info-cell.wide{
+            grid-column:1;
+          }
+        }
         }`}</style>
     </div>
   )
