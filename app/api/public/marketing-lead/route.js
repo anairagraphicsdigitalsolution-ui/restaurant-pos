@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server"
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import nodemailer from "nodemailer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
-
-const WINDOW_MS = 10 * 60 * 1000
-const MAX_REQUESTS = 5
-const hits = globalThis.__anairaPublicMarketingLeadHits || new Map()
-globalThis.__anairaPublicMarketingLeadHits = hits
-
-function clean(value, max = 500) { return String(value ?? "").trim().slice(0, max) }
-function clientIp(req) { return clean(req.headers.get("x-forwarded-for")?.split(",")[0] || req.headers.get("x-real-ip") || "unknown", 100) }
 
 async function sendFounderEmail(lead) {
   const user = process.env.GMAIL_USER
@@ -45,12 +38,10 @@ async function sendFounderEmail(lead) {
 
 export async function POST(req) {
   try {
-    const ip = clientIp(req)
-    const now = Date.now()
-    const previous = hits.get(ip) || []
-    const recent = previous.filter(t => now - t < WINDOW_MS)
-    if (recent.length >= MAX_REQUESTS) return NextResponse.json({ success:false,error:"Too many requests. Please try again later." },{status:429})
-    recent.push(now); hits.set(ip,recent)
+    const oversized = rejectOversizedRequest(req, 64 * 1024)
+    if (oversized) return oversized
+    const limit = rateLimit(req, "platform-marketing-lead", 5)
+    if (!limit.ok) return rateLimitResponse(limit)
 
     const body = await req.json()
     if (clean(body.website,120)) return NextResponse.json({success:true})

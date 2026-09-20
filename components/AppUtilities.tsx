@@ -325,6 +325,7 @@ function getQuickLinks(query: string): Result[] {
     ["Reservations", "/dashboard/reservations", "📅"],
     ["Tables", "/dashboard/tables", "🪑"],
     ["Inventory", "/dashboard/inventory", "📦"],
+    ["Production", "/dashboard/inventory/production", "🏭"],
     ["Reports & Analytics", "/dashboard/reports", "📈"],
     ["Notifications", "/dashboard/notifications", "🔔"],
     ["Operations Hub", "/dashboard/business", "🧭"],

@@ -1,0 +1,3 @@
+-- Remote history alignment only.
+-- This migration version is already applied in the production database.
+-- No schema/data change is required locally for this history entry.

@@ -135,20 +135,31 @@ export async function GET(request) {
     // Supabase migrations. Do not write to the database while opening the
     // Plugin Center; this endpoint is a read path and must stay fast.
 
-    const { data: catalog, error: catalogError } = await admin
+    // The Super Admin Plugin Manager must ALWAYS expose the complete runtime
+    // catalog. Do not filter the catalog by DB active state: `active` is a
+    // catalog/publishing flag and must never make a P0/P1/P2 module disappear
+    // from the manager. Restaurant activation is represented separately by
+    // restaurant_plugins.
+    const { data: catalogRows, error: catalogError } = await admin
       .from("plugin_catalog")
       .select("*")
-      .eq("active", true)
-      .order("sort_order", { ascending: true })
 
     if (catalogError) throw new Error(catalogError.message)
 
     const canonicalCodes = PLUGIN_CODES
+    const dbRows = catalogRows || []
     const canonicalCatalog = PLUGIN_CATALOG.map(item => {
-      const dbRow = (catalog || []).find(row => row.code === item.code)
-      return dbRow || {
-        code:item.code,name:item.name,icon:item.icon,category:item.category,
-        description:item.description,kind:"plugin",active:true
+      const dbRow = dbRows.find(row => row.code === item.code)
+      return {
+        ...(dbRow || {}),
+        code:item.code,
+        name:item.name,
+        icon:item.icon,
+        category:item.category,
+        description:item.description,
+        kind:dbRow?.kind || "plugin",
+        active:true,
+        sort_order:dbRow?.sort_order ?? PLUGIN_CATALOG.findIndex(x => x.code === item.code) + 1
       }
     })
 

@@ -1,0 +1,2638 @@
+/* 🔥 PREMIUM GLASS EFFECT */
+.glass-pro {
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.08),
+    rgba(255,255,255,0.02)
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 18px;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.5),
+    inset 0 0 10px rgba(255,255,255,0.05);
+  padding: 20px;
+}
+
+/* 🔥 INPUT UPGRADE */
+.input-pro {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: white;
+  outline: none;
+  transition: 0.3s;
+}
+
+.input-pro:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 10px rgba(59,130,246,0.5);
+}
+
+/* 🔥 BUTTON PRO */
+.btn-pro {
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg,#3b82f6,#9333ea);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.btn-pro:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(99,102,241,0.6);
+}
+
+/* 🔥 GLOW EFFECT */
+.glow {
+  box-shadow: 0 0 20px rgba(59,130,246,0.6);
+}
+
+/* 🔥 SCROLLBAR */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--primary),var(--accent));
+  border-radius: 10px;
+}
+
+/* 🔥 CARD HOVER ANIMATION */
+.card:hover {
+  transform: translateY(-5px);
+  transition: 0.3s;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+/* 🔥 GRADIENT TEXT */
+.gradient-text {
+  background: linear-gradient(135deg,#3b82f6,#9333ea);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 🔥 BADGE */
+.badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.2);
+}
+
+/* 🔥 FLOAT ANIMATION */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+/* Premium Gold Scrollbar */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: linear-gradient(
+    180deg,
+    rgba(15,23,42,.9),
+    rgba(2,6,23,.95)
+  );
+
+  border-radius: 999px;
+
+  border: 1px solid rgba(var(--primary-rgb),.12);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 80%, white), var(--primary), color-mix(in srgb, var(--primary) 70%, black));
+
+  border-radius: 999px;
+
+  border: 2px solid rgba(15,23,42,.8);
+
+  box-shadow:
+    0 0 12px rgba(var(--primary-rgb),.6),
+    inset 0 1px 2px rgba(255,255,255,.25);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 70%, white), var(--primary), color-mix(in srgb, var(--primary) 70%, black));
+
+  box-shadow:
+    0 0 18px rgba(var(--primary-rgb),.8),
+    0 0 30px rgba(var(--primary-rgb),.4);
+}
+input[type="date"]{
+  color-scheme: var(--theme-mode, dark);
+}
+*{
+  box-sizing:border-box;
+}
+
+html,
+body{
+  margin:0;
+  padding:0;
+  background:var(--background);
+  color:var(--text);
+  
+}
+
+
+/* =========================================================
+   SYSTEM BAR / MOBILE WEBVIEW SAFETY
+   Keeps fixed headers, drawers and bottom actions out of
+   Android status/navigation bars and iOS browser safe areas.
+========================================================= */
+:root {
+  --anaira-safe-top: env(safe-area-inset-top, 0px);
+  --anaira-safe-right: env(safe-area-inset-right, 0px);
+  --anaira-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --anaira-safe-left: env(safe-area-inset-left, 0px);
+}
+@supports (height: 100dvh) {
+  .app-shell { min-height: 100dvh; }
+}
+@media (max-width: 767px) {
+  .app-main {
+    padding-bottom: max(0px, var(--anaira-safe-bottom));
+  }
+  .mobile-menu-button {
+    top: max(8px, var(--anaira-safe-top));
+    margin-left: var(--anaira-safe-left);
+  }
+  .mobile-sidebar-backdrop {
+    padding: 0;
+  }
+}
+
+/* =========================================================
+   APPLICATION SHELL + MOBILE RESPONSIVE SYSTEM
+========================================================= */
+
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+  overscroll-behavior-x: none;
+}
+
+body {
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior-x: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app-shell {
+  width: 100%;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.app-shell.has-sidebar {
+  display: flex;
+  align-items: stretch;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.app-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--background, var(--background));
+  color: var(--text, var(--text));
+}
+
+.app-loading-card {
+  width: min(100%, 320px);
+  box-sizing: border-box;
+  padding: 28px;
+  border-radius: 22px;
+  text-align: center;
+  background: linear-gradient(135deg, var(--surface), #1f2937);
+  border: 1px solid rgba(251,191,36,.2);
+}
+
+.app-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 14px;
+  border: 3px solid rgba(251,191,36,.18);
+  border-top-color: var(--warning);
+  border-radius: 50%;
+  animation: app-spin .8s linear infinite;
+}
+
+@keyframes app-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mobile-menu-button,
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .app-shell.has-sidebar {
+    display: block;
+  }
+
+  .app-main {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .pos-sidebar {
+    position: fixed !important;
+    display: flex !important;
+    flex-direction: column !important;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(86vw, 320px) !important;
+    min-height: 100dvh !important;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transform: translateX(-105%);
+    transition: transform .25s ease;
+    box-shadow: 20px 0 60px rgba(0,0,0,.45);
+  }
+
+  .pos-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-menu-button {
+    display: flex;
+    position: fixed;
+    z-index: 9500;
+    top: max(8px, env(safe-area-inset-top));
+    left: 12px;
+    width: 46px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(251,191,36,.3);
+    border-radius: 14px;
+    background: rgba(15,23,42,.94);
+    color: var(--warning);
+    font-size: 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  .mobile-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    border: 0;
+    background: rgba(0,0,0,.58);
+    backdrop-filter: blur(2px);
+  }
+
+  /* Common responsive safety for inline-style pages */
+  img, video, canvas, svg {
+    max-width: 100%;
+  }
+
+  input, select, textarea, button {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-loading-card {
+    padding: 24px 18px;
+  }
+
+  .mobile-menu-button {
+    width: 42px;
+    height: 42px;
+    font-size: 22px;
+  }
+}
+
+/* =========================================================
+   ANAIRA POS WHITE-LABEL THEME TOKENS
+   All shared UI colors should consume these variables.
+========================================================= */
+:root {
+  --primary: #fbbf24;
+  --primary-rgb: 251, 191, 36;
+  --secondary: #080b18;
+  --secondary-rgb: 8, 11, 24;
+  --accent: #22c55e;
+  --accent-rgb: 34, 197, 94;
+  --background: #0c1020;
+  --background-rgb: 12, 16, 32;
+  --surface: #191c2c;
+  --surface-rgb: 25, 28, 44;
+  --surface-2: #0c1020;
+  --surface-2-rgb: 12, 16, 32;
+  --text: #fffaf0;
+  --muted: #b7c7bd;
+  --muted-rgb: 183, 199, 189;
+  --border: #e9a72d;
+  --success: #4ade80;
+  --success-rgb: 74, 222, 128;
+  --danger: #ef4444;
+  --danger-rgb: 239, 68, 68;
+  --warning: #f59e0b;
+  --warning-rgb: 245, 158, 11;
+  --info: #60a5fa;
+  --info-rgb: 96, 165, 250;
+  --accent-rgb: 74, 155, 60;
+  --radius: 20px;
+}
+
+html, body {
+  background: var(--background);
+  color: var(--text);
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button, a, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Prevent common fixed-width dashboard panels from escaping mobile. */
+@media (max-width: 767px) {
+  .app-main > * {
+    max-width: 100%;
+  }
+
+  .app-main table {
+    width: 100%;
+  }
+
+  .app-main pre,
+  .app-main code {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .app-main [style*="width: 100vw"],
+  .app-main [style*="width:100vw"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* Theme-aware reusable utility classes. */
+.theme-surface {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .22) !important;
+}
+
+.theme-primary {
+  color: var(--primary) !important;
+}
+
+.theme-button {
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 68%, var(--accent))) !important;
+  color: #111 !important;
+}
+
+.sidebar-powered-by {
+  flex: 0 0 auto;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 10px 8px 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.sidebar-powered-by img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--primary-rgb), .28);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 767px) {
+  .sidebar-powered-by {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 767px) {
+  .theme-live-preview {
+    flex-direction: column;
+  }
+  .theme-live-sidebar {
+    width: 100% !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .theme-live-sidebar span {
+    padding: 5px 8px;
+  }
+}
+
+@media (max-width: 520px) {
+  .theme-live-preview {
+    padding: 8px !important;
+  }
+}
+
+/* =========================================================
+   LIGHT THEME COMPATIBILITY
+   Several legacy POS screens still contain inline dark
+   colors. Convert those common legacy tokens to the active
+   light-theme tokens so dashboard data remains readable.
+========================================================= */
+
+html[data-theme-mode="light"] .app-main [style*="color: rgb(255, 255, 255)"],
+html[data-theme-mode="light"] .app-main [style*="color: var(--text)"],
+html[data-theme-mode="light"] .pos-sidebar [style*="color: rgb(255, 255, 255)"],
+html[data-theme-mode="light"] .pos-sidebar [style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main [style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main [style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main [style*="color:var(--text)"] {
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="var(--background)"],
+html[data-theme-mode="light"] .app-main [style*="var(--surface)"],
+html[data-theme-mode="light"] .app-main [style*="#1f2937"],
+html[data-theme-mode="light"] .app-main [style*="rgb(2, 6, 23)"],
+html[data-theme-mode="light"] .app-main [style*="rgb(17, 24, 39)"],
+html[data-theme-mode="light"] .app-main [style*="rgb(31, 41, 55)"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+
+
+html[data-theme-mode="light"] .pos-sidebar [style*="var(--background)"],
+html[data-theme-mode="light"] .pos-sidebar [style*="var(--surface)"],
+html[data-theme-mode="light"] .pos-sidebar [style*="#1f2937"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="rgba(255,255,255"],
+html[data-theme-mode="light"] .app-main [style*="rgba(255, 255, 255"] {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .app-main input,
+html[data-theme-mode="light"] .app-main select,
+html[data-theme-mode="light"] .app-main textarea {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .28) !important;
+}
+
+html[data-theme-mode="light"] .app-main button {
+  border-color: rgba(var(--primary-rgb), .28);
+}
+
+html[data-theme-mode="light"] .app-main table {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .app-main th,
+html[data-theme-mode="light"] .app-main td {
+  color: inherit;
+}
+
+@media (max-width: 767px) {
+  .theme-live-sidebar {
+    width: 100% !important;
+  }
+
+  .theme-live-preview {
+    min-height: 0 !important;
+  }
+}
+
+/* =========================================================
+   FINAL RESPONSIVE PASS
+   Phone + tablet + small laptop safety for legacy inline UI.
+========================================================= */
+
+img, svg, video, canvas {
+  max-width: 100%;
+}
+
+.app-main,
+.app-main > *,
+.billing-page,
+.qr-page {
+  min-width: 0;
+}
+
+/* Any legacy inline grid should never force the viewport wider on phones. */
+@media (max-width: 767px) {
+  .app-main [style*="grid-template-columns"],
+  .app-main [style*="gridTemplateColumns"],
+  .billing-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-main [style*="min-width"],
+  .app-main [style*="minWidth"] {
+    min-width: 0 !important;
+  }
+
+  .app-main [style*="width: 1050px"],
+  .app-main [style*="width:1050px"],
+  .app-main [style*="width: 1000px"],
+  .app-main [style*="width:1000px"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .app-main table {
+    display: block;
+    width: 100% !important;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-main input,
+  .app-main select,
+  .app-main textarea,
+  .app-main button {
+    max-width: 100%;
+  }
+
+  .app-main h1 {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .app-main [style*="grid-template-columns: 420px 1fr"],
+  .app-main [style*="grid-template-columns:420px 1fr"],
+  .billing-main-grid {
+    grid-template-columns: minmax(260px, 34%) minmax(0, 1fr) !important;
+  }
+}
+
+/* ---------------- BILLING ---------------- */
+.billing-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.billing-main-grid {
+  min-width: 0;
+}
+
+.billing-invoice-card {
+  width: 100%;
+  max-width: 100%;
+}
+
+.billing-invoice-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.billing-invoice-actions button {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 767px) {
+  .billing-page {
+    padding: 12px !important;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .billing-page > div:first-child {
+    padding: 18px !important;
+    border-radius: 20px !important;
+  }
+
+  .billing-page h1 {
+    font-size: 28px !important;
+    line-height: 1.12 !important;
+  }
+
+  .billing-main-grid {
+    gap: 12px !important;
+  }
+
+  .billing-main-grid > * {
+    min-width: 0 !important;
+  }
+
+  .billing-invoice-card {
+    padding: 16px !important;
+    border-radius: 20px !important;
+    overflow-x: hidden !important;
+  }
+
+  .billing-invoice-card table {
+    font-size: 12px;
+  }
+
+  .billing-invoice-card th,
+  .billing-invoice-card td {
+    padding: 7px 5px !important;
+  }
+
+  .billing-invoice-card h2 {
+    font-size: 20px;
+  }
+
+  .billing-invoice-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-page select,
+  .billing-page input,
+  .billing-page button {
+    width: 100%;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .billing-page {
+    padding: 18px !important;
+  }
+
+  .billing-invoice-card {
+    padding: 24px !important;
+  }
+}
+
+/* ---------------- PUBLIC QR MENU ---------------- */
+.qr-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.qr-hero {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  border-radius: 0 0 24px 24px;
+}
+
+.qr-header {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-menu-grid {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-search-box {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.qr-category-bar {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.qr-category-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.qr-branding-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 22px 12px 34px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  opacity: .9;
+}
+
+.qr-branding-footer img {
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--primary-rgb), .35);
+}
+
+@media (max-width: 767px) {
+  .qr-page {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .qr-hero {
+    height: 220px !important;
+    border-radius: 0 0 18px 18px;
+  }
+
+  .qr-header {
+    padding: 14px !important;
+  }
+
+  .qr-header img {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .qr-header h1 {
+    font-size: 19px !important;
+    max-width: 70vw;
+    overflow-wrap: anywhere;
+  }
+
+  .qr-menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    padding: 10px !important;
+  }
+
+  .qr-menu-grid > * {
+    min-width: 0;
+  }
+
+  .qr-menu-grid img {
+    height: 120px !important;
+  }
+
+  .qr-menu-grid h3 {
+    font-size: 14px !important;
+  }
+
+  .qr-category-bar {
+    padding: 4px 10px 10px !important;
+  }
+
+  .qr-category-bar button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 390px) {
+  .qr-menu-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .qr-menu-grid img {
+    height: 170px !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .qr-menu-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .qr-hero {
+    height: 280px !important;
+  }
+}
+
+/* ---------------- SIDEBAR SAFE AREA ---------------- */
+@media (max-width: 767px) {
+  .pos-sidebar {
+    padding-top: calc(18px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+
+/* =========================================================
+   ANAIRA POS 2026 — CROSS-PAGE POLISH / RESPONSIVE QA
+========================================================= */
+
+.app-main {
+  min-width: 0;
+}
+
+/* Better form controls across legacy inline-style screens */
+.app-main input,
+.app-main select,
+.app-main textarea {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.app-main select option { background: var(--surface); color: var(--text); }
+
+/* Billing */
+.billing-page {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: clamp(18px, 2.4vw, 32px) !important;
+}
+.billing-page > div:first-child {
+  position: relative;
+  overflow: hidden;
+}
+.billing-page > div:first-child::after {
+  content: "";
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -90px;
+  top: -110px;
+  border-radius: 50%;
+  background: rgba(var(--primary-rgb), .08);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.billing-page .billing-main-grid {
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) !important;
+}
+.billing-page .billing-invoice-card {
+  min-width: 0;
+}
+.billing-empty-state {
+  min-height: 520px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 42px;
+  text-align: center;
+  border-radius: 28px;
+  color: var(--text);
+  background: linear-gradient(145deg, var(--surface), var(--surface-2));
+  border: 1px dashed rgba(var(--primary-rgb), .28);
+  box-shadow: 0 25px 70px rgba(0,0,0,.24);
+}
+.billing-empty-state h2 { margin: 0; font-size: 24px; }
+.billing-empty-state p { max-width: 540px; margin: 0; color: var(--muted); line-height: 1.7; }
+.billing-empty-icon {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: rgba(var(--primary-rgb), .10);
+  border: 1px solid rgba(var(--primary-rgb), .22);
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+.billing-invoice-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.billing-invoice-actions button { margin-top: 0 !important; }
+
+/* Staff / Kitchen */
+.staff-page,
+.kitchen-page,
+.order-page,
+.admin-page,
+.super-admin-page,
+.super-admin-restaurants-page,
+.super-admin-users-page,
+.offers-page,
+.reservations-page,
+.theme-page,
+.tables-page,
+.operations-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.staff-page > *,
+.kitchen-page > *,
+.admin-page > *,
+.super-admin-page > *,
+.super-admin-restaurants-page > *,
+.super-admin-users-page > *,
+.offers-page > *,
+.reservations-page > *,
+.theme-page > *,
+.tables-page > *,
+.operations-page > * {
+  max-width: 100%;
+}
+
+/* Keep dense dashboards readable on medium laptops */
+@media (max-width: 1280px) {
+  .dashboardPage { padding: 22px !important; }
+  .dashboardPage .statsGrid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .dashboardPage .mainGrid,
+  .dashboardPage .threeGrid,
+  .dashboardPage .twoGrid { grid-template-columns: 1fr; }
+  .dashboardPage .categoryGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+  .billing-page .chartGrid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .leftPanel { position: static !important; }
+}
+
+@media (max-width: 900px) {
+  .admin-page,
+  .super-admin-page,
+  .super-admin-restaurants-page,
+  .super-admin-users-page,
+  .offers-page,
+  .reservations-page,
+  .theme-page,
+  .tables-page,
+  .operations-page,
+  .staff-page,
+  .kitchen-page {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  .admin-page [style*="grid-template-columns"],
+  .super-admin-page [style*="grid-template-columns"],
+  .super-admin-restaurants-page [style*="grid-template-columns"],
+  .super-admin-users-page [style*="grid-template-columns"] {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .billing-page { padding: 74px 12px 20px !important; }
+  .billing-page .billing-main-grid,
+  .billing-page .chartGrid { grid-template-columns: 1fr !important; }
+  .billing-page .topBar { flex-direction: column; align-items: stretch; }
+  .billing-page .topBar > * { width: 100%; min-width: 0 !important; }
+  .billing-page .summaryWrap { display: grid !important; grid-template-columns: 1fr !important; }
+  .billing-page .summaryCard { min-width: 0 !important; }
+  .billing-page .billing-invoice-actions { grid-template-columns: 1fr; }
+  .billing-page .billing-invoice-card { padding: 20px !important; border-radius: 20px !important; }
+  .billing-page .billing-invoice-card table { min-width: 520px; }
+  .billing-page .billing-invoice-card { overflow-x: auto; }
+
+  .dashboardPage { padding: 72px 12px 20px !important; }
+  .dashboardPage .heroCard { flex-direction: column; align-items: stretch; padding: 22px !important; }
+  .dashboardPage .heroSide { align-items: flex-start; }
+  .dashboardPage .statsGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .dashboardPage .categoryGrid { grid-template-columns: 1fr; }
+  .dashboardPage .quickGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+  .order-page { padding-top: 62px !important; }
+  .order-page > div:first-child { grid-template-columns: 1fr !important; }
+  .order-page [style*="grid-template-columns: 260px 1fr 300px"] { grid-template-columns: 1fr !important; }
+
+  .staff-page,
+  .kitchen-page,
+  .admin-page,
+  .super-admin-page,
+  .super-admin-restaurants-page,
+  .super-admin-users-page,
+  .offers-page,
+  .reservations-page,
+  .theme-page,
+  .tables-page,
+  .operations-page {
+    padding-top: 74px !important;
+  }
+
+  .staff-page [style*="grid-template-columns:repeat(3,1fr)"],
+  .kitchen-page [style*="grid-template-columns:repeat(3,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .kitchen-page [style*="repeat(5,280px)"] {
+    grid-template-columns: 1fr !important;
+    padding: 12px !important;
+  }
+
+  .super-admin-users-page .grid,
+  .super-admin-users-page [style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboardPage .statsGrid { grid-template-columns: 1fr; }
+  .dashboardPage .quickGrid { grid-template-columns: 1fr 1fr; }
+  .billing-page .chartCard,
+  .billing-page .card { padding: 16px !important; }
+  .billing-page h1 { font-size: 30px !important; }
+  .operations-page .heroStats { min-width: 0 !important; width: 100%; }
+}
+
+/* Tables / lists should scroll inside their cards instead of breaking the page */
+.app-main table { max-width: 100%; }
+.app-main .table-responsive,
+.app-main [style*="overflowX:\"auto\""] { max-width: 100%; }
+
+/* Consistent hover feedback */
+.app-main button:not(:disabled) { transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
+.app-main button:not(:disabled):hover { transform: translateY(-1px); }
+.app-main button:disabled { cursor: not-allowed; }
+
+.billing-invoice-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  color: var(--surface);
+}
+.billing-toolbar-label {
+  display: block;
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 3px;
+}
+.billing-edit-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--surface);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.billing-field-label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+@media (max-width: 520px) {
+  .billing-invoice-toolbar { align-items: flex-start; }
+  .billing-edit-btn { flex: 0 0 auto; }
+}
+
+
+/* =========================================================
+   ANAIRA POS — FINAL OPERATIONS + SUPER ADMIN POLISH
+========================================================= */
+.operations-page input,
+.operations-page select,
+.operations-page textarea {
+  color: var(--text);
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.10);
+  padding: 11px 12px;
+  outline: none;
+}
+.operations-page input:focus,
+.operations-page select:focus,
+.operations-page textarea:focus {
+  border-color: rgba(var(--primary-rgb),.5);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb),.08);
+}
+.operations-page button:disabled {
+  opacity: .55;
+  cursor: not-allowed !important;
+}
+.super-admin-page input::placeholder,
+.operations-page input::placeholder,
+.operations-page textarea::placeholder {
+  color: #718096;
+}
+@media (max-width: 767px) {
+  .operations-page {
+    padding: 16px 12px 36px !important;
+  }
+  .operations-page header {
+    border-radius: 22px !important;
+  }
+  .operations-page table {
+    min-width: 760px;
+  }
+  .super-admin-page {
+    padding: 14px !important;
+  }
+  .super-admin-page .formBox {
+    grid-template-columns: 1fr !important;
+  }
+  .super-admin-page .actions {
+    flex-wrap: wrap;
+  }
+  .super-admin-page .actions button {
+    flex: 1 1 90px;
+  }
+}
+@media (max-width: 520px) {
+  .operations-page section {
+    min-width: 0;
+  }
+}
+
+
+/* =========================================================
+   FINAL MOBILE QA — BILLING + APP SHELL
+========================================================= */
+.billing-topbar,
+.billing-summary-wrap,
+.billing-chart-grid,
+.billing-left-panel {
+  min-width: 0;
+}
+
+.billing-topbar > *,
+.billing-summary-wrap > *,
+.billing-chart-grid > *,
+.billing-main-grid > * {
+  min-width: 0;
+}
+
+.billing-page .billing-topbar select,
+.billing-page .billing-topbar input,
+.billing-page .billing-topbar button {
+  min-height: 46px;
+}
+
+.billing-page .billing-topbar select {
+  flex: 1 1 260px;
+}
+
+.billing-page .billing-topbar input[type="date"] {
+  flex: 0 1 190px;
+}
+
+.billing-page .billing-summary-wrap {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.billing-page .billing-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.billing-page .billing-invoice-card table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.billing-page .billing-invoice-card th:first-child,
+.billing-page .billing-invoice-card td:first-child { width: 46%; }
+.billing-page .billing-invoice-card th:nth-child(2),
+.billing-page .billing-invoice-card td:nth-child(2) { width: 14%; }
+.billing-page .billing-invoice-card th:nth-child(3),
+.billing-page .billing-invoice-card td:nth-child(3) { width: 18%; }
+.billing-page .billing-invoice-card th:nth-child(4),
+.billing-page .billing-invoice-card td:nth-child(4) { width: 22%; }
+.billing-page .billing-invoice-card td,
+.billing-page .billing-invoice-card th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+@media (max-width: 1100px) {
+  .billing-page .billing-summary-wrap { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .billing-page .billing-chart-grid { grid-template-columns: 1fr; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-left-panel { position: static !important; }
+}
+
+@media (max-width: 767px) {
+  .billing-page {
+    padding: 70px 10px 24px !important;
+  }
+  .billing-page > div:first-child {
+    padding: 18px !important;
+    margin-bottom: 14px !important;
+  }
+  .billing-page h1 { font-size: 27px !important; }
+  .billing-page .billing-topbar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px !important;
+    padding: 12px !important;
+    position: sticky;
+    top: 8px;
+    z-index: 30;
+    backdrop-filter: blur(18px);
+  }
+  .billing-page .billing-topbar select {
+    grid-column: 1 / -1;
+    width: 100% !important;
+  }
+  .billing-page .billing-topbar input[type="date"],
+  .billing-page .billing-topbar button {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 13px;
+    padding: 12px 10px !important;
+  }
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+  }
+  .billing-page .billing-summary-wrap .summaryCard,
+  .billing-page .summaryCard { padding: 18px 10px !important; border-radius: 18px !important; }
+  .billing-page .summaryCard h2 { font-size: 22px; }
+  .billing-page .billing-chart-grid { grid-template-columns: 1fr !important; }
+  .billing-page .chartCard { padding: 14px !important; overflow: hidden; }
+  .billing-page .billing-main-grid { grid-template-columns: 1fr !important; }
+  .billing-page .billing-left-panel { width: 100%; }
+  .billing-page .billing-invoice-card {
+    padding: 14px !important;
+    border-radius: 18px !important;
+  }
+  .billing-page .billing-invoice-card table {
+    min-width: 0 !important;
+    font-size: 11px;
+  }
+  .billing-page .billing-invoice-card th,
+  .billing-page .billing-invoice-card td {
+    padding: 6px 4px !important;
+  }
+  .billing-page .billing-invoice-header {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .billing-page .billing-invoice-header > div:last-child {
+    text-align: left !important;
+  }
+  .billing-page .billing-invoice-toolbar {
+    flex-wrap: wrap;
+  }
+  .billing-page .billing-invoice-actions {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-empty-state {
+    min-height: 360px !important;
+    padding: 26px 16px !important;
+  }
+  .billing-page .billing-empty-state h2 { font-size: 20px; }
+}
+
+@media (max-width: 420px) {
+  .billing-page .billing-summary-wrap { grid-template-columns: 1fr 1fr; }
+  .billing-page .billing-summary-wrap .summaryCard p { font-size: 12px; }
+  .billing-page .billing-summary-wrap .summaryCard h2 { font-size: 19px; }
+}
+
+/* Prevent fixed/absolute legacy controls from creating mobile horizontal overflow. */
+@media (max-width: 767px) {
+  .app-main { overflow-x: clip; }
+  .app-main [style*="position: fixed"] { max-width: 100vw; }
+  .app-main img { height: auto; }
+}
+
+
+/* =========================================================
+   ANAIRA ENTERPRISE PREMIUM DESIGN SYSTEM
+   Shared by every new Enterprise page. No page should carry
+   a hard-coded dark palette; active restaurant/platform theme
+   tokens drive surfaces, borders, typography and controls.
+========================================================= */
+:root {
+  --page-glow: rgba(var(--primary-rgb), .12);
+  --panel-glow: rgba(var(--accent-rgb), .08);
+  --shadow-premium: 0 22px 60px rgba(0,0,0,.22);
+}
+
+body {
+  background:
+    radial-gradient(circle at 88% 4%, var(--page-glow), transparent 26%),
+    radial-gradient(circle at 12% 94%, var(--panel-glow), transparent 24%),
+    var(--background);
+  color: var(--text);
+}
+
+.app-main {
+  background: transparent;
+}
+
+.app-main .page,
+.app-main .shell {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+.app-main .page {
+  padding: clamp(20px, 3vw, 36px);
+}
+
+.app-main .page h1,
+.app-main .page h2,
+.app-main .page h3,
+.app-main .shell h1,
+.app-main .shell h2,
+.app-main .shell h3 {
+  color: var(--text) !important;
+}
+
+.app-main .page p,
+.app-main .shell p,
+.app-main .page small,
+.app-main .shell small,
+.app-main .page span,
+.app-main .shell span {
+  color: var(--muted);
+}
+
+.app-main .page .card,
+.app-main .shell .card,
+.app-main .page .metric,
+.app-main .shell .metric,
+.app-main .page .plan,
+.app-main .shell .plan,
+.app-main .page .stats > div,
+.app-main .shell .stats > div {
+  background: linear-gradient(145deg, rgba(var(--surface-rgb), .97), rgba(var(--surface-2-rgb), .94)) !important;
+  border: 1px solid rgba(var(--primary-rgb), .16) !important;
+  box-shadow: var(--shadow-premium);
+  color: var(--text);
+  border-radius: var(--radius);
+}
+
+.app-main .page input,
+.app-main .page select,
+.app-main .page textarea,
+.app-main .shell input,
+.app-main .shell select,
+.app-main .shell textarea {
+  background: rgba(var(--surface-rgb), .82) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(var(--primary-rgb), .22) !important;
+  border-radius: calc(var(--radius) * .65);
+  outline: none;
+}
+
+.app-main .page input:focus,
+.app-main .page select:focus,
+.app-main .page textarea:focus,
+.app-main .shell input:focus,
+.app-main .shell select:focus,
+.app-main .shell textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .10), 0 0 24px rgba(var(--primary-rgb), .10);
+}
+
+.app-main .page button,
+.app-main .shell button {
+  font-family: inherit;
+}
+
+.app-main .page .btn,
+.app-main .page .primary,
+.app-main .page .primaryBtn,
+.app-main .shell .primary,
+.app-main .shell .primaryBtn {
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 68%, var(--accent))) !important;
+  color: var(--secondary) !important;
+  border: 1px solid rgba(var(--primary-rgb), .55) !important;
+  box-shadow: 0 12px 30px rgba(var(--primary-rgb), .15);
+}
+
+.app-main .page .ghost,
+.app-main .page .head button,
+.app-main .shell .head button {
+  background: rgba(var(--surface-2-rgb), .72) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(var(--primary-rgb), .18) !important;
+}
+
+.app-main .page .eyebrow,
+.app-main .shell .eyebrow,
+.app-main .page .head span,
+.app-main .shell .head span {
+  color: var(--primary) !important;
+}
+
+.app-main .page .row,
+.app-main .shell .row,
+.app-main .page th,
+.app-main .page td {
+  border-color: rgba(var(--primary-rgb), .10) !important;
+}
+
+.app-main .page .note,
+.app-main .shell .note {
+  background: transparent;
+}
+
+.app-main .page .icon,
+.app-main .shell .icon {
+  background: rgba(var(--primary-rgb), .10) !important;
+  border: 1px solid rgba(var(--primary-rgb), .14);
+}
+
+@media (max-width: 767px) {
+  .app-main .page,
+  .app-main .shell {
+    padding: 78px 16px 24px !important;
+  }
+}
+
+
+/* =========================================================
+   CONSOLIDATED RESPONSIVE QA BASELINE
+========================================================= */
+@media (max-width: 767px) {
+  button, a[role="button"], input, select, textarea {
+    min-height: 42px;
+  }
+  table {
+    max-width: 100%;
+  }
+  .app-main > main,
+  .app-main > div {
+    max-width: 100%;
+  }
+}
+@media (max-width: 480px) {
+  button, a[role="button"] {
+    min-height: 44px;
+  }
+}
+
+
+/* =========================================================
+   ANAIRA TYPOGRAPHY + DATA HIERARCHY
+   Titles = strong, values = strong, supporting copy = regular.
+   Prevents number/text collisions across cards and dashboards.
+========================================================= */
+.ui-data-stack{display:grid;gap:4px;min-width:0}
+.ui-data-label{font-size:12px;font-weight:700;line-height:1.3;color:var(--text)}
+.ui-data-value{font-size:28px;font-weight:900;line-height:1.05;color:var(--primary);letter-spacing:-.35px}
+.ui-data-hint{font-size:11px;font-weight:400;line-height:1.4;color:var(--muted)}
+.ui-section-title{font-weight:850;line-height:1.2;color:var(--text)}
+.ui-body-copy{font-weight:400;line-height:1.5;color:var(--muted)}
+.ui-action{font-weight:800;white-space:nowrap}
+
+/* =========================================================
+   FINAL UI QA SAFETY PASS
+   Keep hover motion desktop-only and preserve readable hierarchy.
+========================================================= */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover,
+  .quickAction:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .card:hover,
+  .quickAction:hover {
+    transform: none !important;
+  }
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary, var(--warning));
+  outline-offset: 2px;
+}
+
+
+/* =========================================================
+   GLOBAL CONTENT-FIT / CARD SAFETY
+   Prevent long text, IDs, emails and labels from escaping
+   cards across desktop, tablet and mobile layouts.
+========================================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+.app-main,
+.app-shell,
+main,
+section,
+article,
+aside,
+header,
+footer,
+.card,
+.panel {
+  min-width: 0;
+}
+
+h1, h2, h3, h4, h5, h6,
+p, span, small, strong, label,
+button, a, td, th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
+input, select, textarea, button {
+  max-width: 100%;
+}
+
+
+/* Billing page responsive layout */
+.billing-page,
+.billing-page * {
+  box-sizing: border-box;
+}
+.billing-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+.billing-page .billing-summary-wrap {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 15px !important;
+}
+.billing-page .billing-summary-card {
+  min-width: 0 !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+.billing-page .billing-summary-card h2 {
+  margin: 8px 0 !important;
+  line-height: 1.15 !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+.billing-page .billing-chart-grid {
+  min-width: 0 !important;
+}
+.billing-page .billing-chart-card {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+.billing-page .billing-main-grid {
+  min-width: 0 !important;
+}
+.billing-page .billing-left-panel,
+.billing-page .billing-card,
+.billing-page .billing-bill-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.billing-page .billing-invoice-table {
+  width: 100%;
+  max-width: 100%;
+}
+.billing-page .billing-invoice-table th,
+.billing-page .billing-invoice-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 1200px) {
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  .billing-page .billing-main-grid {
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) !important;
+  }
+  .billing-page .billing-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .billing-page .billing-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-left-panel {
+    position: static !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .billing-page {
+    padding: 14px !important;
+  }
+  .billing-page .billing-topbar {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    padding: 14px !important;
+    gap: 10px !important;
+  }
+  .billing-page .billing-summary-wrap {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .billing-page .billing-summary-card {
+    padding: 18px !important;
+  }
+  .billing-page .billing-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .billing-page .billing-chart-card {
+    padding: 16px !important;
+  }
+  .billing-page .billing-input,
+  .billing-page .billing-action {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Shared mobile layout guard: prevent cards and long labels from overflowing. */
+@media (max-width: 768px){
+  .dashboardPage,
+  .offers-page,
+  .page,
+  .shell{
+    max-width:100%;
+    box-sizing:border-box;
+  }
+  button,
+  input,
+  select,
+  textarea{
+    max-width:100%;
+    box-sizing:border-box;
+  }
+}
+
+@media (max-width: 768px){
+  .order-alert-enable{
+    right:12px!important;
+    left:12px!important;
+    bottom:max(12px,env(safe-area-inset-bottom))!important;
+    width:calc(100vw - 24px)!important;
+    max-width:none!important;
+    text-align:center!important;
+    border-radius:12px!important;
+    padding:9px 12px!important;
+    font-size:11px!important;
+    opacity:.96;
+  }
+}
+
+
+/* =========================================================
+   ANAIRA POS — BILL WORKFLOW + DEVICE QA
+   Bill opens as a dedicated route:
+   /billing?view=bill
+   Workflow: Open Bill -> Review -> Finalize -> Print
+========================================================= */
+
+.billing-bill-view .billing-summary-wrap,
+.billing-bill-view .billing-chart-grid,
+.billing-bill-view .billing-left-panel {
+  display: none !important;
+}
+
+.billing-bill-view .billing-main-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: 100% !important;
+}
+
+.billing-bill-view .billing-bill-section {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.billing-bill-view .billing-topbar {
+  align-items: stretch;
+}
+
+.billing-bill-view .billing-topbar > button:not(.billing-bill-jump),
+.billing-bill-view .billing-topbar > input {
+  display: none !important;
+}
+
+.billing-bill-view .billing-topbar > select {
+  flex: 1 1 280px !important;
+  min-width: 0 !important;
+}
+
+.billing-bill-view .billing-bill-jump {
+  flex: 0 0 auto !important;
+}
+
+.billing-page .billing-invoice-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.billing-page .billing-invoice-actions button:disabled {
+  opacity: .45 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(.35);
+}
+
+.billing-page .billing-invoice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.billing-page .billing-invoice-card {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.billing-page .billing-invoice-card .billing-invoice-table input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0 !important;
+}
+
+.billing-page .billing-invoice-card > * {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .billing-page .billing-invoice-card {
+    padding: 24px !important;
+    border-radius: 22px !important;
+  }
+
+  .billing-page .billing-invoice-card h2 {
+    font-size: clamp(20px, 5vw, 30px);
+  }
+}
+
+@media (max-width: 700px) {
+  .billing-page {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      12px
+      max(20px, env(safe-area-inset-bottom))
+      12px !important;
+  }
+
+  .billing-page .billing-title {
+    font-size: clamp(25px, 8vw, 34px) !important;
+  }
+
+  .billing-page .billing-topbar {
+    width: 100% !important;
+  }
+
+  .billing-bill-view .billing-topbar {
+    grid-template-columns: 1fr !important;
+  }
+
+  .billing-bill-view .billing-topbar > select {
+    width: 100% !important;
+    flex: none !important;
+  }
+
+  .billing-page .billing-bill-card {
+    padding: 16px !important;
+    border-radius: 18px !important;
+  }
+
+  .billing-page .billing-bill-card > div:first-child {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .billing-page .billing-bill-card > div:first-child > div:last-child {
+    text-align: left !important;
+  }
+
+  .billing-page .billing-invoice-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .billing-page .billing-edit-btn,
+  .billing-page .billing-invoice-actions button {
+    width: 100% !important;
+    min-height: 48px !important;
+  }
+
+  .billing-page .billing-invoice-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .billing-page .billing-invoice-table {
+    font-size: 11px !important;
+  }
+
+  .billing-page .billing-invoice-table th,
+  .billing-page .billing-invoice-table td {
+    padding: 7px 5px !important;
+    font-size: 11px !important;
+  }
+
+  .billing-page .billing-invoice-table th:first-child,
+  .billing-page .billing-invoice-table td:first-child {
+    width: 43% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(2),
+  .billing-page .billing-invoice-table td:nth-child(2) {
+    width: 14% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(3),
+  .billing-page .billing-invoice-table td:nth-child(3) {
+    width: 20% !important;
+  }
+
+  .billing-page .billing-invoice-table th:nth-child(4),
+  .billing-page .billing-invoice-table td:nth-child(4) {
+    width: 23% !important;
+  }
+}
+
+@media (max-width: 390px) {
+  .billing-page .billing-bill-card {
+    padding: 12px !important;
+  }
+
+  .billing-page .billing-invoice-table th,
+  .billing-page .billing-invoice-table td {
+    padding: 6px 3px !important;
+    font-size: 10px !important;
+  }
+
+  .billing-page .billing-invoice-table th:first-child,
+  .billing-page .billing-invoice-table td:first-child {
+    width: 40% !important;
+  }
+}
+
+/* Global touch/device safety for QR, POS, dashboards and forms. */
+@media (max-width: 767px) {
+  .app-main {
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  .app-main > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .app-main img,
+  .app-main video,
+  .app-main canvas,
+  .app-main svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .app-main button,
+  .app-main a[role="button"] {
+    min-height: 44px;
+  }
+
+  .app-main input,
+  .app-main select,
+  .app-main textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .app-main table {
+    max-width: 100%;
+  }
+
+  .app-main [style*="min-width: 700px"],
+  .app-main [style*="min-width:700px"],
+  .app-main [style*="min-width: 600px"],
+  .app-main [style*="min-width:600px"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+}
+
+
+/* Unified print hardening: keep app chrome out of every print surface. */
+@media print {
+  header, nav, aside, .sidebar, .app-sidebar, .app-header,
+  .no-print, [data-no-print="true"] {
+    display: none !important;
+  }
+
+  html, body {
+    background: var(--text) !important;
+    color: #000 !important;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  img, svg {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table, tr, td, th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+.riderGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding-top:18px}.riderCard{display:flex;align-items:center;gap:12px;padding:15px;border:1px solid var(--border);background:var(--surface);border-radius:18px;min-width:0}.riderAvatar{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--surface2);font-size:22px;flex:0 0 auto}.riderInfo{display:grid;gap:3px;min-width:0;flex:1}.riderInfo strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.riderInfo small{font-size:11px}.riderOn{color:var(--success)}.riderOff{color:var(--danger)}.riderActions{display:flex;gap:6px}.ridersPanel{margin-bottom:18px}@media(max-width:900px){.riderGrid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.riderGrid{grid-template-columns:1fr}.riderCard{align-items:flex-start}.riderActions{margin-left:auto;flex-direction:column}}
+
+
+/* =========================================================
+   ANAIRA LIGHT / CLEAN THEME POLISH
+   Keeps the existing dark presets intact while making the
+   new white presets feel like a true SaaS workspace.
+========================================================= */
+html[data-theme-mode="light"] {
+  color-scheme: light;
+}
+
+html[data-theme-mode="light"] body {
+  background: var(--background);
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .glass-pro {
+  background: rgba(255,255,255,.88);
+  border-color: var(--border);
+  box-shadow: 0 12px 36px rgba(16,24,40,.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+html[data-theme-mode="light"] .input-pro {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme-mode="light"] .btn-pro {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .badge {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+html[data-theme-mode="light"] .mobile-menu-button {
+  background: rgba(255,255,255,.96);
+  color: var(--primary);
+  border-color: var(--border);
+  box-shadow: 0 10px 30px rgba(16,24,40,.12);
+}
+
+html[data-theme-mode="light"] .pos-sidebar {
+  box-shadow: 12px 0 40px rgba(16,24,40,.10);
+}
+
+html[data-theme-mode="light"] input[type="date"] {
+  color-scheme: light;
+}
+
+/* Common admin / super-admin surfaces that previously assumed dark glass. */
+html[data-theme-mode="light"] [style*="rgba(15,23,42"] {
+  background-color: var(--surface) !important;
+}
+
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.04)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.025)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.08)"] {
+  background-color: var(--surface-2) !important;
+  color: var(--text);
+}
+
+@media (max-width: 767px) {
+  html[data-theme-mode="light"] .mobile-sidebar-backdrop {
+    background: rgba(15,23,42,.22);
+  }
+}
+
+/* =========================================================
+   ANAIRA THEME SYSTEM v2 — CONSISTENT LIGHT + DARK UI
+   The old screens contain legacy inline dark tokens. These
+   theme-aware rules make every admin/super-admin surface
+   readable without changing the business logic.
+========================================================= */
+
+html[data-theme] body,
+html[data-theme] button,
+html[data-theme] input,
+html[data-theme] select,
+html[data-theme] textarea {
+  font-family: var(--font-family, Inter, system-ui, sans-serif);
+}
+
+html[data-theme] h1,
+html[data-theme] h2,
+html[data-theme] h3,
+html[data-theme] h4,
+html[data-theme] h5,
+html[data-theme] h6 {
+  font-family: var(--heading-font, Inter, system-ui, sans-serif);
+  font-weight: var(--heading-weight, 800);
+  letter-spacing: -0.025em;
+}
+
+html[data-theme] .app-main,
+html[data-theme] .page,
+html[data-theme] .shell {
+  background: var(--background) !important;
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] body {
+  background: var(--background) !important;
+  color: var(--text) !important;
+  color-scheme: light;
+}
+
+html[data-theme-mode="light"] .app-main,
+html[data-theme-mode="light"] .page,
+html[data-theme-mode="light"] .shell,
+html[data-theme-mode="light"] .app-shell,
+html[data-theme-mode="light"] main {
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] .glass-pro,
+html[data-theme-mode="light"] .card,
+html[data-theme-mode="light"] .panel,
+html[data-theme-mode="light"] .section,
+html[data-theme-mode="light"] .surface,
+html[data-theme-mode="light"] .stats > div,
+html[data-theme-mode="light"] .stats > article {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--theme-shadow) !important;
+  backdrop-filter: none;
+}
+
+html[data-theme-mode="light"] .input-pro,
+html[data-theme-mode="light"] input,
+html[data-theme-mode="light"] select,
+html[data-theme-mode="light"] textarea {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+}
+
+html[data-theme-mode="light"] input::placeholder,
+html[data-theme-mode="light"] textarea::placeholder {
+  color: var(--muted) !important;
+  opacity: 1;
+}
+
+/* Legacy dark inline backgrounds: convert only the common POS tokens. */
+html[data-theme-mode="light"] [style*="var(--background)"],
+html[data-theme-mode="light"] [style*="var(--surface)"],
+html[data-theme-mode="light"] [style*="#1f2937"],
+html[data-theme-mode="light"] [style*="rgb(2, 6, 23)"],
+html[data-theme-mode="light"] [style*="rgb(17, 24, 39)"],
+html[data-theme-mode="light"] [style*="rgb(31, 41, 55)"] {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.025)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.03)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.04)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.05)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.06)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,.08)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,0.05)"],
+html[data-theme-mode="light"] [style*="rgba(255,255,255,0.08)"] {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+}
+
+/* Legacy white text in content areas was the main readability bug. */
+html[data-theme-mode="light"] .app-main span[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main span[style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main span[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main p[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main p[style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main label[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main label[style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main small[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main small[style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main strong[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main strong[style*="color:var(--text)"],
+html[data-theme-mode="light"] .app-main h1[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main h2[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main h3[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main td[style*="color: var(--text)"],
+html[data-theme-mode="light"] .app-main th[style*="color: var(--text)"] {
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] table {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] th {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] td {
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] .btn-pro,
+html[data-theme-mode="light"] button[class*="primary"],
+html[data-theme-mode="light"] .ui-action {
+  font-weight: 800;
+}
+
+html[data-theme-mode="light"] .badge,
+html[data-theme-mode="light"] [class*="badge"] {
+  font-weight: 800;
+}
+
+html[data-theme-mode="light"] .pos-sidebar {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] .mobile-menu-button {
+  color: var(--text) !important;
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+/* White themes use a restrained, high-contrast scrollbar rather than the old dark track. */
+html[data-theme-mode="light"] ::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+html[data-theme-mode="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--primary), var(--accent));
+  border-color: var(--surface-2);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), .18);
+}
+
+/* Consistent focus ring for keyboard and touch accessibility. */
+html[data-theme] :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), .22);
+  outline-offset: 2px;
+}
+
+/* Light theme: do not allow a legacy dark text token to disappear on white cards. */
+html[data-theme-mode="light"] .app-main [style*="color: white"],
+html[data-theme-mode="light"] .app-main [style*="color:white"] {
+  color: var(--text) !important;
+}
+
+/* =========================================================
+   UNIVERSAL THEME COVERAGE
+   Legacy inline POS screens consume semantic theme tokens.
+========================================================= */
+html[data-theme] body,
+html[data-theme] .app-main,
+html[data-theme] .admin-page,
+html[data-theme] .super-admin-page,
+html[data-theme] .staff-page,
+html[data-theme] .kitchen-page,
+html[data-theme] .order-page,
+html[data-theme] .operations-page,
+html[data-theme] .reservations-page,
+html[data-theme] .offers-page,
+html[data-theme] .tables-page,
+html[data-theme] .theme-page {
+  transition: var(--theme-transition);
+}
+
+html[data-theme-mode="light"] input,
+html[data-theme-mode="light"] select,
+html[data-theme-mode="light"] textarea {
+  color: var(--text) !important;
+  background-color: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme-mode="light"] select option {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="background: rgba(15,23,42"],
+html[data-theme-mode="light"] .app-main [style*="background:rgba(15,23,42"] {
+  background: var(--surface) !important;
+}
+
+html[data-theme-mode="light"] .app-main [style*="box-shadow"] {
+  --legacy-shadow: var(--theme-shadow);
+}
+
+/* The active theme controls common cards, panels and buttons even on legacy inline-style pages. */
+.theme-card, .theme-panel, .theme-surface, .theme-live-preview {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .22) !important;
+}
+
+.theme-button {
+  background: linear-gradient(135deg, var(--primary), var(--accent)) !important;
+  color: var(--button-text) !important;
+}
+
+
+/* =========================================================
+   COMPLETE THEME BRIDGE
+   Legacy screens may still use Tailwind neutral classes or
+   inline neutral colors. These selectors intentionally map
+   ONLY neutral presentation colors to the active theme.
+   Semantic status colors (red/green/yellow/blue) are preserved.
+========================================================= */
+
+html[data-theme] .bg-white,
+html[data-theme] .bg-gray-50,
+html[data-theme] .bg-gray-100,
+html[data-theme] .bg-slate-50,
+html[data-theme] .bg-slate-100,
+html[data-theme] .bg-zinc-50,
+html[data-theme] .bg-zinc-100,
+html[data-theme] .bg-neutral-50,
+html[data-theme] .bg-neutral-100 {
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme] .bg-gray-200,
+html[data-theme] .bg-gray-300,
+html[data-theme] .bg-slate-200,
+html[data-theme] .bg-slate-300,
+html[data-theme] .bg-zinc-200,
+html[data-theme] .bg-zinc-300,
+html[data-theme] .bg-neutral-200,
+html[data-theme] .bg-neutral-300 {
+  background-color: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme] .text-black,
+html[data-theme] .text-gray-900,
+html[data-theme] .text-gray-800,
+html[data-theme] .text-slate-950,
+html[data-theme] .text-slate-900,
+html[data-theme] .text-slate-800,
+html[data-theme] .text-zinc-950,
+html[data-theme] .text-zinc-900,
+html[data-theme] .text-zinc-800,
+html[data-theme] .text-neutral-950,
+html[data-theme] .text-neutral-900,
+html[data-theme] .text-neutral-800 {
+  color: var(--text) !important;
+}
+
+html[data-theme] .text-gray-700,
+html[data-theme] .text-gray-600,
+html[data-theme] .text-slate-700,
+html[data-theme] .text-slate-600,
+html[data-theme] .text-zinc-700,
+html[data-theme] .text-zinc-600,
+html[data-theme] .text-neutral-700,
+html[data-theme] .text-neutral-600 {
+  color: var(--muted) !important;
+}
+
+html[data-theme] .border-gray-100,
+html[data-theme] .border-gray-200,
+html[data-theme] .border-gray-300,
+html[data-theme] .border-slate-100,
+html[data-theme] .border-slate-200,
+html[data-theme] .border-slate-300,
+html[data-theme] .border-zinc-100,
+html[data-theme] .border-zinc-200,
+html[data-theme] .border-zinc-300,
+html[data-theme] .border-neutral-100,
+html[data-theme] .border-neutral-200,
+html[data-theme] .border-neutral-300 {
+  border-color: rgba(var(--primary-rgb), .22) !important;
+}
+
+html[data-theme] input,
+html[data-theme] select,
+html[data-theme] textarea {
+  accent-color: var(--primary);
+}
+
+html[data-theme] input::placeholder,
+html[data-theme] textarea::placeholder {
+  color: var(--muted);
+  opacity: .8;
+}
+
+/* Common inline neutral colors used by older POS screens. */
+html[data-theme] [style*="background-color: rgb(255, 255, 255)"],
+html[data-theme] [style*="background: rgb(255, 255, 255)"],
+html[data-theme] [style*="background:#fff"],
+html[data-theme] [style*="background: #fff"],
+html[data-theme] [style*="background:#ffffff"],
+html[data-theme] [style*="background: #ffffff"] {
+  background-color: var(--surface) !important;
+}
+
+html[data-theme] [style*="color: rgb(17, 24, 39)"],
+html[data-theme] [style*="color: rgb(15, 23, 42)"],
+html[data-theme] [style*="color: rgb(0, 0, 0)"],
+html[data-theme] [style*="color:#111"],
+html[data-theme] [style*="color: #111"],
+html[data-theme] [style*="color:#000"],
+html[data-theme] [style*="color: #000"] {
+  color: var(--text) !important;
+}
+
+html[data-theme] [style*="border-color: rgb(229, 231, 235)"],
+html[data-theme] [style*="border-color: #e5e7eb"],
+html[data-theme] [style*="border: 1px solid #e5e7eb"] {
+  border-color: rgba(var(--primary-rgb), .22) !important;
+}
+
+/* Theme-aware controls and common surfaces, including Super Admin. */
+html[data-theme] .card,
+html[data-theme] .panel,
+html[data-theme] .modal,
+html[data-theme] .drawer,
+html[data-theme] .table-container,
+html[data-theme] .form-card {
+  color: var(--text);
+}
+
+html[data-theme] .card,
+html[data-theme] .panel,
+html[data-theme] .form-card {
+  border-color: rgba(var(--primary-rgb), .18);
+}
+
+html[data-theme] button:not(.theme-preserve),
+html[data-theme] [role="button"]:not(.theme-preserve) {
+  --button-focus: var(--primary);
+}
+
+html[data-theme] button:focus-visible,
+html[data-theme] [role="button"]:focus-visible {
+  outline-color: var(--primary);
+}
+
+html[data-theme-mode="light"] .glass-pro {
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary));
+  border-color: rgba(var(--primary-rgb), .18);
+  box-shadow: var(--theme-shadow);
+}
+
+html[data-theme-mode="light"] .input-pro {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .25);
+}
+
+html[data-theme-mode="light"] .btn-pro {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: var(--button-text, #fff) !important;
+}
+
+html[data-theme-mode="light"] .badge {
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  color: var(--text);
+}
+
+html[data-theme-mode="dark"] .glass-pro {
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary));
+  border-color: rgba(var(--primary-rgb), .2);
+}
+
+html[data-theme-mode="dark"] .input-pro {
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary)) !important;
+  color: var(--text) !important;
+  border-color: rgba(var(--primary-rgb), .3);
+}
+
+/* Make page-level shell backgrounds follow the selected theme. */
+html[data-theme] .app-shell,
+html[data-theme] .app-main,
+html[data-theme] main {
+  color: var(--text);
+}
+
+html[data-theme] .app-loading-card {
+  background: var(--surface);
+  border-color: rgba(var(--primary-rgb), .2);
+}
+
+/* Avoid browser-native light controls leaking into dark themes. */
+html[data-theme-mode="dark"] select,
+html[data-theme-mode="dark"] option {
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+html[data-theme-mode="light"] select,
+html[data-theme-mode="light"] option {
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+/* Legacy inline neutral surface bridge (safe, theme-driven). */
+html[data-theme] [style*="background: rgba(15,23,42"],
+html[data-theme] [style*="background:rgba(15,23,42"],
+html[data-theme] [style*="background: rgba(17,24,39"],
+html[data-theme] [style*="background:rgba(17,24,39"],
+html[data-theme] [style*="background: rgba(2,6,23"],
+html[data-theme] [style*="background:rgba(2,6,23"],
+html[data-theme] [style*="background: rgba(255,255,255,0.08"],
+html[data-theme] [style*="background:rgba(255,255,255,0.08"] {
+  background: var(--surface) !important;
+}
+
+html[data-theme] [style*="background: rgba(255,255,255,0.05"],
+html[data-theme] [style*="background:rgba(255,255,255,0.05"],
+html[data-theme] [style*="background: rgba(255, 255, 255, 0.05"] {
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary)) !important;
+}
+
+html[data-theme] [style*="color: rgba(255,255,255"],
+html[data-theme] [style*="color:rgba(255,255,255"],
+html[data-theme] [style*="color: rgba(255, 255, 255"] {
+  color: var(--text) !important;
+}
+
+html[data-theme] [style*="border: 1px solid rgba(255,255,255"],
+html[data-theme] [style*="border:1px solid rgba(255,255,255"] {
+  border-color: rgba(var(--primary-rgb), .18) !important;
+}
+
+/* Common Tailwind dark-shell classes from legacy admin/POS screens. */
+html[data-theme] .bg-slate-950,
+html[data-theme] .bg-slate-900,
+html[data-theme] .bg-gray-950,
+html[data-theme] .bg-gray-900,
+html[data-theme] .bg-zinc-950,
+html[data-theme] .bg-zinc-900,
+html[data-theme] .bg-neutral-950,
+html[data-theme] .bg-neutral-900 {
+  background-color: var(--background) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme] .hover\:bg-gray-50:hover,
+html[data-theme] .hover\:bg-slate-50:hover,
+html[data-theme] .hover\:bg-white:hover {
+  background-color: var(--surface-2) !important;
+}
+
+html[data-theme] .divide-gray-200 > :not([hidden]) ~ :not([hidden]),
+html[data-theme] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(var(--primary-rgb), .16) !important;
+}
+
+/* Tables and list rows should inherit the active surface rather than a
+   hard-coded white/gray canvas. */
+html[data-theme] table,
+html[data-theme] thead,
+html[data-theme] tbody,
+html[data-theme] tr {
+  border-color: rgba(var(--primary-rgb), .16);
+}
+
+/* Public marketing pages: responsive, touch-friendly and layout-safe. */
+.amSite *, .amSite *::before, .amSite *::after { box-sizing: border-box; }
+.amSite img { max-width: 100%; }
+.amSite button, .amSite a { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 520px) {
+  .amSite { min-width: 0; }
+  .amSite h1, .amSite h2, .amSite h3, .amSite p { overflow-wrap: anywhere; }
+}
+.local-printer-box{margin:10px 0 12px;padding:10px;border:1px solid rgba(var(--primary-rgb),.18);background:rgba(var(--primary-rgb),.035);border-radius:8px}.local-printer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.local-printer-head strong{font-size:9px;color:var(--primary)}.local-printer-box select{width:100%;border:1px solid rgba(var(--primary-rgb),.18);background:var(--surface-2);color:var(--text);border-radius:6px;padding:9px;font-size:9px}.local-printer-box small{display:block;margin-top:7px;color:rgba(255,255,255,.48);font-size:8px;line-height:1.45}.local-printer-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.local-printer-actions button{min-height:36px}.local-empty{padding:12px;text-align:center;border:1px dashed rgba(255,255,255,.12);border-radius:6px;color:#fca5a5;font-size:9px;font-weight:800}
+
+/* =========================================================
+   ANAIRA RESTAURANT ADMIN PRO WORKSPACE
+   Existing admin functionality remains intact; this is presentation only.
+========================================================= */
+.admin-pro-page{padding:28px 30px 50px!important;background:radial-gradient(circle at 80% 0%,rgba(var(--primary-rgb),.07),transparent 32%),var(--background);min-height:100vh}
+.admin-pro-shell{max-width:1440px;margin:0 auto}
+.admin-pro-hero{padding:26px 28px;border:1px solid rgba(var(--primary-rgb),.18);border-radius:24px;background:linear-gradient(135deg,rgba(var(--surface-rgb,15,23,42),.98),rgba(var(--surface-2-rgb),.72));box-shadow:0 20px 55px rgba(0,0,0,.24);margin-bottom:16px}
+.admin-pro-breadcrumb{font-size:10px;font-weight:900;letter-spacing:1.5px;color:var(--muted);margin-bottom:18px}.admin-pro-breadcrumb span{color:var(--primary);padding:0 7px}.admin-pro-hero-row{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}.admin-pro-kicker{font-size:10px;font-weight:900;letter-spacing:1.8px;color:var(--primary);text-transform:uppercase}.admin-pro-hero h1{margin:7px 0 7px;font-size:34px;line-height:1.1}.admin-pro-hero p,.admin-section-head p{margin:0;color:var(--muted);font-size:13px;line-height:1.6;max-width:760px}.admin-pro-hero-badge{min-width:160px;padding:13px 16px;border-radius:16px;text-align:center;border:1px solid rgba(var(--primary-rgb),.25);background:rgba(var(--primary-rgb),.06);color:var(--primary);font-weight:900}.admin-pro-hero-badge small{color:var(--muted);font-weight:600}
+.admin-pro-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 16px;scrollbar-width:none}.admin-pro-tabs::-webkit-scrollbar{display:none}.admin-pro-tabs button{flex:0 0 auto;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:13px;padding:12px 17px;font-weight:800;font-size:12px;cursor:pointer;transition:.2s}.admin-pro-tabs button span{margin-right:8px}.admin-pro-tabs button:hover{border-color:rgba(var(--primary-rgb),.5);color:var(--text)}.admin-pro-tabs button.active{background:var(--primary);color:#111827;border-color:var(--primary);box-shadow:0 8px 25px rgba(var(--primary-rgb),.18)}
+.admin-stat-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px}.admin-stat-card{display:flex;align-items:center;gap:12px;padding:18px;border-radius:18px;background:var(--surface);border:1px solid var(--border);box-shadow:0 10px 28px rgba(0,0,0,.13)}.admin-stat-icon{width:43px;height:43px;display:grid;place-items:center;border-radius:13px;background:rgba(var(--primary-rgb),.1);color:var(--primary);font-size:20px}.admin-stat-card b{display:block;font-size:22px}.admin-stat-card small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+.admin-quick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.admin-quick-card{min-height:150px;text-align:left;padding:20px;border-radius:20px;border:1px solid var(--border);background:linear-gradient(145deg,var(--surface),rgba(var(--primary-rgb),.035));color:var(--text);cursor:pointer}.admin-quick-card:hover{border-color:rgba(var(--primary-rgb),.45);transform:translateY(-2px)}.admin-quick-card strong{display:block;font-size:15px}.admin-quick-card span{display:block;color:var(--muted);font-size:12px;line-height:1.5;margin:9px 0 22px}.admin-quick-card em{font-style:normal;color:var(--primary);font-size:10px;font-weight:900}
+.admin-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin:4px 0 16px}.admin-section-head h2{font-size:26px;margin:6px 0 5px}.admin-primary,.admin-outline{border-radius:12px;padding:11px 16px;font-size:11px;font-weight:900;cursor:pointer}.admin-primary{background:var(--primary);border:1px solid var(--primary);color:#111827}.admin-primary:disabled{opacity:.6;cursor:wait}.admin-outline{background:rgba(var(--primary-rgb),.06);border:1px solid rgba(var(--primary-rgb),.28);color:var(--primary)}
+.admin-space-summary{display:grid;grid-template-columns:repeat(4,120px) minmax(220px,1fr);gap:10px;align-items:center;margin-bottom:12px}.admin-space-summary>div{padding:13px 15px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}.admin-space-summary b{display:block;font-size:18px}.admin-space-summary span{color:var(--muted);font-size:9px}.admin-space-summary input,.admin-inline-fields input,.admin-inline-fields select,.admin-create-card input,.admin-create-card select,.admin-field input,.admin-field select{width:100%;min-width:0;padding:12px 13px;border-radius:11px;background:var(--background);border:1px solid var(--border);color:var(--text);outline:none}.admin-space-summary input:focus,.admin-inline-fields input:focus,.admin-inline-fields select:focus,.admin-create-card input:focus,.admin-create-card select:focus{border-color:var(--primary)}
+.admin-space-create-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}.admin-create-card{padding:18px;border-radius:18px;background:var(--surface);border:1px solid var(--border)}.admin-create-card.accent-gold{border-color:rgba(var(--primary-rgb),.3)}.admin-create-card.accent-blue{border-color:rgba(59,130,246,.25)}.admin-create-card.accent-purple{border-color:rgba(168,85,247,.25)}.admin-card-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(var(--primary-rgb),.1);color:var(--primary);float:left;margin-right:11px}.admin-create-card h3{margin:1px 0 4px;font-size:14px}.admin-create-card p{clear:both;padding-top:10px;color:var(--muted);font-size:10px;line-height:1.45;min-height:30px}.admin-create-card>input{margin-top:6px}.admin-create-card>button{width:100%;margin-top:8px}.admin-inline-fields{display:grid;grid-template-columns:1fr 1.1fr;gap:7px;margin-top:7px}
+.admin-floor-list{display:grid;gap:10px}.admin-floor-card{border:1px solid var(--border);border-radius:18px;background:var(--surface);overflow:hidden}.admin-floor-card.expanded{border-color:rgba(var(--primary-rgb),.35);box-shadow:0 15px 35px rgba(0,0,0,.18)}.admin-floor-header{display:grid;grid-template-columns:44px 1fr auto auto;align-items:center;gap:12px;padding:14px 16px;cursor:pointer}.admin-floor-mark{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:rgba(var(--primary-rgb),.1);color:var(--primary);font-size:20px}.admin-floor-title h3{margin:0 0 4px;font-size:15px}.admin-floor-title span{color:var(--muted);font-size:9px}.admin-floor-metrics{display:flex;gap:18px;color:var(--muted);font-size:10px}.admin-floor-metrics b{color:var(--text)}.admin-floor-actions{display:flex;align-items:center;gap:7px}.admin-floor-actions button{padding:8px 11px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:10px;font-weight:800;cursor:pointer}.admin-floor-actions button:hover{border-color:var(--primary)}.admin-floor-actions .danger,.admin-menu-item .danger{color:#f87171;border-color:rgba(248,113,113,.25)}.admin-chevron{color:var(--primary);font-size:16px;width:18px;text-align:center}.admin-floor-body{display:grid;grid-template-columns:1.25fr .9fr;border-top:1px solid var(--border);background:rgba(0,0,0,.07)}.admin-subsection{padding:16px;border-right:1px solid var(--border)}.admin-subsection:last-child{border-right:0}.admin-subhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.admin-subhead h4{margin:0;font-size:12px}.admin-subhead h4 span{color:var(--primary);margin-left:5px}.admin-subhead button{border:0;background:rgba(var(--primary-rgb),.08);color:var(--primary);border-radius:8px;padding:7px 9px;font-size:9px;font-weight:900;cursor:pointer}.admin-chip-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.admin-space-chip{padding:10px;border:1px solid var(--border);border-radius:11px;background:var(--surface-2)}.admin-space-chip b{display:block;font-size:10px}.admin-space-chip span{display:block;color:var(--muted);font-size:8px;margin-top:3px}.admin-space-chip.room{border-color:rgba(168,85,247,.2)}.admin-empty-chip{grid-column:1/-1;padding:18px;text-align:center;border:1px dashed var(--border);border-radius:10px;color:var(--muted);font-size:10px}.admin-empty-state{padding:50px 20px;text-align:center;border:1px dashed rgba(var(--primary-rgb),.3);border-radius:18px;background:rgba(var(--primary-rgb),.025)}.admin-empty-state>div{font-size:30px;color:var(--primary)}.admin-empty-state h3{margin:8px 0 4px}.admin-empty-state p{margin:0;color:var(--muted);font-size:11px}
+.admin-menu-layout{display:grid;grid-template-columns:minmax(300px,.85fr) minmax(0,1.5fr);gap:14px;align-items:start}.admin-menu-list{border:1px solid var(--border);border-radius:20px;background:var(--surface);padding:16px}.admin-menu-list-head{display:flex;justify-content:space-between;align-items:center}.admin-menu-list-head h3{margin:0 0 12px;font-size:15px}.admin-menu-list-head h3 span{color:var(--primary);font-size:11px;margin-left:5px}.admin-menu-category{border-top:1px solid var(--border)}.admin-category-head{width:100%;display:flex;justify-content:space-between;padding:13px 4px;border:0;background:none;color:var(--text);font-weight:900;cursor:pointer}.admin-category-head b{color:var(--primary)}.admin-menu-item{display:grid;grid-template-columns:55px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid rgba(127,127,127,.1)}.admin-menu-item img,.admin-menu-placeholder{width:55px;height:55px;object-fit:cover;border-radius:11px;background:var(--surface-2);display:grid;place-items:center}.admin-menu-item strong,.admin-menu-item span,.admin-menu-item small{display:block}.admin-menu-item span{color:var(--primary);font-weight:900;font-size:11px;margin-top:2px}.admin-menu-item small{color:var(--muted);font-size:9px;margin-top:3px}.admin-menu-item button{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:9px;font-weight:800;cursor:pointer;margin-left:4px}
+.admin-field{margin:10px 0}.admin-field label{display:block;color:var(--muted);font-size:10px;font-weight:800;margin-bottom:6px}.admin-field input{margin-top:7px}.admin-textarea{width:100%;min-height:90px;resize:vertical;padding:12px;border-radius:11px;background:var(--background);border:1px solid var(--border);color:var(--text);outline:none;margin:7px 0}.admin-variant-box{padding:12px;border:1px solid var(--border);border-radius:13px;background:rgba(var(--primary-rgb),.025);margin-bottom:10px}.admin-variant-box>div:first-child{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.admin-variant-box>div:first-child button{border:1px solid rgba(var(--primary-rgb),.25);background:transparent;color:var(--primary);border-radius:8px;padding:6px 8px;font-size:9px;font-weight:900}.admin-variant-row{display:grid;grid-template-columns:1fr 100px 30px;gap:6px;margin-bottom:6px}.admin-variant-row input{width:100%;padding:9px;border-radius:9px;background:var(--background);border:1px solid var(--border);color:var(--text)}.admin-variant-row button{border:0;border-radius:8px;background:rgba(248,113,113,.1);color:#f87171}
+.admin-brand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.admin-banner-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.admin-banner-grid img{width:100%;height:80px;object-fit:cover;border-radius:9px}.admin-pro-page .admin-pro-shell .admin-page{} 
+@media(max-width:1100px){.admin-stat-grid{grid-template-columns:repeat(3,1fr)}.admin-space-create-grid,.admin-brand-grid{grid-template-columns:1fr 1fr}.admin-menu-layout{grid-template-columns:1fr}.admin-space-summary{grid-template-columns:repeat(4,1fr)}.admin-space-summary input{grid-column:1/-1}.admin-floor-body{grid-template-columns:1fr}.admin-subsection{border-right:0;border-bottom:1px solid var(--border)}}
+@media(max-width:700px){.admin-pro-page{padding:14px 10px 30px!important}.admin-pro-hero{padding:20px 16px;border-radius:18px}.admin-pro-hero-row{align-items:flex-start}.admin-pro-hero h1{font-size:25px}.admin-pro-hero-badge{display:none}.admin-pro-tabs{margin:0 -2px}.admin-stat-grid{grid-template-columns:repeat(2,1fr)}.admin-quick-grid,.admin-space-create-grid,.admin-brand-grid{grid-template-columns:1fr}.admin-section-head{flex-direction:column}.admin-section-head h2{font-size:21px}.admin-section-head .admin-primary{width:100%}.admin-space-summary{grid-template-columns:repeat(2,1fr)}.admin-space-summary input{grid-column:1/-1}.admin-floor-header{grid-template-columns:38px 1fr auto}.admin-floor-metrics{display:none}.admin-floor-actions button{font-size:0;padding:8px}.admin-floor-actions button:first-child:after{content:"✎";font-size:11px}.admin-floor-actions .danger:after{content:"🗑";font-size:10px}.admin-chevron{display:none}.admin-chip-grid{grid-template-columns:repeat(2,1fr)}.admin-menu-item{grid-template-columns:48px 1fr}.admin-menu-item>div:last-child{grid-column:2;display:flex;justify-content:flex-start}.admin-menu-item img,.admin-menu-placeholder{width:48px;height:48px}.admin-variant-row{grid-template-columns:1fr 80px 30px}.admin-inline-fields{grid-template-columns:1fr}.admin-pro-page input,.admin-pro-page select,.admin-pro-page textarea,.admin-pro-page button{max-width:100%}}
+
+
+/* QR payment mobile hardening */
+@media (max-width:560px){
+  .qr-pay-shell{padding:12px 10px calc(14px + env(safe-area-inset-bottom)) !important}
+  .qr-pay-card{padding:15px !important;border-radius:18px !important}
+  .qr-pay-head{align-items:flex-start !important}
+  .qr-pay-amount{font-size:24px !important;text-align:left !important}
+  .qr-pay-actions{flex-direction:column !important}
+  .qr-pay-actions button{width:100% !important}
+  .qr-pay-qr{width:min(240px,72vw) !important;height:auto !important}
+}
+@media (max-width:380px){
+  .qr-pay-title{font-size:20px !important}
+  .qr-pay-row{font-size:13px !important}
+}
+
+/* Phase 6 Advanced Analytics responsive layout */
+@media (max-width: 900px){
+  .advanced-analytics-grid-4{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  .advanced-analytics-grid-2{grid-template-columns:1fr !important}
+}
+@media (max-width: 520px){
+  .advanced-analytics-grid-4{grid-template-columns:1fr !important}
+}
+.kds-advanced-page{padding:24px}.kds-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.kds-head h1{margin:0}.kds-head p{margin:6px 0 0;opacity:.7}.kds-board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.kds-column{background:var(--card-bg,#fff);border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:12px;min-height:300px}.kds-column h2{font-size:13px;margin:4px 4px 12px}.kds-ticket{border:1px solid rgba(0,0,0,.1);border-radius:12px;padding:12px;margin-bottom:10px}.kds-ticket-top{display:flex;justify-content:space-between;gap:8px}.kds-ticket h3{margin:8px 0 4px;font-size:16px}.kds-ticket p{margin:0 0 8px;font-size:13px;opacity:.75}.kds-actions{display:flex;gap:8px;margin-top:10px}.kds-actions button,.kds-head button{padding:8px 12px;border-radius:8px;border:1px solid rgba(0,0,0,.12);background:inherit;cursor:pointer}.kds-error{padding:10px;border-radius:8px;margin-bottom:12px;background:#fee2e2;color:#991b1b}@media(max-width:1000px){.kds-board{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.kds-advanced-page{padding:14px}.kds-head{align-items:flex-start}.kds-board{grid-template-columns:1fr}}
+.kds-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.kds-summary div{padding:12px;border:1px solid rgba(0,0,0,.08);border-radius:10px}.kds-summary b,.kds-summary span{display:block}.kds-summary span{font-size:12px;opacity:.7;margin-top:3px}.kds-column h2{display:flex;justify-content:space-between}.kds-column h2 small{opacity:.6}@media(max-width:700px){.kds-summary{grid-template-columns:repeat(2,1fr)}}

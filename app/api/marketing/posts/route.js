@@ -3,6 +3,7 @@ import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireStaffPermission } from "@/lib/serverStaffPermissions"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
+import { requireFeature } from "@/lib/featureGateServer"
 
 export const runtime="nodejs"
 
@@ -16,6 +17,7 @@ async function ctx(req){
   const user=await requireApiUser(req)
   const r=await resolveRestaurantForUser(user)
   if(!r.restaurantId) throw new Error("Restaurant not found")
+  await requireFeature(r.restaurantId,"p1-marketing-hub")
   await requireStaffPermission(user,r.restaurantId,"marketing")
   const {data:rows,error}=await supabaseCloudAdmin.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id",r.restaurantId).in("plugin_code",["facebook-integration","instagram-integration","whatsapp-marketing"])
   if(error) throw error

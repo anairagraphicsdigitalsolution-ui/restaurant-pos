@@ -3,6 +3,7 @@ import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { requireApiUser } from "@/lib/serverAuth"
 import { requireStaffPermission } from "@/lib/serverStaffPermissions"
 import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
+import { requireFeature } from "@/lib/featureGateServer"
 import crypto from "node:crypto"
 
 export const runtime = "nodejs"
@@ -12,6 +13,7 @@ export async function POST(req) {
     const user = await requireApiUser(req)
     const r = await resolveRestaurantForUser(user)
     if (!r.restaurantId) throw new Error("Restaurant not found")
+    await requireFeature(r.restaurantId,"p1-marketing-hub")
     await requireStaffPermission(user, r.restaurantId, "marketing")
     const form = await req.formData()
     const file = form.get("file")

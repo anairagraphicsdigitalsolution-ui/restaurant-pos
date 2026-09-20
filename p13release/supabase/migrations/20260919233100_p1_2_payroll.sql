@@ -1,0 +1,2 @@
+-- P1.2 Payroll migration is applied to the connected Supabase project.
+-- Source: p1_2_payroll. See P1.2-PAYROLL.md.

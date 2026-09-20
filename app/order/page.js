@@ -16,16 +16,21 @@ export default function OrderPage() {
   const router = useRouter()
   const { role } = useAuth()
   const [navigationOpen, setNavigationOpen] = useState(false)
-  const navActionLockRef = useRef(0)
+
+  // Keep the POS drawer interaction deliberately simple. Pointer-up/click
+  // combinations and time-based locks are unreliable in Android WebView and
+  // touch browsers because one physical tap can produce multiple pointer/touch
+  // events. A normal click is enough for a button and works across mouse,
+  // touch and keyboard activation.
   const handleNavigationToggle = (open) => {
-    const now = Date.now()
-    if (now - navActionLockRef.current < 500) return
-    navActionLockRef.current = now
     setNavigationOpen(Boolean(open))
   }
+
   const handleBackToDashboard = () => {
     setNavigationOpen(false)
-    router.push("/dashboard")
+    // POS is an application entry point, not a browser-history step. Always
+    // return the operator to the dashboard explicitly.
+    router.replace("/dashboard")
   }
   const [menuMoreOpen, setMenuMoreOpen] = useState(false)
   const [cartMoreOpen, setCartMoreOpen] = useState(false)
@@ -55,6 +60,9 @@ export default function OrderPage() {
   const [modifiers, setModifiers] = useState([])
   const [modifierLinks, setModifierLinks] = useState([])
   const [operationsHubEnabled, setOperationsHubEnabled] = useState(false)
+  const [customerDisplayCode, setCustomerDisplayCode] = useState("")
+  const [customerDisplayQr, setCustomerDisplayQr] = useState("")
+  const [customerLoyaltyPoints, setCustomerLoyaltyPoints] = useState(0)
 
   const [type, setType] = useState("table")
   const [selected, setSelected] = useState(null)
@@ -214,6 +222,31 @@ export default function OrderPage() {
     const names = floors.map(f => String(f.name || "").trim()).filter(Boolean)
     const legacy = tables.map(t => String(t.floor || "").trim()).filter(Boolean)
     return [...new Set([...names, ...legacy])]
+
+  useEffect(() => {
+    if (!menu.length || typeof window === "undefined") return
+    const raw = localStorage.getItem("anaira_call_center_reorder")
+    if (!raw) return
+    try {
+      const data = JSON.parse(raw)
+      const prepared = (data.items || []).map(item => {
+        const menuItem = menu.find(m => String(m.id) === String(item.item_id))
+        if (!menuItem) return null
+        return { ...menuItem, name: item.item_name || menuItem.name, price: Number(item.unit_price ?? menuItem.price ?? 0), qty: Number(item.quantity || 1), variant_id: item.variant_id || null, variant_name: item.variant_name || null, selectedModifiers: [], modifierTotal: 0, cartKey: `call-reorder:${item.item_id}:${item.variant_id || "base"}` }
+      }).filter(Boolean)
+      if (prepared.length) {
+        setCart(prepared)
+        setCustomerName(data.customer_name || "")
+        setCustomerPhone(data.customer_phone || "")
+        setDeliveryAddress(data.delivery_address || "")
+        if (["delivery","takeaway"].includes(String(data.order_mode || "").toLowerCase())) setType(String(data.order_mode).toLowerCase())
+        setPosView("order")
+        setScreen("order")
+      }
+    } catch {}
+    localStorage.removeItem("anaira_call_center_reorder")
+  }, [menu.length])
+
   }, [floors, tables])
   const visibleTables = useMemo(() => {
     if (activeFloor === "All Floors") return tables
@@ -268,6 +301,47 @@ export default function OrderPage() {
   const gst = restaurant?.gst_enabled ? Number(((Math.max(0, subtotal - discount) * Number(restaurant?.gst_rate || 0)) / 100).toFixed(2)) : 0
   const total = Number((Math.max(0, subtotal - discount) + gst + Number(deliveryCharge || 0)).toFixed(2))
   const cartCount = cart.reduce((s, i) => s + Number(i.qty || 0), 0)
+
+  // P2.4 Customer Display: keep the second screen synchronized without changing
+  // the existing POS order/payment flow. BroadcastChannel handles same-device
+  // dual-screen tabs; the API fallback supports a separate display device.
+  useEffect(() => {
+    if (!restaurantId || typeof window === "undefined") return
+    const code = localStorage.getItem("anaira_customer_display_code") || ""
+    if (!code) return
+    setCustomerDisplayCode(code)
+    let timer
+    async function loadDisplayConfig(){
+      try {
+        const r = await fetch(`/api/public/customer-display?display_code=${encodeURIComponent(code)}`, { cache:"no-store" })
+        const d = await r.json()
+        if (d.success) {
+          setCustomerDisplayQr(d.payment_config?.manual_qr_image_url || d.display?.branding?.manual_qr_image_url || d.display?.config?.manual_qr_image_url || "")
+        }
+      } catch {}
+    }
+    loadDisplayConfig()
+    return () => { if (timer) clearTimeout(timer) }
+  }, [restaurantId])
+
+  useEffect(() => {
+    if (!customerDisplayCode || typeof window === "undefined") return
+    const state = {
+      restaurant_name: restaurantName || restaurant?.name || "Restaurant",
+      branding: { logo: restaurant?.logo_url || restaurant?.logo || null },
+      cart: cart.map(i => ({ id:i.cartKey, name:i.name, qty:Number(i.qty||0), price:Number(i.price||0)+Number(i.modifierTotal||0), image:i.image||null, modifiers:(i.selectedModifiers||[]).map(m=>m.name) })),
+      subtotal, discount, offer_discount: offerDiscount, manual_discount: manualDiscount, tax: gst, delivery_charge:Number(deliveryCharge||0), total,
+      offers: activeOffer ? [{ title:activeOffer.title||activeOffer.name||"Offer", discount:offerDiscount }] : [],
+      loyalty_points: Number(customerLoyaltyPoints||0), customer_name:customerName || "",
+      qr_image_url: customerDisplayQr || "", qr_upi_id: "",
+      feedback_url: currentOrder?.id && slug && ["table","room"].includes(type) ? `${window.location.origin}/${slug}/order/${type}/${currentOrder.id}` : "",
+      order_id: currentOrder?.id || null, invoice_no: finalizedBill?.invoice_no || null,
+      payment_status: finalizedBill?.payment_status || currentOrder?.payment_status || "unpaid"
+    }
+    const status = finalizedBill?.payment_status === "paid" ? "success" : cart.length ? "active" : (currentOrder?.id ? "active" : "idle")
+    try { const bc = new BroadcastChannel("anaira-customer-display"); bc.postMessage({display_code:customerDisplayCode,status,state}); bc.close() } catch {}
+    fetch("/api/public/customer-display", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({display_code:customerDisplayCode,session_key:`pos-${restaurantId}`,status,state}) }).catch(()=>{})
+  }, [customerDisplayCode,restaurantId,restaurantName,restaurant,cart,subtotal,discount,offerDiscount,manualDiscount,gst,deliveryCharge,total,activeOffer,customerLoyaltyPoints,customerName,customerDisplayQr,currentOrder,finalizedBill,slug,type])
 
   function itemGroups(item) {
     if (!operationsHubEnabled || !item) return []
@@ -1112,11 +1186,14 @@ export default function OrderPage() {
             type="button"
             className="pos-navigation-drawer-backdrop"
             aria-label="Close navigation"
-            onPointerDown={(e) => { e.preventDefault(); handleNavigationToggle(false) }}
             onClick={() => handleNavigationToggle(false)}
           />
           <div className="pos-navigation-drawer-shell">
-            <Sidebar role={role} drawer onNavigate={() => handleNavigationToggle(false)} />
+            <Sidebar
+              role={role || "admin"}
+              drawer
+              onNavigate={() => handleNavigationToggle(false)}
+            />
           </div>
         </div>
       )}
@@ -1127,7 +1204,6 @@ export default function OrderPage() {
           className="pos-menu-btn"
           aria-label="Open navigation menu"
           aria-expanded={navigationOpen}
-          onPointerUp={(e) => { e.preventDefault(); handleNavigationToggle(true) }}
           onClick={() => handleNavigationToggle(true)}
         >
           ☰ <span>MENU</span>
@@ -1349,7 +1425,7 @@ export default function OrderPage() {
         .floor-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.floor-head small{font-size:8px;letter-spacing:1.4px;font-weight:900;color:var(--primary)}.floor-head h1{margin:4px 0 5px;font-size:24px}.floor-head p{margin:0;color:rgba(255,255,255,.55);font-size:11px}.floor-actions{display:flex;gap:7px;flex-wrap:wrap}.floor-type,.floor-primary{border:1px solid rgba(var(--primary-rgb),.2);background:rgba(var(--primary-rgb),.06);color:var(--text);border-radius:8px;padding:9px 12px;font-size:9px;font-weight:900;cursor:pointer}.floor-type.active,.floor-primary{background:var(--primary);color:#111827;border-color:var(--primary)}.pos-floor-tabs{display:flex;gap:8px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}.pos-floor-tabs::-webkit-scrollbar{display:none}.pos-floor-tabs button{flex:0 0 auto;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-weight:900;cursor:pointer}.pos-floor-tabs button.active{background:var(--primary);border-color:var(--primary);color:#fff}.floor-legend{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}.floor-legend span{font-size:8px;font-weight:900;color:rgba(255,255,255,.52);display:flex;align-items:center;gap:5px}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.free{background:#4ade80}.dot.occupied{background:#f59e0b}.dot.preparing{background:#ef4444}.table-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.floor-table{min-height:120px;text-align:left;border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:12px;padding:14px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(0,0,0,.12)}.floor-table:hover{transform:translateY(-1px);border-color:var(--primary)}.floor-table .table-no{font-size:10px;font-weight:900;letter-spacing:.5px}.floor-table strong{font-size:15px}.floor-table small{font-size:8px;color:rgba(255,255,255,.5)}.floor-table.free strong{color:#4ade80}.floor-table.occupied strong{color:#fbbf24}.floor-table.bill-due{border-color:rgba(var(--primary-rgb),.45);background:linear-gradient(145deg,rgba(var(--primary-rgb),.10),var(--surface))}.floor-table.bill-due strong{color:var(--primary)}.floor-table.preparing{border-color:rgba(239,68,68,.5)}.floor-empty{padding:35px;text-align:center;color:rgba(255,255,255,.45);font-size:11px;border:1px dashed rgba(var(--primary-rgb),.18);border-radius:10px;grid-column:1/-1}.running-section-label{display:flex;align-items:center;gap:8px;margin:2px 0 8px;color:rgba(255,255,255,.52);font-size:8px;font-weight:900;letter-spacing:1px}.running-section-label b{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:10px;background:rgba(var(--primary-rgb),.10);color:var(--primary);font-size:8px}.bill-due-label{margin-top:18px}.billing-due-grid .bill-due-card{border-color:rgba(var(--primary-rgb),.30);background:linear-gradient(145deg,rgba(var(--primary-rgb),.08),var(--surface))}.bill-due-card b{color:var(--primary)}
         .running-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.running-card{border:1px solid rgba(var(--primary-rgb),.14);background:var(--surface);color:var(--text);border-radius:11px;padding:13px;text-align:left;cursor:pointer}.running-card:hover{border-color:var(--primary)}.running-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center}.running-card strong{font-size:12px}.running-card p{font-size:9px;color:rgba(255,255,255,.5);line-height:1.5;min-height:28px}.running-card>b{font-size:13px;color:var(--primary)}.running-status{font-size:7px;font-weight:900;padding:4px 6px;border-radius:5px;background:rgba(var(--primary-rgb),.09);color:var(--primary)}.running-status.preparing{color:#fbbf24}.running-status.done{color:#4ade80}.order-flow-crumb{display:flex;align-items:center;gap:9px;padding:7px 14px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.12);font-size:7px;font-weight:900;color:rgba(255,255,255,.4);overflow:auto;white-space:nowrap}.order-flow-crumb button{border:1px solid rgba(var(--primary-rgb),.16);background:rgba(var(--primary-rgb),.05);color:var(--primary);border-radius:5px;padding:5px 7px;font-size:7px;font-weight:900;cursor:pointer}.order-flow-crumb b{color:var(--text)}
          .anaira-pos{height:100dvh;min-height:0;overflow:hidden;background:var(--background);color:var(--text);font-family:Inter,Arial,sans-serif}
-        .pos-navigation-drawer-layer{position:fixed;inset:0;width:100vw;height:100dvh;z-index:2147483000;display:block;pointer-events:auto;touch-action:auto;isolation:isolate}.pos-navigation-drawer-backdrop{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:rgba(2,6,23,.68);backdrop-filter:blur(2px);cursor:pointer;pointer-events:auto;touch-action:auto;-webkit-tap-highlight-color:transparent}.pos-navigation-drawer-shell{position:fixed;left:0;top:0;bottom:0;width:min(88vw,360px);height:100dvh;max-height:100dvh;z-index:2;pointer-events:auto;touch-action:auto}.pos-navigation-drawer-shell .pos-sidebar{position:absolute!important;inset:0 auto 0 0!important;width:100%!important;max-width:none!important;min-width:0!important;height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;z-index:3!important;pointer-events:auto!important;touch-action:auto!important;overflow:hidden auto!important;-webkit-overflow-scrolling:touch}.pos-navigation-drawer-shell .pos-sidebar *{touch-action:manipulation}
+        .pos-navigation-drawer-layer{position:fixed;inset:0;width:100vw;height:100dvh;z-index:2147483000;display:block;pointer-events:auto;touch-action:auto;isolation:isolate;overflow:hidden}.pos-navigation-drawer-backdrop{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:rgba(2,6,23,.68);backdrop-filter:blur(2px);cursor:pointer;pointer-events:auto;touch-action:auto;-webkit-tap-highlight-color:transparent}.pos-navigation-drawer-shell{position:fixed;left:0;top:0;bottom:0;width:min(88vw,360px);height:100dvh;max-height:100dvh;z-index:2147483001;pointer-events:auto!important;touch-action:auto;background:var(--surface);color:var(--text);box-shadow:24px 0 70px rgba(0,0,0,.48);overflow:hidden;transform:translate3d(0,0,0);will-change:transform}.pos-navigation-drawer-shell .pos-sidebar{position:absolute!important;inset:0 auto 0 0!important;box-sizing:border-box!important;width:100%!important;max-width:none!important;min-width:0!important;height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;z-index:3!important;pointer-events:auto!important;touch-action:auto!important;overflow:hidden auto!important;-webkit-overflow-scrolling:touch}.pos-navigation-drawer-shell .pos-sidebar *{touch-action:manipulation}
         .pos-menu-btn{position:relative;z-index:110;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;flex:0 0 auto;width:48px;height:42px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 8px;border:1px solid rgba(var(--primary-rgb),.35);border-radius:10px;background:rgba(var(--primary-rgb),.10);color:var(--primary);font-size:20px;font-weight:900;cursor:pointer;white-space:nowrap;box-shadow:0 5px 16px rgba(0,0,0,.16)}.pos-menu-btn span{font-size:9px}.pos-menu-btn:active{transform:scale(.97);background:rgba(var(--primary-rgb),.18)}.pos-menu-btn:hover{background:rgba(var(--primary-rgb),.14)}
         .pos-topbar{height:48px;min-height:48px;background:var(--surface);border-bottom:1px solid rgba(var(--primary-rgb),.16);display:flex;align-items:center;gap:16px;padding:0 18px;position:sticky;top:0;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.18)}
         .back-btn{border:1px solid rgba(var(--primary-rgb),.25);background:rgba(var(--primary-rgb),.07);font-weight:800;color:var(--text);font-size:13px;cursor:pointer;border-radius:10px;padding:8px 12px}.back-btn:hover{background:rgba(var(--primary-rgb),.15)}

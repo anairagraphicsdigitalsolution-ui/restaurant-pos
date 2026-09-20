@@ -1,0 +1,30 @@
+'use client';
+import {useEffect,useMemo,useState} from 'react';
+const TYPES=['sales','demand','inventory','purchasing','production','staff','waste','customers','marketing'];
+export default function AIIntelligence(){
+ const[s,setS]=useState({datasets:[],forecasts:[],recommendations:[],risks:[],insights:[],modelRuns:[],backtests:[]}),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[selectedRun,setSelectedRun]=useState('');
+ async function load(run){const r=await fetch('/api/ai-intelligence'+(run?`?run_id=${run}`:''));const j=await r.json();if(!r.ok)throw Error(j.error);setS(j)}
+ useEffect(()=>{load().catch(e=>setMsg(e.message))},[]);
+ async function post(b){const r=await fetch('/api/ai-intelligence',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}
+ async function build(){setBusy(true);try{const j=await post({action:'build',days:180});setMsg(`Dataset refresh complete. Quality ${j.quality_score??'-'}%.`);await load()}catch(e){setMsg(e.message)}finally{setBusy(false)}}
+ async function train(){setBusy(true);try{const j=await post({action:'train_backtest',history_days:180,test_days:28});setMsg(`Sales model: ${j.status}. Backtest MAPE ${j.metrics?.mape?.toFixed?.(2)??'-'}%.`);await load(j.model_run_id);setSelectedRun(j.model_run_id)}catch(e){setMsg(e.message)}finally{setBusy(false)}}
+ async function approve(id,yes){try{await post({action:'approve',id,approve:yes});await load(selectedRun)}catch(e){setMsg(e.message)}}
+ async function execute(id){const ref=prompt('Execution reference / linked operation ID');if(!ref)return;try{await post({action:'execute',id,execution_ref:ref});await load(selectedRun)}catch(e){setMsg(e.message)}}
+ const pending=s.recommendations.filter(x=>x.status==='pending'),approved=s.recommendations.filter(x=>x.status==='approved');
+ const latest=s.modelRuns[0], selected=s.modelRuns.find(x=>x.id===selectedRun)||latest;
+ return <main style={{padding:24,maxWidth:1500,margin:'0 auto'}}>
+  <header style={{display:'flex',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}><div><h1>AI & Decision Intelligence</h1><p>Forecast → backtest → validate → shadow → approval → execution. No automatic operational execution.</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button onClick={build} disabled={busy}>Refresh Data</button><button onClick={train} disabled={busy}>{busy?'Running…':'Train + Backtest Sales'}</button></div></header>
+  {msg&&<p style={{padding:10,border:'1px solid #ddd',borderRadius:8}}>{msg}</p>}
+  <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12,margin:'20px 0'}}>{TYPES.map(t=>{const d=s.datasets.find(x=>x.dataset_type===t);return <article key={t} style={{padding:14,border:'1px solid #ddd',borderRadius:12}}><b>{t}</b><div>{d?.quality_score??0}% quality</div><small>{d?.row_count??0} rows</small></article>})}</section>
+  <section style={{border:'1px solid #ddd',borderRadius:14,padding:16,marginBottom:16}}><h2>ML Model & Backtesting</h2><p>Production gate: minimum data → measurable backtest → confidence threshold → shadow mode. Current sales acceptance threshold is MAPE ≤ 35%; otherwise the model remains shadow-only.</p>{selected?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}><div><b>Status</b><br/>{selected.status}</div><div><b>Algorithm</b><br/>{selected.algorithm}</div><div><b>Training rows</b><br/>{selected.training_rows}</div><div><b>Test rows</b><br/>{selected.test_rows}</div><div><b>MAPE</b><br/>{selected.metrics?.mape??'-'}%</div><div><b>Confidence</b><br/>{selected.metrics?.confidence??'-'}%</div></div>:<p>No model run yet. Run Train + Backtest Sales.</p>}
+   <div style={{marginTop:12}}><select value={selectedRun} onChange={async e=>{setSelectedRun(e.target.value);await load(e.target.value)}}><option value="">Latest model run</option>{s.modelRuns.map(r=><option key={r.id} value={r.id}>{r.created_at} · {r.status} · {r.model_version}</option>)}</select></div>
+   {selectedRun&&s.backtests.length>0&&<div style={{overflowX:'auto',marginTop:12}}><table><thead><tr><th>Date</th><th>Actual</th><th>Predicted</th><th>Abs Error</th><th>APE</th></tr></thead><tbody>{s.backtests.map(x=><tr key={x.id}><td>{x.forecast_date}</td><td>{Number(x.actual_value).toFixed(2)}</td><td>{Number(x.predicted_value).toFixed(2)}</td><td>{Number(x.absolute_error).toFixed(2)}</td><td>{x.absolute_pct_error==null?'—':Number(x.absolute_pct_error).toFixed(2)+'%'}</td></tr>)}</tbody></table></div>}
+  </section>
+  <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:16}}>
+   <article style={{border:'1px solid #ddd',borderRadius:14,padding:16}}><h2>Recommendations — approval required</h2>{pending.length===0?<p>No pending recommendations.</p>:pending.slice(0,20).map(x=><div key={x.id} style={{padding:'12px 0',borderBottom:'1px solid #eee'}}><b>{x.title}</b><p>{x.rationale}</p><small>Confidence {x.confidence}% · {x.priority}</small><div><button onClick={()=>approve(x.id,true)}>Approve</button>{' '}<button onClick={()=>approve(x.id,false)}>Reject</button></div></div>)}</article>
+   <article style={{border:'1px solid #ddd',borderRadius:14,padding:16}}><h2>Approved — ready for execution</h2>{approved.length===0?<p>Nothing approved.</p>:approved.slice(0,20).map(x=><div key={x.id} style={{padding:'12px 0',borderBottom:'1px solid #eee'}}><b>{x.title}</b><p>{x.rationale}</p><button onClick={()=>execute(x.id)}>Mark Execution Complete</button></div>)}</article>
+   <article style={{border:'1px solid #ddd',borderRadius:14,padding:16}}><h2>Risk signals</h2>{s.risks.slice(0,20).map(x=><div key={x.id}><b>{x.signal_type}</b> · {x.severity} · {x.score}</div>)}</article>
+  </section>
+  <section style={{marginTop:16,border:'1px solid #ddd',borderRadius:14,padding:16}}><h2>Forecasts</h2>{s.forecasts.slice(0,30).map(x=><div key={x.id}>{x.forecast_date} · {x.forecast_type} · {x.target_key} · {x.predicted_value} · confidence {x.confidence}%</div>)}</section>
+ </main>
+}

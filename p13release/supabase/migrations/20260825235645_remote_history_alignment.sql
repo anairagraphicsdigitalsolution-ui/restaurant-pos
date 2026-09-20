@@ -1,0 +1,3 @@
+-- Migration-history alignment placeholder.
+-- This version already exists on the linked remote database.
+-- Intentionally empty: do not replay remote changes locally.

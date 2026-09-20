@@ -27,6 +27,12 @@ const categoryMeta = {
 }
 
 const hubCodes = new Set(["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"])
+const P1_CODES = new Set(["p1-enterprise-hq","p1-payment-terminals","p1-supplier-automation","p1-marketing-hub","p1-advanced-reporting"])
+const P2_CODES = new Set(["p2-call-center","p2-banquet-events","p2-advanced-kiosk","p2-customer-display","p2-device-hq","p2-ai-intelligence"])
+const P0_CODES = new Set(PLUGIN_CATALOG.map(item => item.code).filter(code => !P1_CODES.has(code) && !P2_CODES.has(code)))
+const P0_CORE_CODES = new Set(["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"])
+function featureTier(code){ if(P2_CODES.has(code)) return "P2"; if(P1_CODES.has(code)) return "P1"; return "P0" }
+
 const MASTER_PLUGIN_CODES = new Set(["operations-hub","restaurant-core","restaurant-suite","restaurant-pro"])
 
 export default function PluginsPage(){
@@ -35,6 +41,7 @@ export default function PluginsPage(){
   const [installed,setInstalled]=useState([])
   const [selected,setSelected]=useState(null)
   const [category,setCategory]=useState("All")
+  const [tierFilter,setTierFilter]=useState("All")
   const [statusFilter,setStatusFilter]=useState("all")
   const [search,setSearch]=useState("")
   const [loading,setLoading]=useState(true)
@@ -60,7 +67,7 @@ export default function PluginsPage(){
       const data=await res.json()
       if(!res.ok||!data.success) throw new Error(data.error||"Unable to load plugin center")
       setRestaurants(data.restaurants||[])
-      setCatalog(PLUGIN_CATALOG)
+      setCatalog(data.catalog||PLUGIN_CATALOG)
     }catch(e){
       setMessage(`❌ ${e.message}`)
     }finally{
@@ -79,19 +86,19 @@ export default function PluginsPage(){
       })
       const data=await res.json()
       if(!res.ok||!data.success) throw new Error(data.error||"Unable to load restaurant plugins")
-      setCatalog(PLUGIN_CATALOG)
+      setCatalog(data.catalog||PLUGIN_CATALOG)
       setInstalled(data.plugins||[])
     }catch(e){
       setMessage(`❌ ${e.message}`)
     }
   }
 
-  const merged=useMemo(()=>PLUGIN_CATALOG.map(c=>({
+  const merged=useMemo(()=>catalog.map(c=>({
     ...c,
     plugin:installed.find(p=>p.plugin_code===c.code)||null
   })),[catalog,installed])
 
-  const categories=["All",...Array.from(new Set(PLUGIN_CATALOG.map(x=>x.category).filter(Boolean)))]
+  const categories=["All",...Array.from(new Set(catalog.map(x=>x.category).filter(Boolean)))]
   const filteredRestaurants=restaurants.filter(r=>{
     const q=restaurantSearch.trim().toLowerCase()
     return !q || `${r.name} ${r.status}`.toLowerCase().includes(q)
@@ -100,11 +107,18 @@ export default function PluginsPage(){
   const filtered=merged.filter(x=>{
     const q=search.trim().toLowerCase()
     const categoryOK=category==="All"||x.category===category
+    const tierOK=tierFilter==="All"||featureTier(x.code)===tierFilter
     const status=x.plugin?.enabled===true ? "active" : "locked"
     const statusOK=statusFilter==="all"||statusFilter===status
     const searchOK=!q||`${x.name} ${x.description} ${x.category} ${x.code}`.toLowerCase().includes(q)
-    return categoryOK&&statusOK&&searchOK
+    return categoryOK&&tierOK&&statusOK&&searchOK
   })
+
+  const tierGroups={
+    P0: merged.filter(x=>featureTier(x.code)==="P0"),
+    P1: merged.filter(x=>featureTier(x.code)==="P1"),
+    P2: merged.filter(x=>featureTier(x.code)==="P2")
+  }
 
   const activeCount=installed.filter(x=>x.enabled).length
   const total=catalog.length
@@ -326,6 +340,7 @@ export default function PluginsPage(){
         {message&&<div style={toast}>{message}</div>}
 
         <section style={topBar}>
+          <div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,border:"1px solid var(--border)",background:"var(--surface-2)",fontSize:13,lineHeight:1.5}}><b>40-Plugin Control:</b> P0 contains the 29 existing/core-standard plugins, P1 contains exactly 5 advanced modules, and P2 contains exactly 6 advanced platform modules. P0 core hubs are identified separately; existing P0 plugin controls remain available so current restaurant functionality is not broken.</div>
           <div style={restaurantBox}>
             <div style={miniLabel}>RESTAURANT CONTROL</div>
             <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -348,12 +363,29 @@ export default function PluginsPage(){
         </section>
 
         {!selected ? (
-          <section style={welcome}>
-            <div style={welcomeIcon}>🧩</div>
-            <div>
-              <div style={eyebrow}>PLUGIN LIBRARY READY</div>
-              <h2 style={{margin:"5px 0 8px"}}>Choose a restaurant to manage features</h2>
-              <p style={{margin:0,color:"var(--muted)",lineHeight:1.6}}>Each restaurant has its own plugin state. Turning a feature ON here makes that feature available to the restaurant.</p>
+          <section style={{...welcome,display:"grid",gap:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
+              <div>
+                <div style={eyebrow}>PLUGIN LIBRARY READY</div>
+                <h2 style={{margin:"5px 0 8px"}}>Complete 40-Plugin Catalog</h2>
+                <p style={{margin:0,color:"var(--muted)",lineHeight:1.6}}>All 40 plugins are visible: 29 P0 existing/core-standard plugins, 5 P1 modules and 6 P2 modules. Select a restaurant to manage the restaurant-specific activation state.</p>
+              </div>
+              <div style={heroBadges}>
+                {["P0","P1","P2"].map(t=><span key={t} style={badge}>{t} · {catalog.filter(x=>featureTier(x.code)===t).length}</span>)}
+              </div>
+            </div>
+            <div className="plugin-cards">
+              {filtered.map(plugin=>(
+                <article key={plugin.code} style={pluginCard}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:28}}>{plugin.icon||"🧩"}</span>
+                    <span style={badge}>{P0_CORE_CODES.has(plugin.code)?"P0 CORE":featureTier(plugin.code)}</span>
+                  </div>
+                  <h3 style={{margin:"10px 0 5px",fontSize:16}}>{plugin.name}</h3>
+                  <p style={{margin:0,color:"var(--muted)",fontSize:12,lineHeight:1.5}}>{plugin.description}</p>
+                  <div style={{marginTop:10,fontSize:11,fontWeight:800,color:"var(--muted)"}}>{plugin.code}</div>
+                </article>
+              ))}
             </div>
           </section>
         ):(
@@ -361,88 +393,63 @@ export default function PluginsPage(){
             <section className="stats-grid" style={stats}>
               <Stat icon="⚡" label="Active Features" value={`${activeCount}/${total}`}/>
               <Stat icon="📈" label="Coverage" value={`${coverage}%`}/>
-              <Stat icon="🧭" label="Master Hubs" value={`${activeHubs}/3`}/>
+              <Stat icon="🧭" label="Core Plugins" value={`${activeHubs}/${hubCodes.size}`}/>
               <Stat icon="🏪" label="Restaurant" value={selected.name}/>
             </section>
 
-            <section style={hubPanel}>
-              <div style={sectionHead}>
-                <div>
-                  <div style={eyebrow}>MASTER CONTROLS</div>
-                  <h2 style={sectionTitle}>Restaurant Control Hubs</h2>
-                  <p style={sectionText}>These are the three top-level switches for the restaurant application.</p>
-                </div>
-                <span style={masterStatus}>{activeHubs}/3 ACTIVE</span>
-              </div>
-
-              <div className="hub-cards">
-                {merged.filter(p=>hubCodes.has(p.code)).map(p=>{
-                  const alwaysOn = false
-                   const on = p.plugin?.enabled===true
-                  return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
-                    <div style={hubIcon}>{p.icon||"🧩"}</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
-                        <h3 style={{margin:0,fontSize:16}}>{p.name}</h3>
-                        <span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"LOCKED"}</span>
-                      </div>
-                      <p style={pluginDesc}>{p.description}</p>
-                      <button className="plugin-btn" disabled={alwaysOn || saving===p.code} onClick={()=>toggle(p)} style={alwaysOn?ghost:(on?hubDeactivate:hubActivate)}>
-                        {alwaysOn ? "Always On" : saving===p.code?"Saving…":on?"Deactivate":"Activate"}
-                      </button>
-                    </div>
-                  </article>
-                })}
-              </div>
-            </section>
-
             <section style={{...hubPanel,marginTop:0}}>
               <div style={sectionHead}>
                 <div>
-                  <div style={eyebrow}>INTEGRATION PLUGIN</div>
-                  <h2 style={sectionTitle}>WhatsApp Integration</h2>
-                  <p style={sectionText}>Enable or disable WhatsApp Invoice independently. It does not depend on Restaurant Pro or Core POS.</p>
+                  <div style={eyebrow}>40-PLUGIN CONTROL</div>
+                  <h2 style={sectionTitle}>P0 / P1 / P2 Plugin Controls</h2>
+                  <p style={sectionText}>All 40 catalog entries are always visible here. Select a restaurant above, then activate/deactivate the restaurant-level feature. All P0, P1 and P2 plugins are managed independently for the selected restaurant.</p>
                 </div>
+                <span style={masterStatus}>P0 {tierGroups.P0.length} · P1 {tierGroups.P1.length} · P2 {tierGroups.P2.length}</span>
               </div>
-              <div className="hub-cards">
-                {merged.filter(p => p.code === "whatsapp-invoice").map(p => {
-                  const on = p.plugin?.enabled === true
-                  return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
-                    <div style={hubIcon}>📲</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
-                        <h3 style={{margin:0,fontSize:16}}>WhatsApp Invoice</h3>
+              {["P0","P1","P2"].map(tier=><div key={tier} style={{marginTop:18}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10}}>
+                  <div style={{fontSize:14,fontWeight:900}}>{tier} {tier==="P0"?"— CORE / STANDARD":tier==="P1"?"— ADVANCED OPERATIONS":"— ADVANCED PLATFORM"}</div>
+                  <span style={badge}>{tierGroups[tier].length} plugins</span>
+                </div>
+                <div className="plugin-cards">
+                  {tierGroups[tier].map(p=>{
+                    const on=p.plugin?.enabled===true
+                    return <article key={p.code} style={{...pluginCard,...(on?pluginOn:{})}}>
+                      <div style={cardTop}>
+                        <div style={pluginIcon}>{p.icon||"🧩"}</div>
                         <span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"OFF"}</span>
                       </div>
-                      <p style={pluginDesc}>Send invoice/customer messages through WhatsApp click-to-chat.</p>
-                      <button className="plugin-btn" disabled={saving===p.code} onClick={()=>toggle(p)} style={on?hubDeactivate:hubActivate}>
-                        {saving===p.code?"Saving…":on?"Deactivate":"Activate"}
-                      </button>
-                    </div>
-                  </article>
-                })}
-              </div>
-            </section>
-
-            <section style={{...hubPanel,marginTop:0}}>
-              <div style={sectionHead}>
-                <div><div style={eyebrow}>MARKETING PLUGIN</div><h2 style={sectionTitle}>WhatsApp Marketing</h2><p style={sectionText}>Independent opt-in marketing channel. Separate from WhatsApp Invoice / transactional messaging.</p></div>
-              </div>
-              <div className="hub-cards">
-                {merged.filter(p=>p.code==="whatsapp-marketing").map(p=>{const on=p.plugin?.enabled===true;return <article key={p.code} style={{...hubCard,...(on?hubCardOn:{})}}>
-                  <div style={hubIcon}>📣</div><div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}><h3 style={{margin:0,fontSize:16}}>WhatsApp Marketing</h3><span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"OFF"}</span></div>
-                    <p style={pluginDesc}>Campaign broadcasts using approved templates and explicit customer opt-in.</p>
-                    <button className="plugin-btn" disabled={saving===p.code} onClick={()=>toggle(p)} style={on?hubDeactivate:hubActivate}>{saving===p.code?"Saving…":on?"Deactivate":"Activate"}</button>
-                  </div></article>})}
-              </div>
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={miniLabel}>{p.category}</span><span style={badge}>{P0_CORE_CODES.has(p.code)?"P0 CORE":tier}</span></div>
+                      <h3 style={pluginName}>{p.name}</h3>
+                      <p style={pluginDesc}>{p.description}</p>
+                      <div style={cardBottom}>
+                        <span style={code}>{p.code}</span>
+                        <button className="plugin-btn" disabled={!selected || saving===p.code} onClick={()=>toggle(p)} style={on?switchOn:switchOff}>{!selected?"Select Restaurant":saving===p.code?"Saving…":on?"Deactivate":"Activate"}</button>
+                      </div>
+                    </article>
+                  })}
+                </div>
+              </div>)}
             </section>
 
             <div className="plugin-grid">
               <aside style={side}>
                 <div style={sideTitle}>PLUGIN LIBRARY</div>
                 <div style={sideSearch}><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search plugins…" style={searchInput}/></div>
-                <button onClick={()=>setCategory("All")} style={{...sideItem,...(category==="All"?sideActive:{})}}>✨ All Features <b>{catalog.length}</b></button>
+                <div style={sideTitle}>FEATURE TIER</div>
+                {["All", "P0", "P1", "P2"].map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setTierFilter(v)}
+                    style={tierFilter === v ? { ...sideItem, ...sideActive } : sideItem}
+                  >
+                    {v === "All" ? "🧩" : "🚀"}
+                    <span style={{ flex: 1 }}>{v === "All" ? "All Tiers" : `${v} Features`}</span>
+                    <b>{v === "All" ? catalog.length : merged.filter((x) => featureTier(x.code) === v).length}</b>
+                  </button>
+                ))}
+                <div style={sideDivider}/>
+                <button onClick={()=>setCategory("All")} style={{...sideItem,...(category==="All"?sideActive:{})}}>✨ All Categories <b>{catalog.length}</b></button>
                 {categories.slice(1).map(c=>{
                   const [icon,label]=categoryMeta[c]||["🧩",c]
                   const count=merged.filter(x=>x.category===c).length
@@ -469,22 +476,21 @@ export default function PluginsPage(){
 
                 <div className="plugin-cards">
                   {filtered.map(p=>{
-                    const alwaysOn = false
-                     const on=p.plugin?.enabled===true
+                    const on=p.plugin?.enabled===true
                     const [catIcon,catLabel]=categoryMeta[p.category]||["🧩",p.category]
                     return <article key={p.code} style={{...pluginCard,...(on?pluginOn:{})}}>
                       <div style={cardTop}>
                         <div style={pluginIcon}>{p.icon||catIcon}</div>
-                        <span style={{...status,...(on?statusOn:statusOff)}}>{on?"ACTIVE":"OFF"}</span>
+                        <span style={{...status,...(on?statusOn:statusOff)}}>{P0_CORE_CODES.has(p.code)?"CORE":(on?"ACTIVE":"OFF")}</span>
                       </div>
-                      <div style={miniLabel}>{catLabel}</div>
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={miniLabel}>{catLabel}</span><span style={{fontSize:10,fontWeight:900,padding:"3px 6px",borderRadius:999,border:"1px solid var(--border)"}}>{P0_CORE_CODES.has(p.code)?"P0 CORE":featureTier(p.code)}</span>{P0_CODES.has(p.code)&&!P0_CORE_CODES.has(p.code)&&<span style={{fontSize:10,fontWeight:900,padding:"3px 6px",borderRadius:999,border:"1px solid var(--border)"}}>P0 STANDARD</span>}</div>
                       <h3 style={pluginName}>{p.name}</h3>
                       <p style={pluginDesc}>{p.description}</p>
                       <div style={cardBottom}>
                         <span style={code}>{p.code}</span>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",justifyContent:"flex-end"}}>
-                          <button className="plugin-btn" disabled={alwaysOn || saving===p.code} onClick={()=>toggle(p)} style={alwaysOn?ghost:(on?switchOn:switchOff)}>
-                            {alwaysOn ? "Always On" : saving===p.code?"Saving…":on?"Deactivate":"Activate"}
+                          <button className="plugin-btn" disabled={!selected || saving===p.code} onClick={()=>toggle(p)} style={on?switchOn:switchOff}>
+                            {!selected ? "Select Restaurant" : saving===p.code?"Saving…":on?"Deactivate":"Activate"}
                           </button>
                           {on && <button className="plugin-btn" onClick={()=>loadConfig(p)} style={ghost}>⚙ Configure</button>}
                         </div>

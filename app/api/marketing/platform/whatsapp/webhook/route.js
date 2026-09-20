@@ -3,6 +3,7 @@ import crypto from "node:crypto"
 import {supabaseCloudAdmin} from "@/lib/supabaseCloudServer"
 import {getMetaServerConfig} from "@/lib/marketingConfig"
 import {normalizeWhatsAppNumber} from "@/lib/whatsappServer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime="nodejs"
 const STOP_WORDS=new Set(["stop","unsubscribe","cancel","end","quit","remove","optout","opt-out"])
@@ -18,6 +19,10 @@ export async function GET(req){
 }
 
 export async function POST(req){
+  const oversized = rejectOversizedRequest(req, 512 * 1024)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "meta-whatsapp-webhook", 60)
+  if (!limit.ok) return rateLimitResponse(limit)
   try{
     const raw=await req.text()
     const sig=req.headers.get("x-hub-signature-256")||""

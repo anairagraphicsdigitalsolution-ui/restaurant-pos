@@ -1,3 +1,4 @@
+import { requireFeature } from "@/lib/featureGateServer"
 import { indiaDateKey } from "@/lib/indiaTime"
 import { NextResponse } from "next/server"
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
@@ -20,6 +21,7 @@ export async function GET(req) {
     const resolved = await resolveRestaurantForUser(user)
     const rid = resolved.restaurantId
     if (!rid) throw new Error("Restaurant profile not found")
+    await requireFeature(rid, "operations-hub")
 
     const pluginRes = await supabaseCloudAdmin.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", rid)
     if (pluginRes.error) throw pluginRes.error
@@ -101,27 +103,43 @@ export async function POST(req) {
       return NextResponse.json({ success: true })
     }
     if (action === "merge") {
-      const ids = Array.isArray(body.order_ids) ? body.order_ids.filter(Boolean) : []
+      const ids = [...new Set(Array.isArray(body.order_ids) ? body.order_ids.filter(Boolean).map(String) : [])]
       if (ids.length < 2) throw new Error("At least two orders are required")
       const { data: rows, error } = await supabaseCloudAdmin.from("orders")
-        .select("id,total_amount")
+        .select("id,total_amount,paid_amount,payment_status,status")
         .eq("restaurant_id", rid)
         .in("id", ids)
       if (error) throw error
       if ((rows || []).length !== ids.length) throw new Error("One or more orders were not found")
+      if ((rows || []).some(o => ["paid", "refunded"].includes(String(o.payment_status || "").toLowerCase()) || Number(o.paid_amount || 0) > 0)) {
+        throw new Error("Paid or partially paid orders cannot be merged. Settle or refund them first.")
+      }
+      if ((rows || []).some(o => ["cancelled", "void", "voided"].includes(String(o.status || "").toLowerCase()))) {
+        throw new Error("Cancelled/voided orders cannot be merged")
+      }
       const [target, ...rest] = rows
-      const total = rows.reduce((n, x) => n + Number(x.total_amount || 0), 0)
+      const restIds = rest.map(x => x.id)
+      const total = Number(rows.reduce((n, x) => n + Number(x.total_amount || 0), 0).toFixed(2))
+
+      // Move the actual order items, rather than only changing the header total.
+      // Modifiers and item-level metadata stay attached to the same order_item rows.
+      if (restIds.length) {
+        const { error: moveItemsError } = await supabaseCloudAdmin.from("order_items")
+          .update({ order_id: target.id })
+          .in("order_id", restIds)
+        if (moveItemsError) throw moveItemsError
+      }
       const { error: updateError } = await supabaseCloudAdmin.from("orders")
         .update({ total_amount: total })
         .eq("id", target.id).eq("restaurant_id", rid)
       if (updateError) throw updateError
-      if (rest.length) {
+      if (restIds.length) {
         const { error: cancelError } = await supabaseCloudAdmin.from("orders")
-          .update({ status: "cancelled", void_reason: `Merged into ${target.id}` })
-          .in("id", rest.map(x => x.id)).eq("restaurant_id", rid)
+          .update({ status: "cancelled", void_reason: `Merged into ${target.id}`, cancelled_at: new Date().toISOString() })
+          .in("id", restIds).eq("restaurant_id", rid)
         if (cancelError) throw cancelError
       }
-      await audit(rid, user.id, "orders.merged", "order", target.id, { merged_order_ids: ids, total })
+      await audit(rid, user.id, "orders.merged", "order", target.id, { merged_order_ids: ids, total, moved_item_orders: restIds })
       return NextResponse.json({ success: true, target_order_id: target.id, total })
     }
 
@@ -177,41 +195,63 @@ export async function POST(req) {
     }
     if (action === "payment") {
       const amount = Number(body.amount || 0)
-      if (!body.order_id || amount <= 0) throw new Error("Order and positive amount are required")
+      if (!body.order_id || !Number.isFinite(amount) || amount <= 0) throw new Error("Order and positive payment amount are required")
       const method = ["cash", "upi", "card", "online", "credit", "other"].includes(body.payment_method) ? body.payment_method : "cash"
-      const { data, error } = await supabaseCloudAdmin.from("order_payments").insert({ restaurant_id: rid, order_id: body.order_id, payment_method: method, amount, reference: body.reference || null, status: "paid", created_by: user.id }).select().single()
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_record_payment", {
+        p_restaurant_id: rid, p_order_id: body.order_id, p_amount: Number(amount.toFixed(2)),
+        p_payment_method: method, p_reference: body.reference || null,
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null, p_actor_id: user.id
+      })
       if (error) throw error
-      await audit(rid, user.id, "payment.recorded", "order", body.order_id, { amount, method })
       return NextResponse.json({ success: true, data })
     }
     if (action === "split") {
-      const parts = Math.max(2, Math.floor(Number(body.parts || 2)))
-      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders").select("total_amount").eq("id", body.order_id).eq("restaurant_id", rid).single()
+      const parts = Math.min(20, Math.max(2, Math.floor(Number(body.parts || 2))))
+      if (!body.order_id) throw new Error("Order is required")
+      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders").select("id,total_amount,paid_amount,payment_status,status").eq("id", body.order_id).eq("restaurant_id", rid).single()
       if (orderError) throw orderError
-      const each = Number(order.total_amount || 0) / parts
-      const rows = Array.from({ length: parts }, (_, i) => ({ restaurant_id: rid, order_id: body.order_id, split_no: i + 1, amount: Number(each.toFixed(2)) }))
+      if (["cancelled", "void", "voided", "refunded"].includes(String(order.status || "").toLowerCase())) throw new Error("Cancelled/voided orders cannot be split")
+      if (Number(order.paid_amount || 0) > 0 || ["paid", "partially_paid"].includes(String(order.payment_status || "").toLowerCase())) throw new Error("Paid or partially paid orders cannot be split")
+      const total = Number(Number(order.total_amount || 0).toFixed(2))
+      const base = Math.floor((total / parts) * 100) / 100
+      const remainder = Number((total - base * parts).toFixed(2))
+      const rows = Array.from({ length: parts }, (_, i) => ({
+        restaurant_id: rid, order_id: body.order_id, split_no: i + 1,
+        amount: Number((base + (i === parts - 1 ? remainder : 0)).toFixed(2)), payment_status: "unpaid"
+      }))
       const { error } = await supabaseCloudAdmin.from("order_splits").upsert(rows, { onConflict: "order_id,split_no" })
       if (error) throw error
-      await audit(rid, user.id, "bill.split", "order", body.order_id, { parts })
-      return NextResponse.json({ success: true, parts })
+      await audit(rid, user.id, "bill.split", "order", body.order_id, { parts, total, split_amounts: rows.map(r => r.amount) })
+      return NextResponse.json({ success: true, parts, splits: rows })
     }
     if (action === "refund") {
       const amount = Number(body.amount || 0)
-      if (!body.order_id || amount <= 0) throw new Error("Order and positive refund amount are required")
+      if (!body.order_id || !Number.isFinite(amount) || amount <= 0) throw new Error("Order and positive refund amount are required")
       const { data: payment } = await supabaseCloudAdmin.from("order_payments").select("id").eq("restaurant_id", rid).eq("order_id", body.order_id).eq("status", "paid").order("created_at", { ascending: false }).limit(1).maybeSingle()
-      const { error } = await supabaseCloudAdmin.from("order_refunds").insert({ restaurant_id: rid, order_id: body.order_id, payment_id: payment?.id || null, amount, reason: body.reason || "Customer refund", created_by: user.id })
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_record_refund", {
+        p_restaurant_id: rid, p_order_id: body.order_id, p_amount: Number(amount.toFixed(2)),
+        p_reason: body.reason || "Customer refund", p_payment_id: payment?.id || null,
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null, p_actor_id: user.id
+      })
       if (error) throw error
-      await audit(rid, user.id, "refund.created", "order", body.order_id, { amount }, body.reason)
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true, data })
     }
     if (action === "void") {
-      const { error } = await supabaseCloudAdmin.from("orders").update({ status: "cancelled", void_reason: body.reason || "Voided by staff", cancelled_at: new Date().toISOString() }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (!body.order_id) throw new Error("Order is required")
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_void_order", {
+        p_restaurant_id: rid, p_order_id: body.order_id,
+        p_reason: body.reason || "Voided by staff",
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null,
+        p_actor_id: user.id
+      })
       if (error) throw error
-      await audit(rid, user.id, "order.voided", "order", body.order_id, { status: "cancelled" }, body.reason)
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true, data })
     }
     if (action === "kds") {
-      const status = String(body.status || "new")
+      const status = String(body.status || "new").toLowerCase()
+      const allowedKdsStatuses = new Set(["new", "accepted", "preparing", "ready", "served", "cancelled"])
+      if (!body.order_id) throw new Error("Order is required")
+      if (!allowedKdsStatuses.has(status)) throw new Error("Invalid KDS status")
       const timestamps = { accepted: "acknowledged_at", preparing: "acknowledged_at", ready: "completed_at", served: "completed_at" }
       const patch = { restaurant_id: rid, order_id: body.order_id, status, priority: body.priority || "normal" }
       if (timestamps[status]) patch[timestamps[status]] = new Date().toISOString()

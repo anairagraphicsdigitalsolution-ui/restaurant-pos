@@ -3,6 +3,7 @@ import {supabaseCloudAdmin} from "@/lib/supabaseCloudServer"
 import {requireApiUser} from "@/lib/serverAuth"
 import {requireStaffPermission,requireSuperAdmin} from "@/lib/serverStaffPermissions"
 import {resolveRestaurantForUser} from "@/lib/restaurantResolver"
+import {requireFeature} from "@/lib/featureGateServer"
 import {decryptMarketingToken,metaGraphBase,isMarketingTokenExpired} from "@/lib/marketingMeta"
 
 export const runtime="nodejs"
@@ -68,6 +69,7 @@ export async function POST(req){
     if(scope!=="platform"){
       const r=await resolveRestaurantForUser(user)
       rid=r.restaurantId
+      await requireFeature(rid,"p1-marketing-hub")
       if(!rid)throw new Error("Restaurant not found")
     }
 

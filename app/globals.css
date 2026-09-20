@@ -2625,3 +2625,12 @@ html[data-theme] tr {
   .qr-pay-title{font-size:20px !important}
   .qr-pay-row{font-size:13px !important}
 }
+
+/* Phase 6 Advanced Analytics responsive layout */
+@media (max-width: 900px){
+  .advanced-analytics-grid-4{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  .advanced-analytics-grid-2{grid-template-columns:1fr !important}
+}
+@media (max-width: 520px){
+  .advanced-analytics-grid-4{grid-template-columns:1fr !important}
+}

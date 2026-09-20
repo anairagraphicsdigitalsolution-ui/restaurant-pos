@@ -1,0 +1,2 @@
+-- Applied to Supabase project vgzwzvmuylsoqjkqfcnw as migration p1_11_advanced_reporting.
+-- Creates p1_11_reporting_snapshots and p1_11_advanced_reporting().

@@ -1,0 +1,14 @@
+MPT-III DRIVER
+
+The MPT-III model is published by HPRT and has Windows driver packages. The Anaira POS bridge does NOT require the Windows spooler driver for raw ESC/POS printing when Windows exposes the Bluetooth printer as a COM port.
+
+Official HPRT MPT-III download page:
+https://hprt.com.ua/downloads/mpt3
+
+The page lists:
+- HPRTMPTPrinterDriver.zip (version 1.0.1.6)
+- MPT3_Driver_Windows_v1.1.0.0.zip
+- Windows SDK
+- MPT-III manual/specification
+
+Install a driver only if you want the printer to appear in the normal Windows Printers & scanners queue. For Anaira raw printing, the important requirement is a working Bluetooth COM port.

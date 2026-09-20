@@ -1,0 +1,99 @@
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
+
+export const runtime = "nodejs"
+
+export async function POST(req) {
+  const oversized = rejectOversizedRequest(req, 64 * 1024)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "qr-feedback", 5)
+  if (!limit.ok) return rateLimitResponse(limit)
+
+  try {
+    const body = await req.json().catch(() => ({}))
+    const slug = String(body?.slug || "").trim()
+    const type = String(body?.type || "").trim().toLowerCase()
+    const id = String(body?.id || "").trim()
+    const rating = Number(body?.rating)
+    const feedback = String(body?.feedback || "").trim().slice(0, 1000)
+
+    if (!slug || !id || !["table", "room"].includes(type)) {
+      return Response.json({ success:false, error:"Invalid QR link" }, { status:400 })
+    }
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return Response.json({ success:false, error:"Please select a rating from 1 to 5" }, { status:400 })
+    }
+
+    const { data: restaurant, error: restaurantError } = await supabaseCloudAdmin
+      .from("restaurants")
+      .select("id,name,slug")
+      .eq("slug", slug)
+      .maybeSingle()
+
+    if (restaurantError || !restaurant) {
+      return Response.json({ success:false, error:"Restaurant not found" }, { status:404 })
+    }
+
+    const { data: operationsHub } = await supabaseCloudAdmin
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", restaurant.id)
+      .eq("plugin_code", "operations-hub")
+      .maybeSingle()
+
+    if (operationsHub?.enabled !== true) {
+      return Response.json(
+        { success:false, error:"Feedback is currently unavailable for this restaurant." },
+        { status:403 }
+      )
+    }
+
+    const sourceTable = type === "table" ? "tables" : "rooms"
+    const sourceColumn = type === "table" ? "table_number" : "room_number"
+
+    let source = null
+    const { data: sourceById } = await supabaseCloudAdmin
+      .from(sourceTable)
+      .select("id")
+      .eq("restaurant_id", restaurant.id)
+      .eq("id", id)
+      .maybeSingle()
+
+    source = sourceById
+
+    if (!source) {
+      const numericId = Number(id)
+      if (Number.isInteger(numericId) && numericId >= 0) {
+        const { data: sourceByNumber } = await supabaseCloudAdmin
+          .from(sourceTable)
+          .select("id")
+          .eq("restaurant_id", restaurant.id)
+          .eq(sourceColumn, numericId)
+          .maybeSingle()
+        source = sourceByNumber
+      }
+    }
+
+    if (!source) {
+      return Response.json({ success:false, error:"QR source not found" }, { status:404 })
+    }
+
+    const { error: insertError } = await supabaseCloudAdmin
+      .from("customer_feedback")
+      .insert({
+        restaurant_id: restaurant.id,
+        rating,
+        feedback: feedback || null
+      })
+
+    if (insertError) {
+      console.error("QR FEEDBACK INSERT ERROR:", insertError)
+      return Response.json({ success:false, error:"Unable to save your rating" }, { status:500 })
+    }
+
+    return Response.json({ success:true, message:"Thank you for rating us!" }, { status:201 })
+  } catch (error) {
+    console.error("QR FEEDBACK ERROR:", error)
+    return Response.json({ success:false, error:"Unable to save your rating" }, { status:500 })
+  }
+}

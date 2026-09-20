@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { verifyWhatsAppSignature } from "@/lib/whatsappServer"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime = "nodejs"
 
@@ -44,6 +45,10 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  const oversized = rejectOversizedRequest(req, 512 * 1024)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "whatsapp-webhook", 60)
+  if (!limit.ok) return rateLimitResponse(limit)
   const raw = await req.text()
   try {
     const signature = req.headers.get("x-hub-signature-256") || ""

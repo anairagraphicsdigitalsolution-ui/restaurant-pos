@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server"
 import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
 import { cashfreeRequest, normalizeCashfreeStatus, verifyCashfreeWebhook } from "@/lib/cashfree"
+import { rateLimit, rateLimitResponse, rejectOversizedRequest } from "@/lib/publicRateLimit"
 
 export const runtime="nodejs"
 
 export async function POST(req){
+  const oversized = rejectOversizedRequest(req, 512 * 1024)
+  if (oversized) return oversized
+  const limit = rateLimit(req, "cashfree-webhook", 60)
+  if (!limit.ok) return rateLimitResponse(limit)
   try{
     const raw=await req.text()
     const signature=req.headers.get("x-webhook-signature")||""
@@ -72,6 +77,13 @@ export async function POST(req){
         paid_amount:paid,payment_status:paid>=total&&total>0?"paid":paid>0?"partially_paid":"unpaid",
         payment_method:"online"
       }).eq("id",attempt.order_id).eq("restaurant_id",attempt.restaurant_id)
+      await supabaseCloudAdmin.from("p0_payment_reconciliation").upsert({
+        restaurant_id:attempt.restaurant_id, order_id:attempt.order_id, provider:"cashfree",
+        external_reference:`${reference}:${successful?.cf_payment_id||"paid"}`,
+        expected_amount:Number(attempt.amount||amount||0), received_amount:amount||Number(attempt.amount||0),
+        status:"pending", metadata:{cashfree_order_id:cashfreeOrderId, cf_payment_id:successful?.cf_payment_id||null, source:"cashfree_webhook"},
+        updated_at:new Date().toISOString()
+      }, {onConflict:"restaurant_id,order_id,provider,external_reference"})
     }
     return NextResponse.json({success:true,processed:true,status})
   }catch(e){

@@ -104,8 +104,10 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
   }, [propRole])
 
   useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname])
+    // The Order POS owns its drawer state. Do not let route/path effects
+    // accidentally collapse the drawer while a touch navigation is opening.
+    if (!drawer) setMobileOpen(false)
+  }, [pathname, drawer])
 
   async function fetchData(forceRefresh = false) {
     try {
@@ -200,6 +202,19 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
         const pluginState: Record<string, boolean> = {}
         for (const row of pluginRows || []) {
           pluginState[row.plugin_code] = row.enabled === true
+        }
+
+        // Canonical P1/P2 features must remain visible even when Super Admin
+        // has not created a restaurant_plugins row yet. No row means disabled,
+        // not missing: the Admin sidebar should show the feature with a lock.
+        const canonicalAdvancedCodes = [
+          "p1-enterprise-hq", "p1-payment-terminals", "p1-supplier-automation",
+          "p1-marketing-hub", "p1-advanced-reporting",
+          "p2-call-center", "p2-banquet-events", "p2-advanced-kiosk",
+          "p2-customer-display", "p2-device-hq", "p2-ai-intelligence"
+        ]
+        for (const code of canonicalAdvancedCodes) {
+          if (!(code in pluginState)) pluginState[code] = false
         }
   
         const aliases: Record<string,string[]> = {
@@ -327,11 +342,14 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
 
   async function handleLogout() {
     await supabaseCloud.auth.signOut()
+    try { await window.Capacitor?.Plugins?.AnairaLocalDb?.clearSyncSession?.() } catch {}
     router.replace("/login")
   }
 
   const superAdminMenu = [
     { name: "Dashboard", path: "/super-admin", icon: "👑" },
+    { name: "Platform Control Center", path: "/super-admin/control-center", icon: "🎛️" },
+    { name: "Plugin Control Center", path: "/super-admin/plugins", icon: "🧩" },
     { name: "Restaurants", path: "/super-admin/restaurants", icon: "🏢" },
     { name: "QR Print Center", path: "/super-admin/qr", icon: "📱" },
     { name: "Platform Theme", path: "/super-admin/theme", icon: "🎨" },
@@ -348,6 +366,7 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
   ]
 
   const adminMenu = [
+    { sectionTitle: "P0 — CORE POS" },
     {
       name: "Admin Panel",
       icon: "⚙️",
@@ -355,8 +374,21 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       children: [
         { name: "Dashboard", path: "/admin" },
         { name: "Plugins", path: "/admin/plugins" },
+        { name: "P0 → P2 Control Center", path: "/dashboard/control-center" },
       ]
     },
+    {
+      name: "System Reliability",
+      icon: "🛡️",
+      path: "/dashboard/system-ops",
+      children: [
+        { name: "Offline Events / Retry Queue", path: "/dashboard/system-ops" },
+        { name: "Sync Conflict Viewer", path: "/dashboard/system-ops?tab=conflicts" },
+        { name: "Aggregator Event Viewer", path: "/dashboard/system-ops?tab=aggregator" },
+        { name: "Idempotency Monitor", path: "/dashboard/system-ops?tab=idempotency" },
+      ]
+    },
+    { sectionTitle: "P1 — ADVANCED OPERATIONS" },
     {
       name: "Restaurant Suite",
       icon: "🍽️",
@@ -373,13 +405,66 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       ]
     },
     {
+      name: "Enterprise HQ",
+      icon: "🏢",
+      path: "/dashboard/enterprise-hq",
+      feature: "p1-enterprise-hq",
+      children: [
+        { name: "HQ Dashboard", path: "/dashboard/enterprise-hq" },
+        { name: "Outlet Comparison", path: "/dashboard/enterprise-hq?tab=comparison" },
+        { name: "Central Menu", path: "/dashboard/enterprise-hq?tab=menu" },
+        { name: "Central Pricing", path: "/dashboard/enterprise-hq?tab=pricing" },
+        { name: "Inventory Transfers", path: "/dashboard/enterprise-hq?tab=transfers" },
+        { name: "Approvals", path: "/dashboard/enterprise-hq?tab=approvals" },
+        { name: "Staff Movement", path: "/dashboard/enterprise-hq?tab=staff" },
+        { name: "Consolidated Reports", path: "/dashboard/enterprise-hq?tab=reports" },
+        { name: "Group Accounting", path: "/dashboard/enterprise-hq?tab=accounting" },
+      ]
+    },
+    {
+      name: "Payment Terminals",
+      icon: "💳",
+      path: "/dashboard/payment-terminals",
+      feature: "p1-payment-terminals",
+      children: [
+        { name: "Terminal HQ", path: "/dashboard/payment-terminals", feature: "p1-payment-terminals" },
+        { name: "Payment Reconciliation", path: "/dashboard/payment-reconciliation", feature: "p1-payment-terminals" },
+      ]
+    },
+    {
+      name: "Supplier Automation",
+      icon: "🚚",
+      path: "/dashboard/procurement",
+      feature: "p1-supplier-automation",
+      children: [
+        { name: "Procurement Dashboard", path: "/dashboard/procurement" },
+        { name: "Reorder & Auto PO", path: "/dashboard/procurement?tab=reorder" },
+        { name: "RFQ & Quotes", path: "/dashboard/procurement?tab=rfq" },
+        { name: "Purchase Orders", path: "/dashboard/procurement?tab=po" },
+        { name: "GRN", path: "/dashboard/procurement?tab=grn" },
+        { name: "Supplier Invoices", path: "/dashboard/procurement?tab=invoice" },
+        { name: "Payables & Payment", path: "/dashboard/procurement?tab=payable" },
+        { name: "Supplier Performance", path: "/dashboard/procurement?tab=performance" },
+      ]
+    },
+    {
+      name: "Supplier Portal",
+      icon: "📦",
+      path: "/supplier-portal",
+      children: [
+        { name: "Supplier Portal", path: "/supplier-portal" },
+      ]
+    },
+    {
       name: "Payment QR / Merchant Payments",
       icon: "💳",
       path: "/dashboard/payment-qr",
-      feature: "payment-accounts",
+      feature: "p1-payment-terminals",
       children: [
         { name: "Merchant Payment Account", path: "/dashboard/payment-qr" },
         { name: "Payment QR", path: "/dashboard/payment-qr" },
+        { name: "Payment Reconciliation", path: "/dashboard/payment-reconciliation", feature: "payment-accounts" },
+        { name: "Payment Terminal HQ", path: "/dashboard/payment-terminals", feature: "payment-accounts" },
       ]
     },
     {
@@ -424,16 +509,27 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
         { name: "Kitchen / KDS", path: "/dashboard/restaurant-core?tab=kds", feature: "kds" },
         { name: "Billing", path: "/dashboard/restaurant-core?tab=billing", feature: "payments" },
         { name: "Inventory", path: "/dashboard/restaurant-core?tab=inventory", feature: "inventory-advanced" },
+        { name: "Production", path: "/dashboard/inventory/production", feature: "inventory-advanced" },
         { name: "Delivery", path: "/dashboard/restaurant-core?tab=delivery", feature: "delivery" },
         { name: "Customers", path: "/dashboard/restaurant-core?tab=crm", feature: "crm" },
         { name: "Analytics", path: "/dashboard/restaurant-core?tab=analytics", feature: "analytics" },
       ]
     },
     {
+      name: "Advanced Reporting",
+      icon: "📊",
+      path: "/dashboard/reports/p1-11",
+      feature: "p1-advanced-reporting",
+      children: [
+        { name: "Advanced Reports", path: "/dashboard/reports/p1-11", feature: "p1-advanced-reporting" },
+        { name: "Reporting Console", path: "/dashboard/marketing-automation?view=reporting", feature: "p1-advanced-reporting" },
+      ]
+    },
+    {
       name: "Marketing Hub",
       icon: "📣",
       path: "/dashboard/marketing",
-      feature: "marketing",
+      feature: "p1-marketing-hub",
       children: [
         { name: "Overview", path: "/dashboard/marketing" },
         { name: "Facebook", path: "/dashboard/marketing?tab=Facebook" },
@@ -444,6 +540,7 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
         { name: "Leads", path: "/dashboard/marketing?tab=Leads" },
         { name: "Calendar", path: "/dashboard/marketing?tab=Calendar" },
         { name: "Analytics", path: "/dashboard/marketing?tab=Analytics" },
+        { name: "Automation & Delivery Monitor", path: "/dashboard/marketing-automation", feature: "campaigns" },
       ]
     },
     {
@@ -456,6 +553,26 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
         { name: "Combos", path: "/dashboard/combos", feature: "combos-variants" },
       ]
     },
+    { sectionTitle: "P2 — ADVANCED OPERATIONS" },
+    {
+      name: "P2 Advanced Operations",
+      icon: "🚀",
+      path: "/dashboard/control-center",
+      children: [
+        { name: "Call Center", path: "/dashboard/call-center", feature: "p2-call-center" },
+        { name: "Banquet / Events / Catering", path: "/dashboard/banquet", feature: "p2-banquet-events" },
+        { name: "Advanced Kiosk", path: "/dashboard/kiosks", feature: "p2-advanced-kiosk" },
+        { name: "Customer Display", path: "/dashboard/customer-display", feature: "p2-customer-display" },
+        { name: "Device HQ", path: "/dashboard/device-hq", feature: "p2-device-hq" },
+        { name: "AI Decision Intelligence", path: "/dashboard/ai-intelligence", feature: "p2-ai-intelligence" },
+        { name: "AI Model Governance / Backtests", path: "/dashboard/ai-governance", feature: "p2-ai-intelligence" },
+        { name: "Banquet Operations", path: "/dashboard/banquet-operations", feature: "p2-banquet-events" },
+        { name: "Kiosk Control / Events", path: "/dashboard/kiosk-control", feature: "p2-advanced-kiosk" },
+        { name: "Customer Display Control", path: "/dashboard/customer-display-control", feature: "p2-customer-display" },
+        { name: "Device Health / Audit", path: "/dashboard/device-health", feature: "p2-device-hq" },
+      ]
+    },
+    { sectionTitle: "SETTINGS & MASTER DATA" },
     {
       name: "Reservations",
       icon: "📅",
@@ -472,6 +589,8 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       anyFeature: ["crm","loyalty","feedback-reviews"],
       children: [
         { name: "Customer CRM", path: "/dashboard/customers", feature: "crm" },
+        { name: "Gift Cards", path: "/dashboard/gift-cards", feature: "billing" },
+        { name: "Payroll", path: "/dashboard/payroll", feature: "billing" },
         { name: "Loyalty & Rewards", path: "/dashboard/business?tab=loyalty", feature: "loyalty" },
         { name: "Feedback & Reviews", path: "/dashboard/business?tab=feedback", feature: "feedback-reviews" },
       ]
@@ -493,10 +612,10 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       name: "Reports",
       icon: "📊",
       path: "/dashboard/reports",
-      feature: "analytics",
       children: [
         { name: "Sales Reports", path: "/dashboard/reports", feature: "analytics" },
         { name: "Analytics", path: "/dashboard/reports", feature: "analytics" },
+        { name: "P1.11 Advanced Reporting", path: "/dashboard/reports/p1-11", feature: "p1-advanced-reporting" },
       ]
     },
     {
@@ -564,14 +683,16 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
   }
 
   function renderAdminMenu(item: any, i: number) {
-    const visible = (!item.feature || planFeatures[item.feature] === true) &&
+    if (item.sectionTitle) {
+      return <div key={`section-${item.sectionTitle}-${i}`} style={adminSectionLabel}>{item.sectionTitle}</div>
+    }
+    const enabled = (!item.feature || planFeatures[item.feature] === true) &&
       (!item.anyFeature || item.anyFeature.some((feature: string) => planFeatures[feature] === true)) &&
       (!item.hubPlugin || hubPlugins[item.hubPlugin] === true)
-    if (!visible) return null
 
-    const visibleChildren = (item.children || []).filter(
-      (child: any) => !child.feature || planFeatures[child.feature] === true
-    )
+    const allChildren = item.children || []
+    const visibleChildren = allChildren
+    const activeEnabled = enabled
 
     const activeMain = pathname === item.path.split("?")[0] && !item.path.includes("?tab=")
     const currentTab = searchParams.get("tab") || ""
@@ -580,6 +701,7 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       return match ? decodeURIComponent(match[1]) : ""
     }
     const activeChild = visibleChildren.some((child: any) => {
+      if (planFeatures[child.feature] === false) return false
       if (pathname !== child.path.split("?")[0]) return false
       return childTab(child.path) === currentTab
     })
@@ -592,13 +714,16 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
       <div key={item.name + i} style={adminGroup}>
         <div style={adminMainRow}>
           <Link
-            href={item.path}
+            href={activeEnabled ? item.path : "/dashboard/control-center"}
             style={{
               ...adminMainLink,
               ...(activeMain || activeChild ? adminMainLinkActive : {})
             }}
             aria-current={activeMain ? "page" : undefined}
-            onClick={onNavigate}
+            onClick={(event) => {
+              if (!activeEnabled) { event.preventDefault(); router.push(`/dashboard/control-center?feature=${encodeURIComponent(item.feature || item.hubPlugin || item.name)}`); return }
+              onNavigate?.()
+            }}
           >
             <span style={{
               ...adminMainIcon,
@@ -608,6 +733,7 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
             </span>
 
             <span style={adminMainText}>{item.name}</span>
+            {!activeEnabled && <span style={{fontSize:11,fontWeight:900,color:"var(--muted)",marginLeft:6}}>🔒 Disabled</span>}
 
             {visibleChildren.length > 0 && (
               <span style={adminCount}>
@@ -684,19 +810,27 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
                 return (
                   <Link
                     key={child.name + childIndex}
-                    href={child.path}
+                    href={planFeatures[child.feature] === false ? `/dashboard/control-center?feature=${encodeURIComponent(child.feature)}` : child.path}
                     style={{
                       ...submenuLink,
                       ...(active ? submenuActive : {})
                     }}
                     aria-current={active ? "page" : undefined}
-                    onClick={onNavigate}
+                    onClick={(event) => {
+                      if (child.feature && planFeatures[child.feature] !== true) {
+                        event.preventDefault()
+                        router.push(`/dashboard/control-center?feature=${encodeURIComponent(child.feature)}`)
+                        return
+                      }
+                      onNavigate?.()
+                    }}
                   >
                     <span style={{
                       ...submenuDot,
                       ...(active ? submenuDotActive : {})
                     }} />
                     <span style={{flex:1,minWidth:0}}>{child.name}</span>
+                    {child.feature && planFeatures[child.feature] !== true && <span style={{fontSize:10,fontWeight:900,color:"var(--muted)"}}>🔒 Disabled</span>}
                     {active && <span style={submenuCurrent}>●</span>}
                   </Link>
                 )
@@ -761,7 +895,26 @@ export default function Sidebar({ role: propRole, drawer = false, onNavigate }: 
         }
       `}</style>
 
-      <aside className={`pos-sidebar${mobileOpen ? " mobile-open" : ""}${drawer ? " pos-sidebar-drawer" : ""}`} style={drawer ? { ...sidebar, position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 10060, width: "min(88vw, 360px)", maxWidth: 360, minHeight: "100dvh", maxHeight: "100dvh", boxShadow: "24px 0 70px rgba(0,0,0,.48)" } : sidebar}>
+      <aside className={`pos-sidebar${mobileOpen ? " mobile-open" : ""}${drawer ? " pos-sidebar-drawer" : ""}`} style={drawer ? {
+        ...sidebar,
+        position: "fixed",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        zIndex: 2147483002,
+        width: "min(88vw, 360px)",
+        maxWidth: 360,
+        minHeight: "100dvh",
+        maxHeight: "100dvh",
+        height: "100dvh",
+        boxSizing: "border-box",
+        background: "linear-gradient(180deg,var(--surface),var(--surface-2))",
+        color: "var(--text)",
+        boxShadow: "24px 0 70px rgba(0,0,0,.48)",
+        overflow: "hidden",
+        pointerEvents: "auto",
+        touchAction: "auto",
+      } : sidebar}>
       
       <div style={brandBox}>
         <div style={logoWrap}>
@@ -961,6 +1114,8 @@ const roleBadge = (): CSSProperties => ({
 
   color:"var(--primary)"
 })
+
+const adminSectionLabel: CSSProperties = { padding:"18px 10px 7px", fontSize:10, fontWeight:900, letterSpacing:".12em", color:"var(--muted)", textTransform:"uppercase" }
 
 const adminMenuWrap: CSSProperties = {
   display:"grid",

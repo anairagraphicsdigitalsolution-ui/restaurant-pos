@@ -1,0 +1,1729 @@
+"use client"
+import { formatIndiaTime } from "@/lib/indiaTime"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { supabaseCloud } from "@/lib/supabaseCloud"
+import OrderPage from "../order/page"
+
+export default function StaffPage() {
+  const router = useRouter()
+  const [restaurantId, setRestaurantId] = useState(null)
+  const [orders, setOrders] = useState([])
+  const [activeTab, setActiveTab] = useState("orders")
+  const [posEnabled, setPosEnabled] = useState(false)
+  const [captainEnabled, setCaptainEnabled] = useState(false)
+  const [showAllOrders, setShowAllOrders] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [variantItem, setVariantItem] = useState(null)
+  const [variantQuantities, setVariantQuantities] = useState({})
+
+  useEffect(() => {
+    let channel = null
+    let refreshTimer = null
+
+    async function start() {
+      channel = await init()
+    }
+
+    void start()
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      if (channel) void supabaseCloud.removeChannel(channel)
+    }
+  }, [])
+
+  async function init() {
+    try {
+      setLoading(true)
+
+      const { data: userData, error: userError } =
+        await supabaseCloud.auth.getUser()
+
+      if (userError || !userData?.user) {
+        alert("Login required")
+        return
+      }
+
+      const { data: profile, error: profileError } =
+        await supabaseCloud
+          .from("profiles")
+          .select("restaurant_id, role")
+          .eq("id", userData.user.id)
+          .single()
+
+      if (profileError || !profile?.restaurant_id) {
+        alert("Restaurant profile not found")
+        return
+      }
+
+      const rid = profile.restaurant_id
+
+      setRestaurantId(rid)
+
+      await loadOrders(rid)
+      await checkPOS(rid)
+      await checkCaptain(rid)
+
+      /*
+       * Realtime order updates
+       */
+      return supabaseCloud
+        .channel(`staff-orders-${rid}`)
+        .on("broadcast", { event: "restaurant_data_changed" }, (payload) => {
+          if (String(payload?.payload?.restaurant_id || "") === String(rid) && String(payload?.payload?.table || "") === "orders") loadOrders(rid)
+        })
+        .subscribe()
+    } catch (error) {
+      console.error("STAFF INIT ERROR:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function checkPOS(rid) {
+    try {
+      const { data: plugin, error } =
+        await supabaseCloud
+          .from("restaurant_plugins")
+          .select("enabled")
+          .eq("restaurant_id", rid)
+          .in("plugin_code", ["pos", "pos-core"])
+          .eq("enabled", true)
+          .limit(1)
+
+      if (error) {
+        console.error("POS PLUGIN ERROR:", error)
+        setPosEnabled(false)
+        return
+      }
+
+      const enabled = Array.isArray(plugin) && plugin.length > 0
+      setPosEnabled(enabled)
+      // Fast POS is the operator's primary workflow. Existing Orders and
+      // Take Order tabs remain available and are not removed.
+      if (enabled) setActiveTab("pos")
+    } catch (error) {
+      console.error("POS CHECK ERROR:", error)
+      setPosEnabled(false)
+    }
+  }
+
+
+  async function checkCaptain(rid) {
+    const { data, error } = await supabaseCloud
+      .from("restaurant_plugins")
+      .select("enabled")
+      .eq("restaurant_id", rid)
+      .eq("plugin_code", "captain-app")
+      .eq("enabled", true)
+      .maybeSingle()
+
+    if (error) {
+      console.error("CAPTAIN PLUGIN ERROR:", error)
+      setCaptainEnabled(false)
+      return
+    }
+
+    setCaptainEnabled(Boolean(data?.enabled))
+  }
+
+  async function loadOrders(id) {
+    if (!id) return
+
+    try {
+      const { data: ordersData, error: ordersError } =
+        await supabaseCloud
+          .from("orders")
+          .select("*")
+          .eq("restaurant_id", id)
+          .order("created_at", {
+            ascending: false
+          })
+
+      if (ordersError) {
+        console.error("ORDERS ERROR:", ordersError)
+        return
+      }
+
+      const [
+        { data: tables, error: tablesError },
+        { data: rooms, error: roomsError }
+      ] = await Promise.all([
+        supabaseCloud
+          .from("tables")
+          .select("id, table_number")
+          .eq("restaurant_id", id),
+
+        supabaseCloud
+          .from("rooms")
+          .select("id, room_number")
+          .eq("restaurant_id", id)
+      ])
+
+      if (tablesError) {
+        console.error("TABLES ERROR:", tablesError)
+      }
+
+      if (roomsError) {
+        console.error("ROOMS ERROR:", roomsError)
+      }
+
+      const tableMap = {}
+
+      ;(tables || []).forEach((table) => {
+        tableMap[table.id] = table.table_number
+      })
+
+      const roomMap = {}
+
+      ;(rooms || []).forEach((room) => {
+        roomMap[room.id] = room.room_number
+      })
+
+      const finalOrders = (ordersData || []).map((order) => ({
+        ...order,
+
+        display:
+          order.source_type === "table"
+            ? `🍽️ Table ${
+                tableMap[order.source_id] || "-"
+              }`
+            : order.source_type === "room"
+              ? `🛏️ Room ${
+                  roomMap[order.source_id] || "-"
+                }`
+              : order.source_label || "Order"
+      }))
+
+      setOrders(finalOrders)
+    } catch (error) {
+      console.error("LOAD ORDERS ERROR:", error)
+    }
+  }
+
+  async function updateStatus(order, newStatus) {
+    if (!order?.id || !restaurantId) return
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabaseCloud.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (sessionError || !token) throw new Error("Login session expired")
+
+      const response = await fetch("/api/kitchen/order-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ order_id: order.id, status: newStatus })
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to update order")
+
+      setOrders(previous => previous.map(item => item.id === order.id ? { ...item, ...(result.order || {}), status: newStatus } : item))
+      if (newStatus === "done") router.push("/billing")
+    } catch (error) {
+      console.error("STATUS UPDATE ERROR:", error)
+      alert(`❌ ${error?.message || "Unable to update order"}`)
+    }
+  }
+
+  function handleTabChange(tab) {
+    setActiveTab(tab)
+
+    if (tab !== "orders") {
+      setShowAllOrders(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={loadingPage}>
+        <div style={loadingCard}>
+          <div style={loadingIcon}>👨‍🍳</div>
+
+          <h2 style={{ margin: "10px 0" }}>
+            Loading Staff Panel...
+          </h2>
+
+          <p style={{ color: "var(--muted)", margin: 0 }}>
+            Please wait
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={layout} className="staff-page">
+
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
+
+      <div style={header}>
+        <div>
+          <h1 style={title}>
+            👨‍🍳 Staff Panel
+          </h1>
+
+          <p style={subtitle}>
+            Manage orders and restaurant operations
+          </p>
+        </div>
+
+        <div style={badge}>
+          {orders.length} Orders
+        </div>
+      </div>
+
+      {/* ======================================================
+          TABS
+      ====================================================== */}
+
+      <div style={tabs}>
+
+        <button
+          onClick={() => handleTabChange("orders")}
+          style={tabBtn(
+            activeTab === "orders",
+            "var(--info)"
+          )}
+        >
+          📋 Orders
+        </button>
+
+        <button
+          onClick={() => handleTabChange("take")}
+          style={tabBtn(
+            activeTab === "take",
+            "var(--success)"
+          )}
+        >
+          🛎️ Take Order
+        </button>
+
+        {posEnabled && (
+          <button
+            onClick={() => handleTabChange("pos")}
+            style={tabBtn(
+              activeTab === "pos",
+              "var(--warning)"
+            )}
+          >
+            💳 POS
+          </button>
+        )}
+
+      </div>
+
+      {/* ======================================================
+          TAKE ORDER
+      ====================================================== */}
+
+      {activeTab === "take" && (
+        <div style={sectionBox}>
+          <OrderPage />
+        </div>
+      )}
+
+      {/* ======================================================
+          POS
+      ====================================================== */}
+
+      {activeTab === "pos" && posEnabled && (
+        <POS
+          restaurantId={restaurantId}
+          onOrderCreated={() =>
+            loadOrders(restaurantId)
+          }
+        />
+      )}
+
+      {/* ======================================================
+          ORDERS
+      ====================================================== */}
+
+      {activeTab === "orders" && (
+        <section>
+
+          <div style={ordersHeader}>
+            <div>
+              <h2 style={sectionTitle}>
+                📋 Recent Orders
+              </h2>
+
+              <p style={sectionSubtitle}>
+                Showing latest orders first
+              </p>
+            </div>
+
+            <div style={orderCounter}>
+              {orders.length} Total
+            </div>
+          </div>
+
+          {!orders.length ? (
+            <div style={emptyBox}>
+              <div style={emptyIcon}>
+                🧾
+              </div>
+
+              <h3>No orders yet</h3>
+
+              <p>
+                New restaurant orders will appear here.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={grid}>
+
+                {(showAllOrders
+                  ? orders
+                  : orders.slice(0, 5)
+                ).map((order) => (
+                  <div
+                    key={order.id}
+                    style={card}
+                  >
+
+                    <div style={topRow}>
+
+                      <span style={orderId}>
+                        #{String(order.id).slice(0, 6)}
+                      </span>
+
+                      <span style={time}>
+                        {formatTime(order.created_at)}
+                      </span>
+
+                    </div>
+
+                    <div style={tableBox}>
+                      {order.display}
+                    </div>
+
+                    <div style={status(order.status)}>
+                      {String(
+                        order.status || "pending"
+                      ).toUpperCase()}
+                    </div>
+
+                    <div style={actions}>
+
+                      <button
+                        onClick={() =>
+                          updateStatus(
+                            order,
+                            "preparing"
+                          )
+                        }
+                        style={btn("var(--info)")}
+                      >
+                        Preparing
+                      </button>
+
+                      <button
+                        onClick={() => updateStatus(order, "done")}
+                        style={btn("var(--success)")}
+                      >
+                        Done / Bill
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          updateStatus(
+                            order,
+                            "done"
+                          )
+                        }
+                        style={btn("var(--muted)")}
+                      >
+                        Done
+                      </button>
+
+                    </div>
+
+                  </div>
+                ))}
+
+              </div>
+
+              {/* ==================================================
+                  SHOW MORE / SHOW LESS
+              ================================================== */}
+
+              {orders.length > 5 && (
+                <div style={showMoreWrap}>
+
+                  <button
+                    onClick={() =>
+                      setShowAllOrders(
+                        (previous) => !previous
+                      )
+                    }
+                    style={showMoreBtn}
+                  >
+                    {showAllOrders
+                      ? "▲ Show Less"
+                      : `▼ Show More (${orders.length - 5})`}
+                  </button>
+
+                </div>
+              )}
+
+            </>
+          )}
+
+        </section>
+      )}
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   POS COMPONENT
+============================================================ */
+
+function POS({
+  restaurantId,
+  onOrderCreated
+}) {
+
+  const [menu, setMenu] = useState([])
+  const [tables, setTables] = useState([])
+  const [rooms, setRooms] = useState([])
+
+  const [cart, setCart] = useState([])
+
+  const [type, setType] = useState("table")
+  const [selected, setSelected] = useState(null)
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [deliveryAddress, setDeliveryAddress] = useState("")
+  const [search, setSearch] = useState("")
+  const [category, setCategory] = useState("All")
+
+  const [loading, setLoading] = useState(true)
+  const [placing, setPlacing] = useState(false)
+  const [requestId, setRequestId] = useState(null)
+
+  useEffect(() => {
+    if (restaurantId) {
+      load()
+      setRequestId(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+    }
+  }, [restaurantId])
+
+  async function load() {
+    try {
+      setLoading(true)
+
+      const [
+        { data: menuData, error: menuError },
+        { data: tableData, error: tableError },
+        { data: roomData, error: roomError }
+      ] = await Promise.all([
+        supabaseCloud
+          .from("menu_items")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .order("name"),
+
+        supabaseCloud
+          .from("tables")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .order("table_number"),
+
+        supabaseCloud
+          .from("rooms")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .order("room_number")
+      ])
+
+      const { data: variantData, error: variantError } = await supabaseCloud
+        .from("menu_variants")
+        .select("id,menu_item_id,name,price_delta,active")
+        .eq("restaurant_id", restaurantId)
+        .eq("active", true)
+        .order("created_at")
+
+      if (variantError) console.error("VARIANT ERROR:", variantError)
+
+      if (menuError) {
+        console.error("MENU ERROR:", menuError)
+      }
+
+      if (tableError) {
+        console.error("TABLE ERROR:", tableError)
+      }
+
+      if (roomError) {
+        console.error("ROOM ERROR:", roomError)
+      }
+
+      const variantMap = {}
+      ;(variantData || []).forEach(v => { if (!variantMap[v.menu_item_id]) variantMap[v.menu_item_id] = []; variantMap[v.menu_item_id].push(v) })
+      setMenu((menuData || []).map(item => ({ ...item, variants: variantMap[item.id] || [] })))
+      setTables(tableData || [])
+      setRooms(roomData || [])
+
+    } catch (error) {
+      console.error("POS LOAD ERROR:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function add(item) {
+    const variants = Array.isArray(item?.variants) ? item.variants.filter(v => v.active !== false) : []
+    if (item?.item_type !== "combo" && variants.length) {
+      const initial = {}
+      variants.forEach(v => { initial[v.id] = 0 })
+      setVariantItem(item)
+      setVariantQuantities(initial)
+      return
+    }
+    addConfigured(item, 1)
+  }
+
+  function addConfigured(item, quantity=1) {
+    const cartKey = `${item.id}:${item.variant_id || "base"}`
+    setCart(previous => {
+      const existing = previous.find(cartItem => cartItem.cartKey === cartKey)
+      if (existing) return previous.map(cartItem => cartItem.cartKey === cartKey ? { ...cartItem, qty: cartItem.qty + Number(quantity || 1) } : cartItem)
+      return [...previous, { ...item, qty: Number(quantity || 1), cartKey }]
+    })
+  }
+
+  function setVariantQty(variantId, change) {
+    setVariantQuantities(previous => ({ ...previous, [variantId]: Math.max(0, Number(previous[variantId] || 0) + change) }))
+  }
+
+  function addSelectedVariants() {
+    if (!variantItem) return
+    const selected = (variantItem.variants || []).map(v => ({ v, qty: Number(variantQuantities[v.id] || 0) })).filter(x => x.qty > 0)
+    if (!selected.length) { alert("Please select at least one variant quantity"); return }
+    selected.forEach(({v,qty}) => addConfigured({ ...variantItem, price: Number(variantItem.price || 0) + Number(v.price_delta || 0), variant_id: v.id, variant_name: v.name }, qty))
+    setVariantItem(null)
+    setVariantQuantities({})
+  }
+
+  function qty(cartKey, value) {
+    setCart(previous => previous.map(item => item.cartKey === cartKey ? { ...item, qty: item.qty + value } : item).filter(item => item.qty > 0))
+  }
+
+  function removeItem(cartKey) {
+    setCart(previous => previous.filter(item => item.cartKey !== cartKey))
+  }
+
+  function changeType(nextType) {
+    setType(nextType)
+    setSelected(null)
+    setSearch("")
+    setCategory("All")
+  }
+
+  async function place() {
+
+    if (placing) return
+
+    if (["table", "room"].includes(type) && !selected) {
+      alert(type === "table" ? "Select table" : "Select room")
+      return
+    }
+
+    if (type === "delivery" && !customerName.trim()) {
+      alert("Enter customer name for delivery")
+      return
+    }
+
+    if (!cart.length) {
+      alert("Cart is empty")
+      return
+    }
+
+    try {
+      setPlacing(true)
+
+      const {
+        data: sessionData,
+        error: sessionError
+      } = await supabaseCloud.auth.getSession()
+
+      if (
+        sessionError ||
+        !sessionData?.session?.access_token
+      ) {
+        alert("Login required")
+        return
+      }
+
+      const response = await fetch(
+        "/api/pos/create",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:
+              `Bearer ${sessionData.session.access_token}`
+          },
+
+          body: JSON.stringify({
+            restaurant_id: restaurantId,
+            idempotency_key: requestId || undefined,
+
+            source_type: type,
+
+            source_id: selected?.id || null,
+            customer_name: customerName || null,
+            customer_phone: customerPhone || null,
+            delivery_address: deliveryAddress || null,
+            customer_notes: null,
+
+            items: cart.map((item) => ({
+              item_id: item.id,
+              quantity: item.qty,
+              variant_id: item.variant_id || null,
+              variant_name: item.variant_name || null
+            }))
+          })
+        }
+      )
+
+      const result =
+        await response.json()
+
+      if (
+        !response.ok ||
+        !result.success
+      ) {
+        alert(
+          `❌ ${
+            result.error ||
+            "Unable to generate bill"
+          }`
+        )
+
+        return
+      }
+
+      alert("✅ Order sent to kitchen")
+
+      setCart([])
+      setSelected(null)
+      setCustomerName("")
+      setCustomerPhone("")
+      setDeliveryAddress("")
+      setRequestId(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+
+      if (onOrderCreated) {
+        await onOrderCreated()
+      }
+
+    } catch (error) {
+
+      console.error(
+        "POS BILL ERROR:",
+        error
+      )
+
+      alert(
+        `❌ ${
+          error?.message ||
+          "POS order failed"
+        }`
+      )
+
+    } finally {
+      setPlacing(false)
+    }
+  }
+
+  const cartTotal = cart.reduce(
+    (total, item) =>
+      total +
+      Number(item.price || 0) *
+        Number(item.qty || 0),
+    0
+  )
+
+  const availableSources = type === "table" ? tables : rooms
+  const categories = ["All", ...new Set(menu.map(item => item.category).filter(Boolean))]
+  const visibleMenu = menu.filter(item => {
+    const matchesCategory = category === "All" || item.category === category
+    const q = search.trim().toLowerCase()
+    const matchesSearch = !q || String(item.name || "").toLowerCase().includes(q)
+    return matchesCategory && matchesSearch
+  })
+  const isLocationSource = type === "table" || type === "room"
+
+  if (loading) {
+    return (
+      <div style={posBox}>
+        <div style={posLoading}>
+          <div style={{ fontSize: 28 }}>
+            💳
+          </div>
+
+          <h3>
+            Loading POS...
+          </h3>
+
+          <p>
+            Loading menu, tables and rooms
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={posBox}>
+
+      {/* ======================================================
+          POS HEADER
+      ====================================================== */}
+
+      <div style={posHeader}>
+
+        <div>
+          <h2 style={posTitle}>
+            💳 Point of Sale
+          </h2>
+
+          <p style={posSubtitle}>
+            Create a restaurant order
+          </p>
+        </div>
+
+        <div style={cartBadge}>
+          {cart.length} Items
+        </div>
+
+      </div>
+
+      {/* ======================================================
+          SOURCE TYPE
+      ====================================================== */}
+
+      <div style={tabs}>
+
+        {[["table", "🍽️ Table", "var(--info)"], ["room", "🛏️ Room", "#a855f7"], ["takeaway", "🥡 Takeaway", "var(--success)"], ["delivery", "🛵 Delivery", "var(--warning)"]].map(([value, label, color]) => (
+          <button key={value} style={sourceBtn(type === value, color)} onClick={() => changeType(value)}>
+            {label}
+          </button>
+        ))}
+
+      </div>
+
+      {/* ======================================================
+          SELECT TABLE / ROOM
+      ====================================================== */}
+
+      <div style={subSection}>
+        {isLocationSource ? (
+          <>
+            <div style={subSectionHeader}>
+              <div>
+                <h3 style={subTitle}>{type === "table" ? "🍽️ Select Table" : "🛏️ Select Room"}</h3>
+                <p style={subText}>Tap once — QR orders for tables and rooms use the same order engine.</p>
+              </div>
+              {selected && <div style={selectedBadge}>Selected: {type === "table" ? `Table ${selected.table_number}` : `Room ${selected.room_number}`}</div>}
+            </div>
+            {!availableSources.length ? <div style={smallEmpty}>No {type === "table" ? "tables" : "rooms"} found.</div> : (
+              <div style={selectWrap}>{availableSources.map(item => {
+                const isSelected = selected?.id === item.id
+                return <button key={item.id} onClick={() => setSelected(item)} style={{...sourceSelectBtn, background:isSelected?"var(--success)":"rgba(255,255,255,.04)", borderColor:isSelected?"var(--success)":"rgba(255,255,255,.12)"}}>{type === "table" ? `T${item.table_number}` : `R${item.room_number}`}</button>
+              })}</div>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={subSectionHeader}>
+              <div><h3 style={subTitle}>{type === "delivery" ? "🛵 Delivery details" : "🥡 Takeaway"}</h3><p style={subText}>No table or room selection required.</p></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+              {type === "delivery" && <>
+                <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name" style={fastInput}/>
+                <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone" style={fastInput}/>
+                <input value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} placeholder="Delivery address" style={{...fastInput,gridColumn:"1 / -1"}}/>
+              </>}
+              {type === "takeaway" && <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)" style={fastInput}/>} 
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ======================================================
+          MENU
+      ====================================================== */}
+
+      <div style={subSection}>
+
+        <div style={subSectionHeader}>
+          <div>
+            <h3 style={subTitle}>
+              🍔 Menu
+            </h3>
+
+            <p style={subText}>
+              Click an item to add it to the cart
+            </p>
+          </div>
+
+          <div style={smallBadge}>
+            {menu.length} Items
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) auto",gap:10,marginBottom:12}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔎 Search menu" style={fastInput}/>
+          <select value={category} onChange={e=>setCategory(e.target.value)} style={fastInput}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
+        </div>
+        {!visibleMenu.length ? (
+          <div style={smallEmpty}>No matching menu items.</div>
+        ) : (
+          <div style={menuGrid}>
+            {visibleMenu.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => add(item)}
+                style={menuCard}
+              >
+
+                {item.image ? (
+                  <img
+                    src={item.image}
+                    alt={item.name || "Menu item"}
+                    style={menuImage}
+                  />
+                ) : (
+                  <div style={menuImagePlaceholder}>
+                    🍽️
+                  </div>
+                )}
+
+                <div style={menuCardContent}>
+
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 15
+                    }}
+                  >
+                    {item.name}{item.variant_name ? ` — ${item.variant_name}` : ""}
+                  </div>
+
+                  <div style={menuPrice}>
+                    ₹{Number(item.price || 0)}
+                  </div>
+
+                </div>
+
+                <div style={addLabel}>
+                  + Add
+                </div>
+
+              </button>
+            ))}
+
+          </div>
+        )}
+
+      </div>
+
+      {/* ======================================================
+          CART
+      ====================================================== */}
+
+      <div style={cartBox}>
+
+        <div style={cartHeader}>
+
+          <div>
+            <h3 style={subTitle}>
+              🛒 Current Order
+            </h3>
+
+            <p style={subText}>
+              {cart.length
+                ? `${cart.length} menu items`
+                : "No items added"}
+            </p>
+          </div>
+
+          {cart.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCart([])}
+              style={clearBtn}
+            >
+              Clear
+            </button>
+          )}
+
+        </div>
+
+        {!cart.length ? (
+          <div style={cartEmpty}>
+            <div style={{ fontSize: 34 }}>
+              🛒
+            </div>
+
+            <p>
+              Add items from the menu
+            </p>
+          </div>
+        ) : (
+          <div>
+
+            {cart.map((item) => (
+              <div
+                key={item.cartKey}
+                style={cartItem}
+              >
+
+                <div style={cartItemInfo}>
+
+                  <div
+                    style={{
+                      fontWeight: 700
+                    }}
+                  >
+                    {item.name}{item.variant_name ? ` — ${item.variant_name}` : ""}
+                  </div>
+
+                  <div style={cartItemPrice}>
+                    ₹
+                    {Number(item.price || 0)}
+                    {" × "}
+                    {item.qty}
+                  </div>
+
+                </div>
+
+                <div style={quantityControls}>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      qty(item.cartKey, -1)
+                    }
+                    style={qtyBtn}
+                  >
+                    −
+                  </button>
+
+                  <span style={qtyValue}>
+                    {item.qty}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      qty(item.cartKey, 1)
+                    }
+                    style={qtyBtn}
+                  >
+                    +
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      removeItem(item.cartKey)
+                    }
+                    style={removeBtn}
+                  >
+                    ×
+                  </button>
+
+                </div>
+
+              </div>
+            ))}
+
+            <div style={totalRow}>
+
+              <span>
+                Total
+              </span>
+
+              <strong>
+                ₹{cartTotal.toFixed(0)}
+              </strong>
+
+            </div>
+
+            <button
+              type="button"
+              style={{
+                ...payBtn,
+
+                opacity:
+                  placing ? 0.6 : 1,
+
+                cursor:
+                  placing
+                    ? "not-allowed"
+                    : "pointer"
+              }}
+              onClick={place}
+              disabled={placing}
+            >
+              {placing
+                ? "Processing..."
+                : "SEND TO KITCHEN"}
+            </button>
+
+          </div>
+        )}
+
+
+
+      {variantItem && (
+        <div style={{position:"fixed",inset:0,zIndex:1000,display:"grid",placeItems:"center",padding:20,background:"rgba(0,0,0,.62)"}}>
+          <div style={{width:"min(560px,100%)",padding:22,borderRadius:18,background:"var(--surface)",border:"1px solid var(--border)",color:"var(--text)",boxShadow:"0 24px 80px rgba(0,0,0,.35)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:15}}>
+              <div><div style={{fontSize:11,fontWeight:900,letterSpacing:1.5,color:"var(--primary)"}}>SELECT VARIANT QUANTITY</div><h2 style={{margin:"5px 0 4px"}}>{variantItem.name}</h2><p style={{margin:0,color:"var(--muted)"}}>Choose quantity for each variant.</p></div>
+              <button type="button" onClick={()=>{setVariantItem(null);setVariantQuantities({})}} style={{border:"1px solid var(--border)",background:"transparent",color:"var(--text)",borderRadius:10,padding:"8px 11px",cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{display:"grid",gap:9,marginTop:18}}>
+              {(variantItem.variants || []).map(v=>{const q=Number(variantQuantities[v.id]||0);const price=Number(variantItem.price||0)+Number(v.price_delta||0);return <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:12,borderRadius:12,border:"1px solid var(--border)",background:q>0?"var(--surface-muted, rgba(255,255,255,.04))":"transparent"}}><div><b>{v.name}</b><small style={{display:"block",color:"var(--muted)"}}>₹{price.toFixed(2)} each</small></div><div style={{display:"flex",alignItems:"center",gap:10}}><button type="button" onClick={()=>setVariantQty(v.id,-1)} style={qtyBtn}>−</button><b style={{minWidth:24,textAlign:"center"}}>{q}</b><button type="button" onClick={()=>setVariantQty(v.id,1)} style={qtyBtn}>+</button></div></div>})}
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}><button type="button" onClick={()=>{setVariantItem(null);setVariantQuantities({})}} style={clearBtn}>Cancel</button><button type="button" onClick={addSelectedVariants} style={modalPrimaryBtn}>Add Selected</button></div>
+          </div>
+        </div>
+      )}      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function formatTime(value) {
+  if (!value) return "-"
+
+  try {
+    return formatIndiaTime(value)
+  } catch {
+    return "-"
+  }
+}
+
+
+/* ============================================================
+   PAGE STYLES
+============================================================ */
+
+const loadingPage = {
+  minHeight: "100vh",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background:
+    "linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
+  color: "var(--text)",
+  padding: 20
+}
+
+const loadingCard = {
+  width: "100%",
+  maxWidth: 420,
+  textAlign: "center",
+  padding: 40,
+  borderRadius: 24,
+  background: "rgba(var(--surface-2-rgb),.8)",
+  border:
+    "1px solid rgba(var(--primary-rgb),.18)",
+  boxShadow:
+    "0 25px 60px rgba(0,0,0,.4)"
+}
+
+const loadingIcon = {
+  fontSize: 42
+}
+
+const layout = {
+  padding: 20,
+  background:
+    "linear-gradient(135deg,var(--background),var(--surface-2),var(--background))",
+  color: "var(--text)",
+  minHeight: "100vh"
+}
+
+const header = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 15,
+  marginBottom: 20,
+  flexWrap: "wrap"
+}
+
+const title = {
+  fontSize: 28,
+  margin: 0
+}
+
+const subtitle = {
+  margin: "6px 0 0",
+  color: "var(--muted)",
+  fontSize: 14
+}
+
+const badge = {
+  background:
+    "rgba(var(--success-rgb),.15)",
+  color: "var(--success)",
+  border:
+    "1px solid rgba(var(--success-rgb),.35)",
+  padding: "8px 14px",
+  borderRadius: 999,
+  fontSize: 13,
+  fontWeight: 700
+}
+
+const tabs = {
+  display: "flex",
+  gap: 10,
+  marginBottom: 20,
+  flexWrap: "wrap"
+}
+
+const tabBtn = (active, color) => ({
+  padding: "11px 17px",
+  borderRadius: 12,
+  border:
+    `1px solid ${
+      active
+        ? color
+        : "rgba(255,255,255,.12)"
+    }`,
+  color:
+    active
+      ? color
+      : "var(--muted)",
+  background:
+    active
+      ? `${color}18`
+      : "rgba(255,255,255,.03)",
+  cursor: "pointer",
+  fontWeight: 700
+})
+
+const sectionBox = {
+  width: "100%"
+}
+
+const ordersHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 15,
+  marginBottom: 15,
+  flexWrap: "wrap"
+}
+
+const sectionTitle = {
+  margin: 0,
+  fontSize: 21
+}
+
+const sectionSubtitle = {
+  margin: "5px 0 0",
+  color: "var(--muted)",
+  fontSize: 13
+}
+
+const orderCounter = {
+  padding: "7px 12px",
+  borderRadius: 999,
+  background:
+    "rgba(var(--info-rgb),.12)",
+  border:
+    "1px solid rgba(var(--info-rgb),.25)",
+  color: "var(--info)",
+  fontSize: 12,
+  fontWeight: 700
+}
+
+const grid = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fill,minmax(240px,1fr))",
+  gap: 15
+}
+
+const card = {
+  background:
+    "rgba(var(--surface-2-rgb),.72)",
+  padding: 16,
+  borderRadius: 16,
+  border:
+    "1px solid rgba(255,255,255,.10)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 11,
+  boxShadow:
+    "0 12px 30px rgba(0,0,0,.22)"
+}
+
+const topRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 10
+}
+
+const orderId = {
+  fontWeight: 800,
+  fontSize: 14
+}
+
+const time = {
+  fontSize: 11,
+  color: "var(--muted)"
+}
+
+const tableBox = {
+  fontSize: 15,
+  fontWeight: 700,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background:
+    "rgba(255,255,255,.04)"
+}
+
+const status = (s) => ({
+  padding: "7px",
+  borderRadius: 9,
+  textAlign: "center",
+  fontWeight: 800,
+  fontSize: 12,
+  background:
+    s === "pending"
+      ? "var(--warning)"
+      : s === "preparing"
+        ? "var(--info)"
+        : s === "ready"
+          ? "var(--success)"
+          : "var(--muted)",
+  color: "#000"
+})
+
+const actions = {
+  display: "grid",
+  gridTemplateColumns:
+    "1fr 1fr 1fr",
+  gap: 6
+}
+
+const btn = (color) => ({
+  padding: 8,
+  border:
+    `1px solid ${color}`,
+  color,
+  borderRadius: 8,
+  background: "transparent",
+  fontSize: 11,
+  cursor: "pointer",
+  fontWeight: 700
+})
+
+const showMoreWrap = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: 22
+}
+
+const showMoreBtn = {
+  padding: "11px 22px",
+  borderRadius: 12,
+  border:
+    "1px solid rgba(var(--info-rgb),.4)",
+  background:
+    "rgba(var(--info-rgb),.12)",
+  color: "var(--info)",
+  cursor: "pointer",
+  fontWeight: 800,
+  fontSize: 14
+}
+
+const emptyBox = {
+  padding: 45,
+  textAlign: "center",
+  borderRadius: 20,
+  background:
+    "rgba(var(--surface-2-rgb),.65)",
+  border:
+    "1px solid rgba(255,255,255,.08)"
+}
+
+const emptyIcon = {
+  fontSize: 40
+}
+
+
+/* ============================================================
+   POS STYLES
+============================================================ */
+
+const posBox = {
+  background:
+    "rgba(var(--surface-2-rgb),.78)",
+  padding: 20,
+  borderRadius: 20,
+  border:
+    "1px solid rgba(var(--primary-rgb),.16)",
+  boxShadow:
+    "0 20px 45px rgba(0,0,0,.28)"
+}
+
+const posHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 15,
+  marginBottom: 20,
+  flexWrap: "wrap"
+}
+
+const posTitle = {
+  margin: 0,
+  fontSize: 23
+}
+
+const posSubtitle = {
+  margin: "5px 0 0",
+  color: "var(--muted)",
+  fontSize: 13
+}
+
+const cartBadge = {
+  padding: "7px 12px",
+  borderRadius: 999,
+  background:
+    "rgba(var(--warning-rgb),.12)",
+  border:
+    "1px solid rgba(var(--warning-rgb),.3)",
+  color: "var(--primary)",
+  fontSize: 12,
+  fontWeight: 700
+}
+
+const sourceBtn = (active, color) => ({
+  padding: "10px 16px",
+  borderRadius: 11,
+  border:
+    `1px solid ${
+      active
+        ? color
+        : "rgba(255,255,255,.12)"
+    }`,
+  background:
+    active
+      ? `${color}18`
+      : "rgba(255,255,255,.03)",
+  color:
+    active
+      ? color
+      : "var(--muted)",
+  cursor: "pointer",
+  fontWeight: 700
+})
+
+const subSection = {
+  marginTop: 18,
+  padding: 18,
+  borderRadius: 18,
+  background:
+    "rgba(255,255,255,.025)",
+  border:
+    "1px solid rgba(255,255,255,.07)"
+}
+
+const subSectionHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 14,
+  flexWrap: "wrap"
+}
+
+const subTitle = {
+  margin: 0,
+  fontSize: 17
+}
+
+const subText = {
+  margin: "4px 0 0",
+  color: "var(--muted)",
+  fontSize: 12
+}
+
+const selectedBadge = {
+  padding: "7px 11px",
+  borderRadius: 999,
+  background:
+    "rgba(var(--success-rgb),.12)",
+  border:
+    "1px solid rgba(var(--success-rgb),.25)",
+  color: "var(--success)",
+  fontSize: 12,
+  fontWeight: 700
+}
+
+const selectWrap = {
+  display: "flex",
+  gap: 9,
+  flexWrap: "wrap"
+}
+
+const sourceSelectBtn = {
+  minWidth: 55,
+  padding: "9px 13px",
+  borderRadius: 10,
+  border:
+    "1px solid rgba(255,255,255,.12)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 700
+}
+
+const smallBadge = {
+  padding: "6px 10px",
+  borderRadius: 999,
+  background:
+    "rgba(255,255,255,.05)",
+  color: "var(--muted)",
+  fontSize: 11
+}
+
+const smallEmpty = {
+  padding: 20,
+  textAlign: "center",
+  borderRadius: 12,
+  background:
+    "rgba(255,255,255,.03)",
+  color: "var(--muted)"
+}
+
+const menuGrid = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fill,minmax(190px,1fr))",
+  gap: 13
+}
+
+const menuCard = {
+  position: "relative",
+  textAlign: "left",
+  padding: 0,
+  overflow: "hidden",
+  borderRadius: 14,
+  border:
+    "1px solid rgba(255,255,255,.09)",
+  background:
+    "rgba(255,255,255,.04)",
+  color: "var(--text)",
+  cursor: "pointer"
+}
+
+const menuImage = {
+  width: "100%",
+  height: 130,
+  objectFit: "cover",
+  display: "block"
+}
+
+const menuImagePlaceholder = {
+  width: "100%",
+  height: 130,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background:
+    "rgba(255,255,255,.04)",
+  fontSize: 35
+}
+
+const menuCardContent = {
+  padding: "11px 12px 4px"
+}
+
+const menuPrice = {
+  marginTop: 5,
+  color: "var(--success)",
+  fontWeight: 800
+}
+
+const addLabel = {
+  padding: "7px 12px 11px",
+  color: "var(--muted)",
+  fontSize: 11,
+  fontWeight: 700
+}
+
+const cartBox = {
+  marginTop: 18,
+  padding: 18,
+  borderRadius: 18,
+  background:
+    "rgba(var(--background-rgb),.55)",
+  border:
+    "1px solid rgba(var(--primary-rgb),.14)"
+}
+
+const cartHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 14
+}
+
+const clearBtn = {
+  padding: "7px 11px",
+  borderRadius: 9,
+  border:
+    "1px solid rgba(var(--danger-rgb),.3)",
+  background:
+    "rgba(var(--danger-rgb),.08)",
+  color: "var(--danger)",
+  cursor: "pointer",
+  fontWeight: 700
+}
+
+const cartEmpty = {
+  padding: 30,
+  textAlign: "center",
+  color: "var(--muted)",
+  borderRadius: 13,
+  background:
+    "rgba(255,255,255,.025)"
+}
+
+const cartItem = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  padding: "12px 0",
+  borderBottom:
+    "1px solid rgba(255,255,255,.07)"
+}
+
+const cartItemInfo = {
+  minWidth: 0
+}
+
+const cartItemPrice = {
+  marginTop: 4,
+  fontSize: 12,
+  color: "var(--muted)"
+}
+
+const quantityControls = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6
+}
+
+
+const modalPrimaryBtn = {
+  padding: "9px 14px",
+  borderRadius: 10,
+  border: "1px solid var(--primary)",
+  background: "var(--primary)",
+  color: "#111",
+  cursor: "pointer",
+  fontWeight: 900
+}
+const qtyBtn = {
+  width: 30,
+  height: 30,
+  borderRadius: 8,
+  border:
+    "1px solid rgba(255,255,255,.12)",
+  background:
+    "rgba(255,255,255,.05)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontSize: 17
+}
+
+const qtyValue = {
+  minWidth: 25,
+  textAlign: "center",
+  fontWeight: 700
+}
+
+const removeBtn = {
+  width: 30,
+  height: 30,
+  borderRadius: 8,
+  border:
+    "1px solid rgba(var(--danger-rgb),.3)",
+  background:
+    "rgba(var(--danger-rgb),.08)",
+  color: "var(--danger)",
+  cursor: "pointer",
+  fontSize: 18
+}
+
+const totalRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 18,
+  paddingTop: 15,
+  borderTop:
+    "1px solid rgba(255,255,255,.08)",
+  fontSize: 18
+}
+
+const payBtn = {
+  marginTop: 14,
+  padding: 13,
+  background:
+    "linear-gradient(135deg,var(--success),var(--success))",
+  border: "none",
+  borderRadius: 11,
+  color: "var(--text)",
+  width: "100%",
+  fontWeight: 800,
+  fontSize: 15
+}
+
+const fastInput = {
+  width: "100%",
+  minHeight: 42,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,.12)",
+  background: "rgba(255,255,255,.04)",
+  color: "var(--text)",
+  outline: "none"
+}
+
+const posLoading = {
+  padding: 50,
+  textAlign: "center",
+  color: "var(--muted)"
+}
