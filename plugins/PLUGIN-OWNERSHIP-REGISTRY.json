@@ -1,0 +1,105 @@
+{
+  "audit_date": "2026-09-24",
+  "source_catalog_count": 42,
+  "physical_plugin_entries": 47,
+  "user_target": "40 plugins",
+  "finding": "Current lib/pluginCatalog.js contains 42 entries; none were deleted.",
+  "runtime_safety": "Live app routes remain unchanged; no route cutover was performed.",
+  "supabase": "No Supabase files/migrations/schema/data/functions/RPC/RLS were modified.",
+  "ownership": {
+    "reservations-pro": "restaurant-suite",
+    "qr-ordering-pro": "restaurant-suite",
+    "website-ordering": "restaurant-suite",
+    "captain-app": "restaurant-suite",
+    "smart-notifications": "restaurant-suite",
+    "calling-device": "restaurant-suite",
+    "offers": "restaurant-suite",
+    "p1-supplier-automation": "restaurant-suite",
+    "p1-supplier-portal": "restaurant-suite",
+    "swiggy-integration": "restaurant-suite",
+    "zomato-integration": "restaurant-suite",
+    "p1-enterprise-hq": "restaurant-pro",
+    "p1-payment-terminals": "restaurant-pro",
+    "payment-accounts": "restaurant-core",
+    "cashfree-payment-gateway": "restaurant-core",
+    "whatsapp-invoice": "restaurant-core",
+    "whatsapp-marketing": "p1-marketing-hub",
+    "facebook-integration": "p1-marketing-hub",
+    "instagram-integration": "p1-marketing-hub",
+    "thermal-printing": "restaurant-core",
+    "a4-invoice": "restaurant-core",
+    "hardware-print-queue": "operations-hub",
+    "qr-print-center": "restaurant-suite",
+    "p0-system-reliability": "operations-hub",
+    "p1-marketing-hub": "restaurant-pro",
+    "p1-advanced-reporting": "restaurant-pro",
+    "p2-call-center": "restaurant-suite",
+    "p2-banquet-events": "restaurant-suite",
+    "p2-advanced-kiosk": "restaurant-suite",
+    "p2-customer-display": "restaurant-core",
+    "p2-device-hq": "operations-hub",
+    "p2-ai-intelligence": "restaurant-pro",
+    "theme-branding": "restaurant-settings",
+    "restaurant-settings": "restaurant-core",
+    "ai-image-studio": "p1-marketing-hub",
+    "ai-poster-studio": "p1-marketing-hub",
+    "ai-logo-studio": "p1-marketing-hub",
+    "business-card-studio": "p1-marketing-hub",
+    "whatsapp": "restaurant-core",
+    "qr": "restaurant-suite",
+    "qr-menu": "restaurant-suite",
+    "razorpay": "restaurant-core"
+  },
+  "activation_rules": {
+    "core_suite_pro": "plugin_enabled",
+    "operations_hub": "operation_hub",
+    "provider_integrations": "operation_hub && parent_plugin && individual_integration",
+    "standalone_modules": "parent_plugin"
+  },
+  "known_overlap_groups": {
+    "printing": [
+      "thermal-printing",
+      "hardware-print-queue",
+      "a4-invoice"
+    ],
+    "social": [
+      "facebook-integration",
+      "instagram-integration"
+    ],
+    "aggregator": [
+      "restaurant-suite",
+      "swiggy-integration",
+      "zomato-integration"
+    ],
+    "marketing": [
+      "p1-marketing-hub",
+      "whatsapp-marketing"
+    ],
+    "qr": [
+      "qr-ordering-pro",
+      "qr-print-center"
+    ],
+    "ai": [
+      "ai-image-studio",
+      "ai-poster-studio",
+      "ai-logo-studio"
+    ],
+    "enterprise": [
+      "restaurant-pro",
+      "p1-enterprise-hq"
+    ],
+    "supplier": [
+      "restaurant-suite",
+      "p1-supplier-automation",
+      "p1-supplier-portal"
+    ],
+    "reliability": [
+      "operations-hub",
+      "p0-system-reliability"
+    ],
+    "customer_display": [
+      "restaurant-core",
+      "p2-customer-display"
+    ]
+  }
+}

@@ -1,0 +1,503 @@
+import { indiaDateKey } from "@/lib/indiaTime"
+import { NextResponse } from "next/server"
+import { supabaseCloudAdmin } from "@/lib/supabaseCloudServer"
+import { requireApiUser } from "@/lib/serverAuth"
+import { resolveRestaurantForUser } from "@/lib/restaurantResolver"
+
+async function restaurantForUser(user) {
+  const resolved = await resolveRestaurantForUser(user)
+  if (!resolved.restaurantId) throw new Error("Restaurant profile not found")
+  return { restaurant_id: resolved.restaurantId, role: resolved.role }
+}
+
+async function audit(rid, userId, action, entityType, entityId, afterData = null, reason = null) {
+  await supabaseCloudAdmin.from("pos_audit_events").insert({ restaurant_id: rid, actor_id: userId, action, entity_type: entityType, entity_id: entityId || null, after_data: afterData, reason })
+}
+
+export async function GET(req) {
+  try {
+    const user = await requireApiUser(req)
+    const resolved = await resolveRestaurantForUser(user)
+    const rid = resolved.restaurantId
+    if (!rid) throw new Error("Restaurant profile not found")
+
+    const pluginRes = await supabaseCloudAdmin.from("restaurant_plugins").select("plugin_code,enabled").eq("restaurant_id", rid)
+    if (pluginRes.error) throw pluginRes.error
+    const plugins = Object.fromEntries((pluginRes.data || []).map(x => [x.plugin_code, x.enabled === true]))
+    if (!plugins["operations-hub"]) return NextResponse.json({ success: true, enabled: false, restaurant_id: rid, data: {}, plugins })
+
+    const queries = {
+      restaurant: supabaseCloudAdmin.from("restaurants").select("name").eq("id", rid).maybeSingle(),
+      customers: supabaseCloudAdmin.from("customers").select("*").eq("restaurant_id", rid).order("updated_at", { ascending: false }),
+      groups: supabaseCloudAdmin.from("modifier_groups").select("*").eq("restaurant_id", rid).order("created_at"),
+      mods: supabaseCloudAdmin.from("modifiers").select("*").eq("restaurant_id", rid).order("created_at"),
+      menu: supabaseCloudAdmin.from("menu_items").select("id,name,category,price").eq("restaurant_id", rid).order("name"),
+      expenses: supabaseCloudAdmin.from("expenses").select("*").eq("restaurant_id", rid).order("expense_date", { ascending: false }).limit(100),
+      attendance: supabaseCloudAdmin.from("staff_attendance").select("*").eq("restaurant_id", rid).order("clock_in", { ascending: false }).limit(100),
+      feedback: supabaseCloudAdmin.from("customer_feedback").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      riders: supabaseCloudAdmin.from("delivery_riders").select("*").eq("restaurant_id", rid).order("name"),
+      assignments: supabaseCloudAdmin.from("restaurant_deliveries").select("*").eq("restaurant_id", rid).order("assigned_at", { ascending: false }).limit(100),
+      staff: supabaseCloudAdmin.from("profiles").select("id,email,role").eq("restaurant_id", rid).order("email"),
+      kots: supabaseCloudAdmin.from("kot_tickets").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(50),
+      orders: supabaseCloudAdmin.from("orders").select("id,status,total_amount,created_at,source_type,source_id,source_label").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltyTx: supabaseCloudAdmin.from("loyalty_transactions").select("id,customer_id,points,transaction_type,note,created_at").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltySettings: supabaseCloudAdmin.from("loyalty_settings").select("*").eq("restaurant_id", rid).maybeSingle(),
+      loyaltyTiers: supabaseCloudAdmin.from("loyalty_tiers").select("*").eq("restaurant_id", rid).order("min_points"),
+      loyaltyRewards: supabaseCloudAdmin.from("loyalty_rewards").select("*").eq("restaurant_id", rid).order("points_cost"),
+      loyaltyCampaigns: supabaseCloudAdmin.from("loyalty_campaigns").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }),
+      loyaltyReferrals: supabaseCloudAdmin.from("loyalty_referrals").select("*").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      loyaltyRedemptions: supabaseCloudAdmin.from("loyalty_redemptions").select("id,customer_id,reward_id,points,status,created_at").eq("restaurant_id", rid).order("created_at", { ascending: false }).limit(100),
+      permissions: supabaseCloudAdmin.from("staff_permissions").select("id,staff_id,permission_key,enabled,updated_at").eq("restaurant_id", rid),
+    }
+    const settled = await Promise.all(Object.entries(queries).map(async ([key, query]) => [key, await query]))
+    const results = Object.fromEntries(settled)
+    const errors = Object.entries(results).filter(([, v]) => v?.error).map(([key, v]) => ({ key, error: v.error.message, code: v.error.code }))
+    if (errors.length) console.error("Operations Hub data query failures", { rid, errors })
+    const data = Object.fromEntries(Object.entries(results).map(([key, value]) => [key, value?.data || []]))
+    return NextResponse.json({ success: true, enabled: true, restaurant_id: rid, name: results.restaurant?.data?.name || "Restaurant", plugins, data, errors })
+  } catch (e) {
+    console.error("restaurant operations GET", e)
+    return NextResponse.json({ success: false, error: e.message || "Unable to load Operations Hub data" }, { status: 400 })
+  }
+}
+
+export async function POST(req) {
+  try {
+    const user = await requireApiUser(req)
+    const profile = await restaurantForUser(user)
+    const rid = profile.restaurant_id
+    const body = await req.json()
+    const action = String(body.action || "").trim()
+    if (!action) throw new Error("Action is required")
+
+    if (action === "table_status") {
+      const { data, error } = await supabaseCloudAdmin.rpc("set_dining_table_status", { p_restaurant_id: rid, p_table_id: body.table_id, p_status: body.status })
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "hold_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { data, error } = await supabaseCloudAdmin.from("order_holds").insert({ restaurant_id: rid, order_id: body.order_id, hold_type: body.hold_type || "hold", note: body.note || null, created_by: user.id }).select().single()
+      if (error) throw error
+      await supabaseCloudAdmin.from("orders").update({ hold_status: "held" }).eq("id", body.order_id).eq("restaurant_id", rid)
+      await audit(rid, user.id, "order.held", "order", body.order_id, { hold_id: data.id })
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "resume_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { error: holdError } = await supabaseCloudAdmin.from("order_holds").update({ released_at: new Date().toISOString() }).eq("restaurant_id", rid).eq("order_id", body.order_id).is("released_at", null)
+      if (holdError) throw holdError
+      const { error } = await supabaseCloudAdmin.from("orders").update({ hold_status: "active" }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await audit(rid, user.id, "order.resumed", "order", body.order_id, { hold_status: "active" })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "reopen_order") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { error } = await supabaseCloudAdmin.from("orders").update({ status: "open", reopened_at: new Date().toISOString() }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await supabaseCloudAdmin.from("order_status_history").insert({ restaurant_id: rid, order_id: body.order_id, status: "open", source: "reopen", note: body.reason || "Reopened", changed_by: user.id })
+      await audit(rid, user.id, "order.reopened", "order", body.order_id, { status: "open" }, body.reason)
+      return NextResponse.json({ success: true })
+    }
+    if (action === "merge") {
+      const ids = [...new Set(Array.isArray(body.order_ids) ? body.order_ids.filter(Boolean).map(String) : [])]
+      if (ids.length < 2) throw new Error("At least two orders are required")
+      const { data: rows, error } = await supabaseCloudAdmin.from("orders")
+        .select("id,total_amount,paid_amount,payment_status,status")
+        .eq("restaurant_id", rid)
+        .in("id", ids)
+      if (error) throw error
+      if ((rows || []).length !== ids.length) throw new Error("One or more orders were not found")
+      if ((rows || []).some(o => ["paid", "refunded"].includes(String(o.payment_status || "").toLowerCase()) || Number(o.paid_amount || 0) > 0)) {
+        throw new Error("Paid or partially paid orders cannot be merged. Settle or refund them first.")
+      }
+      if ((rows || []).some(o => ["cancelled", "void", "voided"].includes(String(o.status || "").toLowerCase()))) {
+        throw new Error("Cancelled/voided orders cannot be merged")
+      }
+      const [target, ...rest] = rows
+      const restIds = rest.map(x => x.id)
+      const total = Number(rows.reduce((n, x) => n + Number(x.total_amount || 0), 0).toFixed(2))
+
+      // Move the actual order items, rather than only changing the header total.
+      // Modifiers and item-level metadata stay attached to the same order_item rows.
+      if (restIds.length) {
+        const { error: moveItemsError } = await supabaseCloudAdmin.from("order_items")
+          .update({ order_id: target.id })
+          .in("order_id", restIds)
+        if (moveItemsError) throw moveItemsError
+      }
+      const { error: updateError } = await supabaseCloudAdmin.from("orders")
+        .update({ total_amount: total })
+        .eq("id", target.id).eq("restaurant_id", rid)
+      if (updateError) throw updateError
+      if (restIds.length) {
+        const { error: cancelError } = await supabaseCloudAdmin.from("orders")
+          .update({ status: "cancelled", void_reason: `Merged into ${target.id}`, cancelled_at: new Date().toISOString() })
+          .in("id", restIds).eq("restaurant_id", rid)
+        if (cancelError) throw cancelError
+      }
+      await audit(rid, user.id, "orders.merged", "order", target.id, { merged_order_ids: ids, total, moved_item_orders: restIds })
+      return NextResponse.json({ success: true, target_order_id: target.id, total })
+    }
+
+    if (action === "move_items") {
+      if (!body.order_item_id || !body.order_id || !body.to_table_id) throw new Error("order_item_id, order_id and to_table_id are required")
+      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders")
+        .select("source_id").eq("id", body.order_id).eq("restaurant_id", rid).maybeSingle()
+      if (orderError) throw orderError
+      if (!order) throw new Error("Order not found")
+      const { error } = await supabaseCloudAdmin.from("order_item_moves").insert({
+        restaurant_id: rid, order_item_id: body.order_item_id, order_id: body.order_id,
+        from_table_id: order.source_id || null, to_table_id: body.to_table_id,
+        quantity: Math.max(1, Number(body.quantity || 1)), moved_by: user.id
+      })
+      if (error) throw error
+      await audit(rid, user.id, "order_item.moved", "order_item", body.order_item_id, { to_table_id: body.to_table_id })
+      return NextResponse.json({ success: true })
+    }
+
+    if (action === "table_transfer") {
+      if (!body.order_id || !body.to_table_id) throw new Error("Order and destination table are required")
+      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders").select("table_id").eq("id", body.order_id).eq("restaurant_id", rid).single()
+      if (orderError) throw orderError
+      const { error } = await supabaseCloudAdmin.from("orders").update({ table_id: body.to_table_id }).eq("id", body.order_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await supabaseCloudAdmin.from("order_transfers").insert({ restaurant_id: rid, order_id: body.order_id, from_table_id: order.table_id || null, to_table_id: body.to_table_id, moved_by: user.id })
+      await audit(rid, user.id, "table.transfer", "order", body.order_id, { from_table_id: order.table_id, to_table_id: body.to_table_id })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "reservation_deposit") {
+      if (!body.reservation_id || Number(body.amount || 0) <= 0) throw new Error("Reservation and positive deposit are required")
+      const { data, error } = await supabaseCloudAdmin.from("reservation_deposits").insert({ restaurant_id: rid, reservation_id: body.reservation_id, amount: Number(body.amount), payment_method: body.payment_method || "upi", reference: body.reference || null, status: "paid", paid_at: new Date().toISOString() }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "feedback_request") {
+      const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      const { data, error } = await supabaseCloudAdmin.from("feedback_requests").insert({ restaurant_id: rid, order_id: body.order_id || null, customer_id: body.customer_id || null, channel: body.channel || "qr", token, status: "pending", sent_at: new Date().toISOString() }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "cash_movement") {
+      const amount = Number(body.amount || 0)
+      if (amount <= 0 || !body.shift_id) throw new Error("Shift and positive amount are required")
+      const { data, error } = await supabaseCloudAdmin.from("cash_movements").insert({ restaurant_id: rid, session_id: body.shift_id, movement_type: body.movement_type || "cash_in", amount, reference: body.reference || null, note: body.note || null, created_by: user.id }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "report_export") {
+      const { data, error } = await supabaseCloudAdmin.from("report_exports").insert({ restaurant_id: rid, report_type: body.report_type || "sales", filters: body.filters || {}, format: body.format || "csv", status: "requested", requested_by: user.id }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "payment") {
+      const amount = Number(body.amount || 0)
+      if (!body.order_id || !Number.isFinite(amount) || amount <= 0) throw new Error("Order and positive payment amount are required")
+      const method = ["cash", "upi", "card", "online", "credit", "other"].includes(body.payment_method) ? body.payment_method : "cash"
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_record_payment", {
+        p_restaurant_id: rid, p_order_id: body.order_id, p_amount: Number(amount.toFixed(2)),
+        p_payment_method: method, p_reference: body.reference || null,
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null, p_actor_id: user.id
+      })
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "split") {
+      const parts = Math.min(20, Math.max(2, Math.floor(Number(body.parts || 2))))
+      if (!body.order_id) throw new Error("Order is required")
+      const { data: order, error: orderError } = await supabaseCloudAdmin.from("orders").select("id,total_amount,paid_amount,payment_status,status").eq("id", body.order_id).eq("restaurant_id", rid).single()
+      if (orderError) throw orderError
+      if (["cancelled", "void", "voided", "refunded"].includes(String(order.status || "").toLowerCase())) throw new Error("Cancelled/voided orders cannot be split")
+      if (Number(order.paid_amount || 0) > 0 || ["paid", "partially_paid"].includes(String(order.payment_status || "").toLowerCase())) throw new Error("Paid or partially paid orders cannot be split")
+      const total = Number(Number(order.total_amount || 0).toFixed(2))
+      const base = Math.floor((total / parts) * 100) / 100
+      const remainder = Number((total - base * parts).toFixed(2))
+      const rows = Array.from({ length: parts }, (_, i) => ({
+        restaurant_id: rid, order_id: body.order_id, split_no: i + 1,
+        amount: Number((base + (i === parts - 1 ? remainder : 0)).toFixed(2)), payment_status: "unpaid"
+      }))
+      const { error } = await supabaseCloudAdmin.from("order_splits").upsert(rows, { onConflict: "order_id,split_no" })
+      if (error) throw error
+      await audit(rid, user.id, "bill.split", "order", body.order_id, { parts, total, split_amounts: rows.map(r => r.amount) })
+      return NextResponse.json({ success: true, parts, splits: rows })
+    }
+    if (action === "refund") {
+      const amount = Number(body.amount || 0)
+      if (!body.order_id || !Number.isFinite(amount) || amount <= 0) throw new Error("Order and positive refund amount are required")
+      const { data: payment } = await supabaseCloudAdmin.from("order_payments").select("id").eq("restaurant_id", rid).eq("order_id", body.order_id).eq("status", "paid").order("created_at", { ascending: false }).limit(1).maybeSingle()
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_record_refund", {
+        p_restaurant_id: rid, p_order_id: body.order_id, p_amount: Number(amount.toFixed(2)),
+        p_reason: body.reason || "Customer refund", p_payment_id: payment?.id || null,
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null, p_actor_id: user.id
+      })
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "void") {
+      if (!body.order_id) throw new Error("Order is required")
+      const { data, error } = await supabaseCloudAdmin.rpc("p0_void_order", {
+        p_restaurant_id: rid, p_order_id: body.order_id,
+        p_reason: body.reason || "Voided by staff",
+        p_idempotency_key: body.idempotency_key || body.client_request_id || null,
+        p_actor_id: user.id
+      })
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "kds") {
+      const status = String(body.status || "new").toLowerCase()
+      const allowedKdsStatuses = new Set(["new", "accepted", "preparing", "ready", "served", "cancelled"])
+      if (!body.order_id) throw new Error("Order is required")
+      if (!allowedKdsStatuses.has(status)) throw new Error("Invalid KDS status")
+      const timestamps = { accepted: "acknowledged_at", preparing: "acknowledged_at", ready: "completed_at", served: "completed_at" }
+      const patch = { restaurant_id: rid, order_id: body.order_id, status, priority: body.priority || "normal" }
+      if (timestamps[status]) patch[timestamps[status]] = new Date().toISOString()
+      const { error } = await supabaseCloudAdmin.from("kds_events").insert(patch)
+      if (error) throw error
+      await supabaseCloudAdmin.from("orders").update({ status }).eq("id", body.order_id).eq("restaurant_id", rid)
+      await supabaseCloudAdmin.from("order_status_history").insert({ restaurant_id: rid, order_id: body.order_id, status, source: "kds", changed_by: user.id })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "delivery_assign") {
+      if (!body.order_id || !body.rider_id) throw new Error("Order and rider are required")
+
+      const { data: rider, error: riderError } = await supabaseCloudAdmin
+        .from("delivery_riders")
+        .select("id,name,phone")
+        .eq("id", body.rider_id)
+        .eq("restaurant_id", rid)
+        .maybeSingle()
+      if (riderError) throw riderError
+      if (!rider) throw new Error("Rider not found")
+
+      const { data: order, error: orderError } = await supabaseCloudAdmin
+        .from("orders")
+        .select("id,total_amount,order_mode,customer_id")
+        .eq("id", body.order_id)
+        .eq("restaurant_id", rid)
+        .maybeSingle()
+      if (orderError) throw orderError
+      if (!order) throw new Error("Order not found")
+
+      const { data: existing, error: existingError } = await supabaseCloudAdmin
+        .from("restaurant_deliveries")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .eq("order_id", body.order_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (existingError) throw existingError
+
+      let delivery = existing
+      if (!delivery) {
+        const { data: slipNo, error: slipError } = await supabaseCloudAdmin.rpc("next_delivery_slip_no", { p_restaurant_id: rid })
+        if (slipError) throw slipError
+
+        const { data: created, error: createError } = await supabaseCloudAdmin
+          .from("restaurant_deliveries")
+          .insert({
+            restaurant_id: rid,
+            order_id: body.order_id,
+            slip_no: slipNo,
+            order_mode: order.order_mode || "delivery",
+            customer_name: "Walk-in Customer",
+            address: body.address || null,
+            delivery_charge: Number(body.delivery_charge || 0),
+            rider_id: rider.id,
+            rider_name: rider.name,
+            rider_phone: rider.phone || null,
+            delivery_person_type: "rider",
+            delivery_person_name: rider.name,
+            delivery_person_phone: rider.phone || null,
+            expected_amount: Number(order.total_amount || 0),
+            collection_expected: Number(order.total_amount || 0),
+            payment_method: "cash",
+            payment_status: "pending",
+            settlement_status: "pending",
+            collection_status: "pending_collection",
+            status: "assigned",
+            assigned_at: new Date().toISOString()
+          })
+          .select("*")
+          .single()
+        if (createError) throw createError
+        delivery = created
+      } else {
+        const { data: updated, error: updateError } = await supabaseCloudAdmin
+          .from("restaurant_deliveries")
+          .update({
+            address: body.address || delivery.address || null,
+            delivery_charge: Number(body.delivery_charge ?? delivery.delivery_charge ?? 0),
+            rider_id: rider.id,
+            rider_name: rider.name,
+            rider_phone: rider.phone || null,
+            delivery_person_type: "rider",
+            delivery_person_name: rider.name,
+            delivery_person_phone: rider.phone || null,
+            status: "assigned",
+            assigned_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", delivery.id)
+          .eq("restaurant_id", rid)
+          .select("*")
+          .single()
+        if (updateError) throw updateError
+        delivery = updated
+      }
+
+      await audit(rid, user.id, "delivery.assigned", "order", body.order_id, {
+        delivery_id: delivery.id,
+        rider_id: rider.id
+      })
+      return NextResponse.json({ success: true, data: delivery, delivery })
+    }
+
+    if (action === "delivery_status") {
+      const deliveryId = body.delivery_id || body.assignment_id
+      if (!deliveryId) throw new Error("Delivery is required")
+      const requested = String(body.status || "").toLowerCase()
+      const status = requested === "failed" ? "cancelled" : requested
+      const allowed = ["pending", "assigned", "out_for_delivery", "delivered", "ready_for_pickup", "picked_up", "cancelled"]
+      if (!allowed.includes(status)) throw new Error("Invalid delivery status")
+
+      const patch = { status, updated_at: new Date().toISOString() }
+      if (requested === "out_for_delivery") patch.out_for_delivery_at = new Date().toISOString()
+      if (requested === "delivered") patch.delivered_at = new Date().toISOString()
+      if (requested === "failed") patch.customer_notes = body.failure_reason || "Delivery failed"
+
+      const { data, error } = await supabaseCloudAdmin
+        .from("restaurant_deliveries")
+        .update(patch)
+        .eq("id", deliveryId)
+        .eq("restaurant_id", rid)
+        .select("*")
+        .single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data, delivery: data })
+    }
+    if (action === "issue_token") {
+      const { data, error } = await supabaseCloudAdmin.rpc("issue_order_token", { p_restaurant_id: rid, p_order_id: body.order_id || null, p_token_type: body.token_type || "pickup", p_display_name: body.display_name || null })
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "token_status") {
+      const patch = { status: body.status }
+      if (body.status === "called") patch.called_at = new Date().toISOString()
+      if (body.status === "ready") patch.ready_at = new Date().toISOString()
+      if (body.status === "completed") patch.completed_at = new Date().toISOString()
+      const { error } = await supabaseCloudAdmin.from("order_tokens").update(patch).eq("id", body.id).eq("restaurant_id", rid)
+      if (error) throw error
+      return NextResponse.json({ success: true })
+    }
+    if (action === "waitlist_status") {
+      const { error } = await supabaseCloudAdmin.from("reservation_waitlist").update({ status: body.status, called_at: body.status === "called" ? new Date().toISOString() : null }).eq("id", body.id).eq("restaurant_id", rid)
+      if (error) throw error
+      return NextResponse.json({ success: true })
+    }
+    if (action === "aggregator_sync") {
+      const { data, error } = await supabaseCloudAdmin.from("aggregator_sync_jobs").insert({ restaurant_id: rid, provider: body.provider || "zomato", job_type: body.job_type || "orders", payload: body.payload || {}, status: "queued" }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "queue_message") {
+      const { data, error } = await supabaseCloudAdmin.from("message_queue").insert({ restaurant_id: rid, channel: body.channel || "whatsapp", purpose: body.purpose || "general", recipient: body.recipient || null, template: body.template || null, payload: body.payload || {}, status: "queued" }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "wallet_adjust") {
+      if (!body.customer_id) throw new Error("Customer is required")
+      const points = Number(body.points || 0)
+      const amount = Number(body.amount || 0)
+      if (!points && !amount) throw new Error("Points or amount is required")
+      const { data: existing } = await supabaseCloudAdmin
+        .from("customer_wallets")
+        .select("*")
+        .eq("restaurant_id", rid)
+        .eq("customer_id", body.customer_id)
+        .maybeSingle()
+      const current = existing || { balance: 0, points: 0 }
+      const nextBalance = Number(current.balance || 0) + amount
+      const nextPoints = Number(current.points || 0) + points
+      if (nextBalance < 0 || nextPoints < 0) throw new Error("Wallet balance cannot become negative")
+      const { data: wallet, error: walletError } = await supabaseCloudAdmin
+        .from("customer_wallets")
+        .upsert({ restaurant_id: rid, customer_id: body.customer_id, balance: nextBalance, points: nextPoints, updated_at: new Date().toISOString() }, { onConflict: "restaurant_id,customer_id" })
+        .select()
+        .single()
+      if (walletError) throw walletError
+      const { error: txError } = await supabaseCloudAdmin.from("customer_wallet_transactions").insert({
+        restaurant_id: rid,
+        customer_id: body.customer_id,
+        wallet_id: wallet.id,
+        transaction_type: body.transaction_type || "adjustment",
+        amount,
+        points,
+        notes: body.note || null,
+        created_at: new Date().toISOString(),
+      })
+      if (txError) throw txError
+      await audit(rid, user.id, "wallet.adjusted", "customer", body.customer_id, { balance: nextBalance, points: nextPoints }, body.note)
+      return NextResponse.json({ success: true, wallet })
+    }
+    if (action === "display_call") {
+      const { data, error } = await supabaseCloudAdmin.from("digital_display_calls").insert({
+        restaurant_id: rid,
+        token_no: body.token_no || null,
+        display_name: body.display_name || null,
+        message: body.message || null,
+        status: "queued",
+      }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "delivery_settlement") {
+      const expectedCash = Number(body.expected_cash || 0)
+      const expectedUpi = Number(body.expected_upi || 0)
+      const expectedCard = Number(body.expected_card || 0)
+      const submittedCash = Number(body.submitted_cash || 0)
+      const submittedUpi = Number(body.submitted_upi || 0)
+      const submittedCard = Number(body.submitted_card || 0)
+      const difference = submittedCash + submittedUpi + submittedCard - expectedCash - expectedUpi - expectedCard
+      const { data, error } = await supabaseCloudAdmin.from("delivery_settlements").insert({
+        restaurant_id: rid,
+        rider_id: body.rider_id || null,
+        rider_name: body.rider_name || null,
+        settlement_date: body.settlement_date || indiaDateKey(),
+        expected_cash: expectedCash,
+        expected_upi: expectedUpi,
+        expected_card: expectedCard,
+        submitted_cash: submittedCash,
+        submitted_upi: submittedUpi,
+        submitted_card: submittedCard,
+        difference: Number(difference.toFixed(2)),
+        status: "settled",
+        notes: body.notes || null,
+        created_by: user.id,
+        settled_at: new Date().toISOString(),
+      }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    if (action === "close_shift") {
+      const actual = Number(body.actual_cash || 0)
+      const { data: shift, error: shiftError } = await supabaseCloudAdmin.from("cash_shifts").select("expected_cash").eq("id", body.shift_id).eq("restaurant_id", rid).single()
+      if (shiftError) throw shiftError
+      const { error } = await supabaseCloudAdmin.from("cash_shifts").update({ actual_cash: actual, difference: actual - Number(shift.expected_cash || 0), status: "closed", closed_at: new Date().toISOString() }).eq("id", body.shift_id).eq("restaurant_id", rid)
+      if (error) throw error
+      await audit(rid, user.id, "cash.shift.closed", "cash_shift", body.shift_id, { actual_cash: actual })
+      return NextResponse.json({ success: true })
+    }
+    if (action === "print_job") {
+      const { data, error } = await supabaseCloudAdmin.from("print_jobs").insert({ restaurant_id: rid, job_type: body.job_type || "bill", reference_id: body.reference_id || null, payload: body.payload || {}, status: "queued" }).select().single()
+      if (error) throw error
+      return NextResponse.json({ success: true, data })
+    }
+    throw new Error("Unsupported action")
+  } catch (error) {
+    console.error("restaurant operations", error)
+    return NextResponse.json({ success: false, error: error?.message || "Operation failed" }, { status: 400 })
+  }
+}

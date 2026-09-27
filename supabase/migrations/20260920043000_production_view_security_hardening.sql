@@ -1,0 +1,16 @@
+-- Anaira production hardening: payment summary is a view, not a table.
+-- RLS cannot be enabled directly on a view; security_invoker makes the view
+-- evaluate the underlying order_payments RLS policies for the calling role.
+create or replace view public.restaurant_daily_payment_summary
+with (security_invoker=true)
+as
+select restaurant_id,
+       date_trunc('day', paid_at)::date as sale_date,
+       sum(case when payment_method='cash' and status='paid' then amount else 0::numeric end) as cash_sales,
+       sum(case when payment_method='card' and status='paid' then amount else 0::numeric end) as card_sales,
+       sum(case when payment_method='upi' and status='paid' then amount else 0::numeric end) as upi_sales,
+       sum(case when payment_method not in ('cash','card','upi') and status='paid' then amount else 0::numeric end) as other_sales,
+       sum(case when status='paid' then amount else 0::numeric end) as total_paid,
+       sum(case when status='refunded' then amount else 0::numeric end) as total_refunded
+from public.order_payments
+ group by restaurant_id, date_trunc('day', paid_at)::date;

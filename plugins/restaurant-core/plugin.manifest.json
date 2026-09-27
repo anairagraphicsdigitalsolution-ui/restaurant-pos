@@ -1,0 +1,26 @@
+{
+  "code": "restaurant-core",
+  "name": "Restaurant Core",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "plugin_enabled",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/restaurant-core",
+    "app/api/restaurant",
+    "app/dashboard/tables",
+    "app/dashboard/cash-closing",
+    "app/dashboard/customer-display-control",
+    "app/order",
+    "app/billing",
+    "app/kitchen",
+    "app/api/orders",
+    "app/api/billing",
+    "app/api/kitchen",
+    "plugins/pos"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": null,
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

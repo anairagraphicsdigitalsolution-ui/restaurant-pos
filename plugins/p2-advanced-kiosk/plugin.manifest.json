@@ -1,0 +1,17 @@
+{
+  "code": "p2-advanced-kiosk",
+  "name": "P2 Advanced Kiosk",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "parent_plugin",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/kiosks",
+    "app/dashboard/kiosk-control",
+    "app/api/kiosk"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "restaurant-suite",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

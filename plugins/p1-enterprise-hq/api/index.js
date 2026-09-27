@@ -1,0 +1,3 @@
+// Canonical api boundary for p1-enterprise-hq.
+// Live Next.js routes remain in app/ until dependency-verified cutover.
+export const owner = 'p1-enterprise-hq';

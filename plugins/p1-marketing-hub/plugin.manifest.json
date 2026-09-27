@@ -1,0 +1,17 @@
+{
+  "code": "p1-marketing-hub",
+  "name": "P1 Marketing Hub",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "parent_plugin",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/marketing",
+    "app/dashboard/marketing-automation",
+    "app/api/marketing"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "restaurant-pro",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

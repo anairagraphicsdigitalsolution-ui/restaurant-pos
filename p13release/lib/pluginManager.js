@@ -1,0 +1,59 @@
+import { supabaseCloudAdmin } from "./supabaseCloudServer"
+import { PLUGIN_CODES } from "./pluginCatalog"
+import { pluginHealthAction, testPlugin } from "./pluginRuntime"
+
+const PLUGIN_CACHE_TTL_MS = 3000
+const pluginCache = new Map()
+export function invalidatePluginCache(restaurant_id, plugin_code = null) {
+  if (!restaurant_id) return
+  if (plugin_code) pluginCache.delete(`${restaurant_id}:${plugin_code}`)
+  else for (const key of pluginCache.keys()) if (key.startsWith(`${restaurant_id}:`)) pluginCache.delete(key)
+}
+
+export async function installPlugin(restaurant_id, plugin_code, config = {}) {
+  const canonical = plugin_code === "whatsapp" ? "whatsapp-invoice" : plugin_code
+  if (!PLUGIN_CODES.has(canonical)) throw new Error("Unknown plugin")
+  const { data, error } = await supabaseCloudAdmin.from("restaurant_plugins").upsert({
+    restaurant_id, plugin_code: canonical, plugin_slug: canonical, enabled: true,
+    config: {}, display_name: canonical === "whatsapp-invoice" ? "WhatsApp" : canonical,
+    installed: true, updated_at: new Date().toISOString()
+  }, { onConflict: "restaurant_id,plugin_code" }).select().single()
+  if (error) throw error
+  invalidatePluginCache(restaurant_id, canonical)
+  if (config && Object.keys(config).length) {
+    const { error: settingsError } = await supabaseCloudAdmin.from("plugin_settings").upsert(
+      { restaurant_id, plugin_code: canonical, config },
+      { onConflict: "restaurant_id,plugin_code" }
+    )
+    if (settingsError) throw settingsError
+  }
+  return data
+}
+
+export async function getPlugin(restaurant_id, plugin_code) {
+  const canonical = plugin_code === "whatsapp" ? "whatsapp-invoice" : plugin_code
+  const cacheKey = `${restaurant_id}:${canonical}`
+  const cached = pluginCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < PLUGIN_CACHE_TTL_MS) return cached.value
+  const { data: plugin, error } = await supabaseCloudAdmin.from("restaurant_plugins").select("*")
+    .eq("restaurant_id", restaurant_id).eq("plugin_code", canonical).maybeSingle()
+  if (error) throw error
+  if (!plugin || plugin.enabled !== true) { pluginCache.set(cacheKey, { value: null, at: Date.now() }); return null }
+  const { data: settings, error: settingsError } = await supabaseCloudAdmin.from("plugin_settings").select("config")
+    .eq("restaurant_id", restaurant_id).eq("plugin_code", canonical).maybeSingle()
+  if (settingsError) throw settingsError
+  const value = { ...plugin, config: settings?.config || plugin.config || {} }
+  pluginCache.set(cacheKey, { value, at: Date.now() })
+  return value
+}
+
+export async function runPlugin(restaurant_id, plugin_code, action) {
+  const canonical = plugin_code === "whatsapp" ? "whatsapp-invoice" : plugin_code
+  const installed = await getPlugin(restaurant_id, canonical)
+  if (!installed) throw new Error("Plugin is disabled or not configured")
+  if (action === "health") return pluginHealthAction(canonical)
+  if (action === "test_connection") {
+    return testPlugin({ restaurantId: restaurant_id, pluginCode: canonical, config: installed.config || {} })
+  }
+  throw new Error(`Plugin action runtime is not registered for ${canonical}. Use the dedicated plugin API.`)
+}

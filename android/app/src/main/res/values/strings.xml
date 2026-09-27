@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">anaira-restaurant-pos</string>
+    <string name="title_activity_main">anaira-restaurant-pos</string>
+    <string name="package_name">in.anairapos.app</string>
+    <string name="custom_url_scheme">in.anairapos.app</string>
+</resources>

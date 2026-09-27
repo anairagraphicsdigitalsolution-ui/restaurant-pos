@@ -1,0 +1,16 @@
+{
+  "code": "p1-enterprise-hq",
+  "name": "P1 Enterprise HQ",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "parent_plugin",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/enterprise-hq",
+    "app/api/enterprise"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "restaurant-pro",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

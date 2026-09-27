@@ -1,0 +1,4 @@
+-- P1.3 Inventory/COGS production hardening: FIFO, weighted average, recipe costing,
+-- theoretical vs actual COGS, variance, waste %, valuation and period closing.
+-- Additive; existing business rows are preserved.
+-- The authoritative SQL was applied to the connected Supabase project.

@@ -1,0 +1,16 @@
+{
+  "code": "cashfree-payment-gateway",
+  "name": "Cashfree Payment Gateway",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "operation_hub && parent_plugin && individual_integration",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/payment-gateway",
+    "app/api/payments"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "restaurant-core",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

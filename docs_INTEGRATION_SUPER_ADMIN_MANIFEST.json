@@ -1,0 +1,11 @@
+{
+  "integration": "anaira-crm-restaurant-saas",
+  "architecture": "standalone-products-api-events-webhooks",
+  "source_of_truth": {"restaurant_saas":"operations","crm":"customer_relationships","integration_hub":"connection_and_sync_control"},
+  "super_admin_routes": {"crm":"/super-admin/integrations/restaurant","restaurant_saas":"/super-admin/integrations/anaira-crm"},
+  "credentials": {"restaurant_key_prefix":"anr_","crm_callback_prefix":"crm_","storage":"encrypted_or_sha256_hash"},
+  "reliability": ["idempotency","retry","exponential_backoff","dead_letter","reconciliation","logs","health"],
+  "canonical_catalog": "restaurant_saas",
+  "pos_dependency_on_crm": false,
+  "live_e2e_required": true
+}

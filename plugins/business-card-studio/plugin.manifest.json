@@ -1,0 +1,15 @@
+{
+  "code": "business-card-studio",
+  "name": "Business Card Studio",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "parent_plugin",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/business-card"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "p1-marketing-hub",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

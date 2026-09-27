@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-09-20T04:16:07.071Z",
+  "checks": [
+    {
+      "name": "package.json",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "package-lock.json",
+      "pass": false,
+      "evidence": "Required for reproducible production installs."
+    },
+    {
+      "name": "capacitor.config.ts",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "android project",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "android native offline bridge",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "electron main",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "no .env.local in release",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "social publish target",
+      "pass": true,
+      "evidence": ""
+    },
+    {
+      "name": "javascript source inventory",
+      "pass": true,
+      "evidence": "293 JS/MJS/CJS files discovered; run node --check for executable validation."
+    }
+  ],
+  "allStaticChecksPass": false
+}

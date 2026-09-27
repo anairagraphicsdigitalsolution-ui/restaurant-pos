@@ -1,0 +1,3 @@
+-- P0 Production Certification Suite
+-- Applied to connected Supabase project.
+-- This migration creates certification-run/case evidence tables and service-role-only RPCs.

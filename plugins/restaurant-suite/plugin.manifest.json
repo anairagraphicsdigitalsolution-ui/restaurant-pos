@@ -1,0 +1,25 @@
+{
+  "code": "restaurant-suite",
+  "name": "Restaurant Suite",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "plugin_enabled",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/dashboard/restaurant-suite",
+    "app/api/restaurant-suite",
+    "app/api/restaurant-operations",
+    "app/dashboard/inventory",
+    "app/dashboard/procurement",
+    "app/dashboard/production-planning",
+    "app/dashboard/delivery",
+    "app/dashboard/aggregator-control",
+    "app/api/inventory",
+    "app/api/delivery",
+    "app/api/aggregator"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": null,
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}

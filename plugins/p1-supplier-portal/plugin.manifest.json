@@ -1,0 +1,15 @@
+{
+  "code": "p1-supplier-portal",
+  "name": "P1 Supplier Portal",
+  "architecture": "Anaira Plugin Boundary v1",
+  "non_destructive_migration": true,
+  "activation": "parent_plugin",
+  "settings_retention": "preserve_on_disable",
+  "source_paths": [
+    "app/supplier-portal"
+  ],
+  "supabase_policy": "NO destructive schema/data changes",
+  "status": "canonical-module-scaffold",
+  "parent_plugin": "restaurant-suite",
+  "runtime_status": "snapshot_only__live_routes_preserved"
+}
